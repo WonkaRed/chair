@@ -1,0 +1,15 @@
+# Build output
+target/
+res/
+dist/
+node_modules/
+
+# Local state and secrets: never commit keys or credentials
+.env
+.env.*
+*.pem
+.near-credentials/
+
+# Scratch for agents and editors
+.scratch/
+*.log

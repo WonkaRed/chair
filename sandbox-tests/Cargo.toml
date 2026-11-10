@@ -1,0 +1,17 @@
+[package]
+name = "sandbox-tests"
+description = "near-workspaces tests that run the real $CHAIR wasm in a local NEAR sandbox."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+near-workspaces.workspace = true
+# `build_internal` is the in-process `cargo near build`: no cargo-near CLI needed to run the tests.
+cargo-near-build = { version = "0.11.5", features = ["build_internal"] }
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

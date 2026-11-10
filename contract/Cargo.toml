@@ -1,0 +1,18 @@
+[package]
+name = "chair-token"
+description = "$CHAIR: a NEP-141 token whose monetary policy is set each epoch by a chair on a short leash."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+near-sdk.workspace = true
+near-contract-standards.workspace = true
+
+[dev-dependencies]
+near-sdk = { workspace = true, features = ["unit-testing"] }
