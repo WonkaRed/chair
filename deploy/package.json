@@ -1,0 +1,23 @@
+{
+  "name": "chair-deploy",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Deploys $CHAIR to NEAR testnet, runs the chair's rules on it, and verifies the deployment from public views.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.22.2"
+  },
+  "dependencies": {
+    "near-api-js": "7.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p .",
+    "test": "node --test \"test/*.test.ts\"",
+    "start": "node src/cli.ts"
+  }
+}

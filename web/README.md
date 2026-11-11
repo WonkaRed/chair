@@ -19,10 +19,10 @@ Deploying is copying `web/dist` to any static host.
 
 ## Config: `config.js`
 
-The one file to edit after deployment: `account` (the token account; the shipped value is a placeholder),
+The one file to edit after deployment: `account` (the token account; shipped pointing at the live testnet token `token.chair-coin.testnet`, see `docs/testnet-deployment.json`),
 `rpcUrl` (NEAR JSON-RPC, the source of truth for every total), `indexerUrl` (FastNEAR transactions API, the source of the event list),
-`explorerUrl`, `repoUrl`/`repoRef` (spec and test links), and `fixture`. Set `fixture` to `null` to read the live chain; until then
-the page shows `fixtures/sandbox-run.json` and says, in a banner, "recorded sandbox run, not a live chain". The build writes the page's
+`explorerUrl`, `repoUrl`/`repoRef` (spec and test links), and `fixture`. `fixture: null` (as shipped) reads the live chain; setting it to a path, as the tests do, shows
+`fixtures/sandbox-run.json` instead and says, in a banner, "recorded sandbox run, not a live chain". The build writes the page's
 Content-Security-Policy from this file: `connect-src` allows `'self'` and, only when `fixture` is `null`, exactly the origins of `rpcUrl` and
 `indexerUrl` (https only). Scripts and styles are `'self'` only; the page has no inline script or style.
 

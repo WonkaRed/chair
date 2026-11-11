@@ -25,9 +25,13 @@ function parseLog(line) {
   return { standard: ev.standard, version: ev.version, event: ev.event, data: ev.data };
 }
 
-/** Milliseconds of a nanosecond timestamp string, or null. */
+/**
+ * Milliseconds of a nanosecond timestamp, or null. A digit string (NEAR RPC) is exact; a JSON number (FastNEAR sends one) has
+ * already lost its last digits to a double, which is far below a millisecond.
+ */
 export function nsToMs(v) {
-  return typeof v === "string" && /^\d{1,20}$/.test(v) ? BigInt(v) / 1_000_000n : null;
+  if (typeof v === "string") return /^\d{1,20}$/.test(v) ? BigInt(v) / 1_000_000n : null;
+  return Number.isFinite(v) && v >= 0 ? BigInt(Math.trunc(v)) / 1_000_000n : null;
 }
 
 /**

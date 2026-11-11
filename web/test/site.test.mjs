@@ -41,6 +41,18 @@ test("the recorded run loads, reconciles to the chain's ledger and says what it 
   assert.ok([...walk(h)].every((n) => n.tag !== "a"), "no transaction links without an explorer");
 });
 
+test("FastNEAR sends block_timestamp as a JSON number, not a string: the log must read the same", async () => {
+  const f = clone();
+  let converted = 0;
+  for (const tx of f.txs) for (const r of tx.receipts) (r.execution_outcome.block_timestamp = Number(r.execution_outcome.block_timestamp), converted++);
+  assert.ok(converted > 0);
+  const d = await loadLog(fixtureTransport(f));
+  const base = await loadLog(fixtureTransport(fixture));
+  assert.equal(d.status, "complete");
+  assert.equal(d.entries.length, base.entries.length);
+  assert.ok(d.entries.length > 0);
+});
+
 test("ledger identity: total = launch + minted - burned, and a one-unit error is caught", () => {
   const s = parseSupply(fixture.supplyNow);
   assert.equal(s.totalSupply, s.launchSupply + s.minted - s.burned);

@@ -131,6 +131,7 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 .recon, .charts, #ledger-body, #log-body, #sim-summary { min-width: 0; }
 .recon, #ledger-body, #sim-summary { overflow-x: auto; }
 @media (max-width: 40rem) {
+  table.recon { display: block; }
   .log thead, .summary thead { display: none; }
   .log, .log tbody, .summary, .summary tbody { display: block; }
   .log tr, .summary tr { display: block; border-top: 1px solid var(--rule); padding: 0.5rem 0; }

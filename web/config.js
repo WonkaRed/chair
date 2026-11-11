@@ -2,8 +2,8 @@
 // (connect-src allows exactly the hosts of rpcUrl and indexerUrl, and only when `fixture` is null), then copies it unchanged.
 export const config = {
   network: "testnet",
-  // Placeholder: the deploy lane replaces this with the deployed token account.
-  account: "chair-token.testnet",
+  // The deployed token: docs/testnet-deployment.json records it, `make -C deploy verify` re-checks it.
+  account: "token.chair-coin.testnet",
   // NEAR JSON-RPC: the source of truth for every total on the page.
   rpcUrl: "https://rpc.testnet.fastnear.com",
   // FastNEAR transactions API: which transactions touched the token, with their logs. An index, checked against the RPC.
@@ -12,6 +12,6 @@ export const config = {
   // Source links in the guarantees section.
   repoUrl: "https://github.com/WonkaRed/chair",
   repoRef: "main",
-  // A recorded sandbox run, shown until the account above exists. Set to null to read the live chain.
-  fixture: "fixtures/sandbox-run.json",
+  // null reads the live chain. A path (fixtures/sandbox-run.json) shows a recorded sandbox run instead, with a banner saying so.
+  fixture: null,
 };

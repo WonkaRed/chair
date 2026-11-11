@@ -8,6 +8,7 @@ node_modules/
 .env
 .env.*
 *.pem
+*.key
 .near-credentials/
 
 # Scratch for agents and editors
