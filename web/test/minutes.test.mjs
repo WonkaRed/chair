@@ -145,13 +145,13 @@ test("policy_set events become decisions, newest first, and a malformed or forei
 
 test("silence says what the chair's absence did to the rate, and only says decayed when the rate moved", () => {
   const p = (over) => ({ epoch: 300, rateBps: 0, lastSetEpoch: 217, ...over });
-  assert.match(silence(p({}), { rateBps: 10 }).text, /^No decision for 82 epochs; the rate has decayed to 0 bps\./);
-  assert.match(silence(p({}), { rateBps: 0 }).text, /^No decision for 82 epochs; the rate stays at 0 bps\./);
-  assert.match(silence(p({ lastSetEpoch: 298 }), { rateBps: 10 }).text, /^No decision for 1 epoch;/);
-  assert.match(silence(p({ lastSetEpoch: 299 }), undefined).text, /^No decision yet in epoch 300/);
-  assert.match(silence(p({ lastSetEpoch: 300 }), undefined).text, /decided in the current epoch/);
+  assert.match(silence(p({}), { rateBps: 10 }).text, /^No decision for 82 meetings; the rate has decayed to 0.00%\./);
+  assert.match(silence(p({}), { rateBps: 0 }).text, /^No decision for 82 meetings; the rate stays at 0.00%\./);
+  assert.match(silence(p({ lastSetEpoch: 298 }), { rateBps: 10 }).text, /^No decision for 1 meeting;/);
+  assert.match(silence(p({ lastSetEpoch: 299 }), undefined).text, /^No decision yet in meeting 300/);
+  assert.match(silence(p({ lastSetEpoch: 300 }), undefined).text, /decided in the current meeting/);
   assert.match(silence(p({ lastSetEpoch: null }), undefined).text, /not set a rate yet/);
-  assert.match(silence(p({}), undefined).text, /^No decision for 82 epochs; the rate in effect is 0 bps\./, "no decision list (index down): claims no decay");
+  assert.match(silence(p({}), undefined).text, /^No decision for 82 meetings; the rate in effect is 0.00%\./, "no decision list (index down): claims no decay");
 });
 
 // ---- rendering ----
@@ -203,9 +203,9 @@ test("a verified decision shows its text, the verified mark, the rate and the mo
   const { meta, prose } = splitMinutes(r.reasoning);
   assert.ok(text.includes(prose) && meta.length === 2 && meta.every((line) => text.includes(line)), "the prose and both boilerplate lines are shown");
   assert.match(text, /Verified/);
-  assert.match(text, new RegExp(`Epoch ${r.epoch}`));
+  assert.match(text, new RegExp(`Meeting ${r.epoch}`));
   assert.ok(text.includes(r.chair) && text.includes("an AI model"));
-  assert.match(text, /No decision for 3 epochs; the rate has decayed to 0 bps/);
+  assert.match(text, /No decision for 3 meetings; the rate has decayed to 0.00%/);
   assert.ok([...walk(h)].some((n) => n.tag === "a" && n.attrs.href === `https://example.invalid/txns/${d.decisions[0].tx}`));
   assert.ok(!text.includes("Mismatch") && !text.includes("none was saved"));
   assertInert(h, "verified");
@@ -266,19 +266,22 @@ test("the latest decision is the hero, earlier ones are cards that show more in 
   const c = ctx(new Map(), new Map());
   renderHero(doc, hero, { decisions: many, policy, status: "complete" }, c);
   renderMinutes(doc, list, { decisions: many, policy, status: "complete" }, c);
-  assert.match(textOf(hero), /Epoch 100/);
+  assert.match(textOf(hero), /Meeting 100/);
   assert.doesNotMatch(textOf(list), /Epoch 100(?!\d)/, "the hero's decision is not listed again");
   const cards = () => [...walk(list)].filter((n) => n.tag === "article").length;
-  assert.equal(cards(), 5, "the page opens on the 5 newest earlier decisions, not a wall of them");
-  assert.match(textOf(list), /Showing the 5 newest of 44 earlier decisions \(45 in all, counting the latest at the top of the page\)\./);
+  assert.equal(cards(), 3, "the page opens on the 3 newest earlier decisions, not a wall of them");
+  assert.match(textOf(list), /Showing the 3 newest of 44 earlier decisions \(45 in all, counting the latest at the top of the page\)\./);
   assert.equal([...walk(list)].some((n) => n.attrs?.["aria-controls"]), false);
   const more = () => [...walk(list)].find((n) => n.tag === "button" && /^Show \d+ more$/.test(textOf(n)));
   assert.equal(textOf(more()), "Show 20 more");
   more().listeners.click[0]();
-  assert.equal(cards(), 25);
-  assert.match(textOf(list), /Showing the 25 newest of 44/);
+  assert.equal(cards(), 23);
+  assert.match(textOf(list), /Showing the 23 newest of 44/);
+  assert.equal(textOf(more()), "Show 20 more");
+  more().listeners.click[0]();
+  assert.equal(cards(), 43);
   const last = more();
-  assert.equal(textOf(last), "Show 19 more");
+  assert.equal(textOf(last), "Show 1 more");
   last.listeners.click[0]();
   assert.equal(cards(), 44);
   assert.equal(last.hidden, true);
@@ -399,7 +402,7 @@ test("the hero leads with the prose, the rate as a percent with bps second, what
   assert.match(textOf(fx), /Verified against the recorded sandbox run/);
   assert.doesNotMatch(textOf(fx), /testnet/);
   const rates = (bps) => { const x = host(doc); renderHero(doc, x, { ...d, decisions: [{ ...d.decisions[0], rateBps: bps }] }, ctx(null, resolved)); return textOf(x); };
-  assert.match(rates(40), /\+0\.40%[\s\S]*Mints 0\.40% of supply for stakers each epoch\./);
+  assert.match(rates(40), /\+0\.40%[\s\S]*Mints 0\.40% of supply for stakers each round\./);
   assert.match(rates(0), /0\.00%[\s\S]*Nothing minted, nothing burned\./);
 });
 

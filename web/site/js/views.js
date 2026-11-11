@@ -11,6 +11,24 @@ export const fmtRate = (bps) => `${bps > 0 ? "+" : bps < 0 ? MINUS : ""}${Math.a
 export const fmtPct = (bps) => `${(Math.abs(bps) / 100).toFixed(2)}%`;
 /** A rate as a percent with its sign: 15 bps is +0.15%, -15 bps is −0.15%. */
 export const fmtSignedPct = (bps) => `${bps > 0 ? "+" : bps < 0 ? MINUS : ""}${fmtPct(bps)}`;
+/** A rate as the plainest percent: 500 bps is "5%", 5 bps is "0.05%", with the sign only when asked for. */
+export const plainPct = (bps) => { const v = Math.abs(bps) / 100; return `${Number.isInteger(v) ? v : v.toFixed(2)}%`; };
+export const plainSigned = (bps) => `${bps > 0 ? "+" : bps < 0 ? MINUS : ""}${plainPct(bps)}`;
+/** How often an epoch comes round, in words: 90000 is "every 90 seconds", 86400000 is "every day". */
+export function everyEpoch(ms) {
+  const unit = [[86_400_000, "day"], [3_600_000, "hour"], [60_000, "minute"]].find(([u]) => ms >= u && ms % u === 0);
+  if (!unit) return `every ${ms / 1000} seconds`;
+  const n = ms / unit[0];
+  return n === 1 ? `every ${unit[1]}` : `every ${n} ${unit[1]}s`;
+}
+const everyOr = (ms) => (Number.isFinite(ms) && ms > 0 ? everyEpoch(ms) : "each round");
+/** One plain sentence from a rate and the one before it: what moved, and what that does to the coins. Built from the numbers only, never from the Chair's text. */
+export function plainDecision(rateBps, previousRateBps, epochMs = null) {
+  const delta = rateBps - previousRateBps;
+  const did = delta === 0 ? `Kept the rate at ${plainSigned(rateBps)}.` : `${delta > 0 ? "Raised" : "Lowered"} the rate from ${plainSigned(previousRateBps)} to ${plainSigned(rateBps)}.`;
+  const effect = rateBps > 0 ? `That prints ${plainPct(rateBps)} more coins ${everyOr(epochMs)} for holders who staked.` : rateBps < 0 ? `That burns ${plainPct(rateBps)} of every transfer.` : "That prints and burns nothing.";
+  return `${did} ${effect}`;
+}
 export const fmtTime = (ms) => `${new Date(Number(ms)).toISOString().replace("T", " ").slice(0, 16)} UTC`;
 export const shortHash = (hash) => `${hash.slice(0, 6)}…${hash.slice(-6)}`;
 
@@ -90,18 +108,33 @@ function corridor(doc, policy, params) {
   return root;
 }
 
-export function renderNow(doc, host, d) {
+/** The first thing on the page: what the Chair is doing to the coin supply right now, in words anyone can read, from the same views as the numbers below. */
+export function renderPlain(doc, host, d) {
   clear(host);
   const { policy, params } = d;
+  const r = policy.rateBps;
+  const fig = (t) => h(doc, "strong", { class: "fig" }, t);
+  const limit = fig(plainPct(params.maxRateBps));
+  host.append(h(doc, "p", { class: "now-plain" },
+    r > 0 ? ["Right now the AI is printing ", fig(plainPct(r)), ` more coins ${everyOr(params.epochMs)} and giving them to holders who staked. The most the contract will ever let it print is `, limit, "."]
+      : r < 0 ? ["Right now the AI is burning ", fig(plainPct(r)), " of every transfer. The most the contract will ever let it burn is ", limit, "."]
+        : ["Right now the AI is holding the supply still: nothing is being printed or burned. The most the contract will ever let it print is ", limit, "."]));
+}
+
+export function renderNow(doc, host, d) {
+  clear(host);
+  const { policy, params, supply } = d;
   const acted = policy.lastSetEpoch === policy.epoch;
   const path = silentPath(policy, params.maxStepBps);
+  const fact = (cls, k, v, vcls, ...rest) => h(doc, "div", { class: `fact ${cls}` }, h(doc, "span", { class: "k" }, k), h(doc, "span", { class: `v ${vcls}` }, v), ...rest);
   host.append(
     h(doc, "div", { class: "now-grid" },
-      h(doc, "div", { class: "fact big" }, h(doc, "span", { class: "k" }, "Rate in effect"), h(doc, "span", { class: "v rate" }, fmtRate(policy.rateBps)), h(doc, "span", { class: "s" }, policy.rateBps > 0 ? `eases: mints ${fmtPct(policy.rateBps)} of supply to stakers at the end of each epoch` : policy.rateBps < 0 ? `tightens: every transfer burns ${fmtPct(policy.rateBps)}` : "neutral: nothing is minted or burned")),
-      h(doc, "div", { class: "fact" }, h(doc, "span", { class: "k" }, "Epoch"), h(doc, "span", { class: "v" }, String(policy.epoch)), h(doc, "span", { class: "s" }, `ends ${fmtTime(policy.epochEndsMs)}; epochs last ${formatDuration(params.epochMs)}`)),
-      h(doc, "div", { class: "fact" }, h(doc, "span", { class: "k" }, "Chair"), h(doc, "span", { class: "v acct" }, showAccount(policy.chair)), h(doc, "span", { class: "s" }, `${policy.streak} complete epochs in office; ${acted ? "has set this epoch's rate" : "has not set this epoch's rate yet"}`)),
+      fact("big", "The rate right now", [fmtSignedPct(policy.rateBps), " ", h(doc, "span", { class: "tag" }, fmtRate(policy.rateBps))], "rate", h(doc, "span", { class: "s" }, policy.rateBps > 0 ? `eases: mints ${fmtPct(policy.rateBps)} of supply to stakers at the end of each epoch` : policy.rateBps < 0 ? `tightens: every transfer burns ${fmtPct(policy.rateBps)}` : "neutral: nothing is minted or burned")),
+      fact("", "Coins in existence", h(doc, "span", { title: formatExact(supply.totalSupply) }, formatTokens(supply.totalSupply)), "", h(doc, "span", { class: "s" }, `${formatTokens(supply.minted)} minted and ${formatTokens(supply.burned)} burned since launch`)),
+      fact("", "The current round (epoch)", String(policy.epoch), "", h(doc, "span", { class: "s" }, `ends ${fmtTime(policy.epochEndsMs)}; epochs last ${formatDuration(params.epochMs)}`)),
+      fact("", "The Chair", showAccount(policy.chair), "acct", h(doc, "span", { class: "s" }, `${policy.streak} complete epochs in office; ${acted ? "has set this epoch's rate" : "has not set this epoch's rate yet"}`)),
     ),
-    h(doc, "div", { class: "corridor" }, corridor(doc, policy, params), h(doc, "ul", { class: "key" },
+    h(doc, "div", { class: "corridor" }, h(doc, "p", { class: "corridor-h" }, "Where the rate is allowed to go"), corridor(doc, policy, params), h(doc, "ul", { class: "key" },
       h(doc, "li", {}, h(doc, "span", { class: "sw sw-bounds", "aria-hidden": "true" }), `Allowed by the contract: ${fmtRate(-params.maxRateBps)} to ${fmtRate(params.maxRateBps)}`),
       h(doc, "li", {}, h(doc, "span", { class: "sw sw-reach", "aria-hidden": "true" }), `Where the chair can move it next: ${fmtRate(Math.max(-params.maxRateBps, policy.rateBps - params.maxStepBps))} to ${fmtRate(Math.min(params.maxRateBps, policy.rateBps + params.maxStepBps))} (at most ${params.maxStepBps} bps per epoch)`),
     )),

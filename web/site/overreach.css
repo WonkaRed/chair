@@ -1,27 +1,52 @@
-/* "Make the Chair overreach" (js/overreach.js). Reuses the press conference's form, closed-state, answer and chip styles from style.css. */
-#overreach .or-row { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin-bottom: 0.75rem; }
-#overreach input[type="text"] { flex: 0 1 11rem; min-width: 8rem; padding: 0.65rem 0.8rem; font: 1.3rem/1.2 var(--mono); color: var(--ink); background: var(--panel); border: 1px solid var(--ink2); border-radius: 4px; }
-#overreach input[type="text"]:disabled { border-color: var(--rule); color: var(--muted); cursor: not-allowed; }
-#overreach .or-presets { display: flex; flex-wrap: wrap; gap: 0.4rem; }
-#overreach .or-who { color: var(--ink2); font-size: 0.92rem; }
-#overreach .ask-row { display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center; justify-content: space-between; }
+/* "Make the Chair overreach" (js/overreach.js): two big dares, one red button, and the stamp. Reuses the press conference's form and closed-state styles from style.css; the dark ground comes from #overreach there. */
+#overreach .or-presets { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin-bottom: 0.9rem; }
+#overreach .preset { display: flex; flex-direction: column; align-items: flex-start; gap: 0.2rem; padding: 0.9rem 1rem; color: var(--ink); background: transparent; border: 2px solid var(--rule); border-radius: 3px; cursor: pointer; text-align: left; font: inherit; transition: border-color 0.15s, background-color 0.15s, transform 0.15s; }
+#overreach .preset:hover:not(:disabled) { border-color: var(--brass); transform: translateY(-2px); }
+#overreach .preset[aria-pressed="true"] { border-color: var(--brass); background: rgb(224 194 106 / 0.14); box-shadow: 0 0 0 1px var(--brass); }
+#overreach .preset:disabled { opacity: 0.5; cursor: not-allowed; }
+#overreach .p-big { font: 700 clamp(1.9rem, 4vw, 2.7rem)/1 var(--serif); font-variant-numeric: lining-nums; }
+#overreach .tag { color: var(--muted); }
+#overreach .or-row { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin-bottom: 1rem; }
+#overreach .or-or { color: var(--muted); font-size: 0.92rem; }
+#overreach label { color: var(--muted); font-size: 0.85rem; }
+#overreach input[type="text"] { flex: 0 1 9rem; min-width: 7rem; padding: 0.5rem 0.7rem; font: 1.15rem/1.2 var(--mono); color: var(--ink); background: rgb(0 0 0 / 0.25); border: 1px solid var(--rule); border-radius: 3px; }
+#overreach input[type="text"]:disabled { color: var(--muted); cursor: not-allowed; }
+#overreach .ask-row { display: flex; flex-direction: column-reverse; gap: 0.5rem; align-items: stretch; margin-top: 0; }
+#overreach .or-who { color: var(--muted); font-size: 0.9rem; text-align: center; }
+#overreach .ask { width: 100%; min-height: 3.6rem; font: 700 1.2rem/1.2 var(--text); color: #1d0b06; background: var(--stamp); border-radius: 3px; box-shadow: 0 4px 0 #7d2a18; transition: transform 0.1s, box-shadow 0.1s; }
+#overreach .ask:hover:not(:disabled) { filter: none; transform: translateY(-1px); box-shadow: 0 5px 0 #7d2a18; }
+#overreach .ask:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 #7d2a18; }
+#overreach .ask:disabled { box-shadow: none; }
+#overreach .form-note { color: var(--ink2); }
+#overreach .closed { background: rgb(0 0 0 / 0.2); }
 #overreach .or-result { margin-top: 1.25rem; }
-#overreach .or-card { padding: 1.1rem 1.25rem; background: var(--panel); border: 1px solid var(--rule); border-left: 4px solid var(--burn); border-radius: 4px; }
+#overreach .or-card { padding: 1.25rem 1.4rem; background: var(--panel); border: 1px solid var(--rule); border-left: 4px solid var(--burn); border-radius: 3px; }
+#overreach .or-card.refused { animation: thud 0.4s 0.22s ease-out; }
 #overreach .or-card.waiting, #overreach .or-card.unconfirmed, #overreach .or-card.too_late, #overreach .or-card.within_mandate, #overreach .or-card.not_chair { border-left-color: var(--warn); }
 #overreach .or-card.accepted { border-left-color: var(--accent); }
+#overreach .or-card.earlier { border-left-color: var(--brass); }
 #overreach .or-card > :first-child { margin-top: 0; } #overreach .or-card > :last-child { margin-bottom: 0; }
-#overreach .or-k, #overreach .k { margin: 1rem 0 0.3rem; color: var(--muted); font-size: 0.8rem; letter-spacing: 0.06em; text-transform: uppercase; }
+#overreach .or-k, #overreach .k { margin: 1rem 0 0.3rem; color: var(--muted); font-size: 0.85rem; }
 #overreach .k { margin: 0; display: inline; }
-#overreach .or-panic { font: 1.05rem/1.45 var(--mono); }
+#overreach .or-lead { margin: 0 0 0.75rem; color: var(--ink2); }
+#overreach .or-plain { margin: 0.5rem 0 0; font: 1.25rem/1.4 var(--serif); }
+#overreach .or-panic { font: 1rem/1.45 var(--mono); }
 #overreach .or-bound { margin: 0.75rem 0 0; }
-#overreach .or-tx { margin: 0; font-family: var(--mono); overflow-wrap: anywhere; }
-#overreach .or-says { margin: 1rem 0 0; font: 1.15rem/1.45 var(--serif); }
+#overreach .or-tx { margin: 0.3rem 0 0; font-family: var(--mono); overflow-wrap: anywhere; }
+#overreach .or-says { margin: 1rem 0 0; font: 1.1rem/1.45 var(--serif); }
 #overreach .or-says .k { font-family: var(--text); }
 /* the command box is style.css's .cmd (light text on a dark box); here it wraps instead of scrolling, so a phone shows all of it */
-#overreach .cmd code { flex: 1 1 100%; min-width: 0; font-size: 0.8rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
+#overreach .cmd code { flex: 1 1 100%; min-width: 0; font-size: 0.8rem; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; background: rgb(0 0 0 / 0.4); color: var(--ink); }
 #overreach .cmd .chip { align-self: flex-start; }
 #overreach .or-recorded { margin: 0 0 0.75rem; padding-left: 1.1rem; }
 #overreach .or-recorded li { margin-bottom: 0.4rem; }
-.visitor-tag { color: var(--warn); }
-@media (max-width: 30rem) { #overreach input[type="text"] { flex-basis: 100%; } }
-#overreach .or-stamp { display: inline-block; margin: 0.6rem 0 0; padding: 0.25rem 0.7rem; border: 2px solid var(--burn); border-radius: 3px; color: var(--burn); font: 700 1.25rem/1.2 var(--serif); letter-spacing: 0.08em; text-transform: uppercase; transform: rotate(-1.5deg); }
+#overreach .chip { color: var(--ink); background: transparent; }
+#overreach .or-how { margin-top: 1.25rem; }
+#overreach .or-how > :not(summary) { max-width: 60ch; }
+@media (max-width: 30rem) { #overreach input[type="text"] { flex-basis: 100%; } #overreach .or-or { flex-basis: 100%; } }
+
+/* The stamp lands: it arrives large and tilted and settles with a thud. */
+#overreach .or-stamp { display: inline-block; margin: 0.2rem 0 0.5rem; padding: 0.3rem 0.9rem; border: 3px solid var(--stamp); outline: 1px solid var(--stamp); outline-offset: 3px; border-radius: 3px; color: var(--stamp); background: rgb(255 130 102 / 0.08); font: 700 clamp(1.35rem, 3.6vw, 1.9rem)/1.15 var(--serif); letter-spacing: 0.1em; text-transform: uppercase; transform: rotate(-3deg); animation: stamp-in 0.5s cubic-bezier(0.2, 1.3, 0.4, 1) both; }
+@keyframes stamp-in { 0% { opacity: 0; transform: rotate(-14deg) scale(2.6); } 55% { opacity: 1; transform: rotate(-2deg) scale(0.92); } 100% { opacity: 1; transform: rotate(-3deg) scale(1); } }
+@keyframes thud { 30% { transform: translateY(3px); } 60% { transform: translateY(-1px); } }
+@media (prefers-reduced-motion: reduce) { #overreach .or-stamp, #overreach .or-card.refused { animation: none; } }

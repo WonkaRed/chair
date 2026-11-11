@@ -3,7 +3,10 @@
 // the page shows that the bounds were tried. Chain strings reach the page through `safeText` and `textContent` only.
 import { clear, h } from "./dom.js";
 import { isTxHash, safeText, showAccount } from "./text.js";
-import { fmtRate, fmtTime, rawButton, shortHash } from "./views.js";
+import { fmtRate, fmtTime, plainSigned, rawButton, shortHash } from "./views.js";
+
+/** Refusals shown as cards at first; the rest wait behind a button. */
+const HALL = 3;
 
 /**
  * The refusals this project made on purpose, as the scripted run recorded them (`docs/testnet-deployment.json`, steps e3-second-decision,
@@ -60,11 +63,20 @@ export function renderRefusals(doc, host, d, { explorer, indexerUrl = null }) {
     const raw = safeText(r.reason, 200);
     const human = humanReason(r.reason);
     return h(doc, "tr", { class: "refusal" },
-      h(doc, "td", { "data-label": "Asked for" }, r.rateBps === null ? "unreadable" : fmtRate(r.rateBps), PROJECT_TEST_CALLS.has(r.tx) ? h(doc, "span", { class: "sub" }, "deliberate test") : null),
+      h(doc, "td", { "data-label": "Asked for" }, r.rateBps === null ? "unreadable" : [h(doc, "span", { class: "asked-big" }, plainSigned(r.rateBps)), " ", h(doc, "span", { class: "tag" }, fmtRate(r.rateBps))], PROJECT_TEST_CALLS.has(r.tx) ? h(doc, "span", { class: "sub" }, "deliberate test") : null),
       h(doc, "td", { "data-label": "Why", title: `The contract's own words: ${raw}` }, human ?? raw, human === null ? null : h(doc, "span", { class: "sub" }, `The contract's own words: ${raw}`)),
       h(doc, "td", { "data-label": "Signed by", class: "acct" }, showAccount(r.signer), r.byVisitor ? h(doc, "span", { class: "sub visitor-tag" }, "Forced by a visitor through the press desk: the chair account signed it, the AI chair did not choose it") : null),
       h(doc, "td", { "data-label": "Transaction", class: "tx" }, link, " ", rawButton(doc, indexerUrl, r.tx), h(doc, "span", { class: "sub" }, fmtTime(r.tsMs))),
     );
   });
-  host.append(h(doc, "table", { class: "log" }, h(doc, "caption", {}, `${rows.length} refused set_policy ${rows.length === 1 ? "call" : "calls"}, newest first${d.refusals.some((r) => r.byVisitor) ? `; ${d.refusals.filter((r) => r.byVisitor).length} forced by visitors through the press desk` : ""}`), h(doc, "thead", {}, h(doc, "tr", {}, ["Asked for", "Why the contract said no", "Signed by", "Transaction"].map((t) => h(doc, "th", { scope: "col" }, t)))), h(doc, "tbody", {}, rows)));
+  rows.forEach((tr, i) => (tr.hidden = i >= HALL));
+  host.append(h(doc, "table", { class: "log hall" }, h(doc, "caption", {}, `${rows.length} refused set_policy ${rows.length === 1 ? "call" : "calls"}, newest first${d.refusals.some((r) => r.byVisitor) ? `; ${d.refusals.filter((r) => r.byVisitor).length} forced by visitors through the press desk` : ""}`), h(doc, "thead", {}, h(doc, "tr", {}, ["Asked for", "Why the contract said no", "Signed by", "Transaction"].map((t) => h(doc, "th", { scope: "col" }, t)))), h(doc, "tbody", {}, rows)));
+  if (rows.length > HALL) {
+    const more = h(doc, "button", { type: "button", class: "chip more" }, `Show all ${rows.length} refusals`);
+    more.addEventListener("click", () => {
+      for (const tr of rows) tr.hidden = false;
+      more.hidden = true;
+    });
+    host.append(more);
+  }
 }

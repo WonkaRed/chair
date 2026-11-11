@@ -78,7 +78,7 @@ test("a good rate is POSTed as JSON with nothing else, then polled by id until t
   const post = p.sent.find((s) => s.path === "/overreach");
   assert.deepEqual(JSON.parse(post.init.body), { rate_bps: 500 });
   assert.equal(post.init.credentials, "omit");
-  assert.match(text(p.el), /The Committee convenes in 12 s\./);
+  assert.match(text(p.el), /goes in when the next meeting opens, in 12 s\./);
   assert.doesNotMatch(text(p.el), /step/i);
   await p.timers.tick();
   assert.equal(p.api.state().attempt.status, "waiting");
@@ -102,7 +102,8 @@ test("a good rate is POSTed as JSON with nothing else, then polled by id until t
 test("the presets fill the input and send nothing", async () => {
   const p = await panel(() => res(500, null));
   const chips = find(p.el, (n) => n.tag === "button" && n.attrs["data-rate"] !== undefined);
-  assert.deepEqual(chips.map((c) => text(c)), ["+500 bps", "−9999 bps"]);
+  assert.deepEqual(chips.map((c) => text(c)), ["+5%+500 bps", "−99.99%−9999 bps"], "the plain percent is the big label, the basis points the small tag");
+  assert.equal(chips[1].attrs["aria-pressed"], "false");
   chips[1].listeners.click[0]();
   assert.equal(p.api.input.value, "-9999");
   assert.equal(p.sent.filter((s) => s.path === "/overreach").length, 0);
@@ -161,7 +162,13 @@ test("desk closed: it says so plainly, offers no form, and lists the chain's las
   assert.equal(find(p.el, (n) => n.tag === "button" && n.attrs.type === "submit")[0].disabled, true);
   assertInert(p.el);
   const none = await panel(() => res(500, null), { open: false });
-  assert.match(text(none.el), /is not loaded on this page/);
+  assert.match(text(none.el), /could not be read just now/);
+  assert.match(text(none.el), /An earlier recorded attempt, not yours and not live/);
+  assert.equal(find(none.el, (n) => n.tag === "a" && n.attrs.href === `${EXPLORER}/txns/Efagw855yoDeJXjNyui9Bt9d4JXfhisMoTm9JCPkHWjf`).length, 1);
+  assertInert(none.el);
+  const clean = await panel(() => res(500, null), { open: false, refusals: () => ({ status: "complete", refusals: [], policy: { rateBps: 0 } }) });
+  assert.match(text(clean.el), /has refused no set_policy call yet/, "a readable, empty list is not replaced by a recorded one");
+  assert.doesNotMatch(text(clean.el), /recorded attempt/);
 });
 
 test("press fallback: only chain-verified press answers are shown from chain data", () => {
@@ -276,7 +283,79 @@ test("a hostile 'hit' from the desk is no known check: the generic Chair line is
   assert.equal(parseAttempt(refused({ hit: "__proto__" })).hit, null);
 });
 
-test("the idle hint says each address may send one attempt an hour", async () => {
+test("the idle hint says each address may send a few attempts an hour", async () => {
   const p = await panel(() => res(500, null));
-  assert.match(text(p.el), /one an hour per address/);
+  assert.match(text(p.el), /a few an hour per address/);
+});
+
+const ROWS = [
+  { tx: TX, rateBps: 500, reason: "rate_bps out of bounds: must be within -200..=200", signer: SIGNER, tsMs: 1_700_000_000_000, byVisitor: true },
+  { tx: "6".repeat(44), rateBps: 300, reason: EVIL, signer: SIGNER, tsMs: 1_700_000_000_000, byVisitor: false },
+];
+const chain = (rows = ROWS) => () => ({ refusals: rows, policy: { rateBps: 5 } });
+
+test("a cap or per-address 429 never dead-ends: the latest real refusal is shown at once, labelled an earlier attempt, with a try-again wait", async () => {
+  for (const [code, words] of [["cap", /sent all the attempts it allows/], ["per_address", /This address has used its attempts/], ["other", /This address has used its attempts/]]) {
+    const p = await panel(() => res(429, { code, retry_after_s: 600 }), { refusals: chain() });
+    await p.api.submit("500");
+    assert.match(p.api.state().message, words, code);
+    assert.match(p.api.state().message, /Try again in 10 minutes\./, code);
+    const out = text(p.el);
+    assert.match(out, /Refused by the contract/, code);
+    assert.match(out, /An earlier attempt, not yours\./, code);
+    assert.match(out, /Asked for \+5% \(\+500 bps\)/, code);
+    assert.match(out, /forced by a visitor/, code);
+    assert.match(out, /about 10 minutes/, code);
+    assert.equal(find(p.el, (n) => n.tag === "a" && n.attrs.href === `${EXPLORER}/txns/${TX}`).length >= 1, true, "the tx link is on the page");
+    assertInert(p.el);
+  }
+});
+
+test("a 429 with no Retry-After body falls back to a short wait, and the label is never upgraded: a project test call and a plain signer read as what they are", async () => {
+  const { PROJECT_TEST_CALLS } = await import(join(root, "site", "js", "refusals.js"));
+  const known = [...PROJECT_TEST_CALLS][0];
+  const a = await panel(() => res(429, { code: "cap" }), { refusals: chain([{ tx: known, rateBps: 400, reason: "rate step too large", signer: SIGNER, tsMs: 1, byVisitor: false }]) });
+  await a.api.submit("500");
+  assert.match(a.api.state().message, /Try again in 20 s\./);
+  assert.match(text(a.el), /deliberate test call made by this project/);
+  assert.doesNotMatch(text(a.el), /forced by a visitor/);
+  const b = await panel(() => res(429, { code: "cap", retry_after_s: 30 }), { refusals: chain([ROWS[1]]) });
+  await b.api.submit("500");
+  assert.match(text(b.el), /A refused call signed by/);
+  assert.doesNotMatch(text(b.el), /forced by a visitor|deliberate test call/);
+  assertInert(b.el);
+});
+
+test("429 with nothing on chain to replay shows only the wait; composing shows no replay; the next try clears the replay", async () => {
+  const none = await panel(() => res(429, { code: "cap", retry_after_s: 60 }), { refusals: () => ({ status: "complete", refusals: [], policy: { rateBps: 0 } }) });
+  await none.api.submit("500");
+  assert.match(none.api.state().message, /Try again in 60 s\./);
+  assert.doesNotMatch(text(none.el), /An earlier (recorded )?attempt, not yours/);
+  const blind = await panel(() => res(429, { code: "cap", retry_after_s: 600 }));
+  await blind.api.submit("500");
+  assert.match(text(blind.el), /about 10 minutes before another attempt\. Meanwhile, here is one recorded earlier/);
+  assert.match(text(blind.el), /An earlier recorded attempt, not yours and not live/);
+  assert.match(text(blind.el), /Asked for \+2\.01% \(\+201 bps\)/);
+  assertInert(blind.el);
+  const comp = await panel(() => res(429, { code: "composing", retry_after_s: 40 }), { refusals: chain() });
+  await comp.api.submit("500");
+  assert.doesNotMatch(text(comp.el), /An earlier attempt, not yours/);
+  let n = 0;
+  const p = await panel((path, init) => (init.method === "POST" && ++n === 1 ? res(429, { code: "cap", retry_after_s: 5 }) : res(200, refused())), { refusals: chain() });
+  await p.api.submit("500");
+  assert.match(text(p.el), /An earlier attempt, not yours/);
+  await p.timers.tick();
+  await p.api.submit("500");
+  assert.doesNotMatch(text(p.el), /An earlier attempt, not yours/);
+  assert.match(text(p.el), /Refused by the contract/);
+});
+
+test("desk offline: the latest refusal replays under a stamp, with the older ones listed after it and every label truthful", async () => {
+  const p = await panel(() => res(500, null), { open: false, refusals: chain() });
+  const out = text(p.el);
+  assert.match(out, /Refused by the contract/);
+  assert.match(out, /An earlier attempt, not yours\./);
+  assert.match(out, /forced by a visitor/);
+  assert.ok(out.includes(DOWN));
+  assertInert(p.el);
 });

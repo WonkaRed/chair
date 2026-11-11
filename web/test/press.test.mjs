@@ -146,6 +146,24 @@ test("asking: the answer is quoted, the status reads Awaiting entry, then Entere
   }
 });
 
+test("the public record shows three answers and a Show more button that reveals the rest in place", async () => {
+  const desk = await startFakePress({ entryDelayMs: 0, firstEpoch: 1, seed: 5 });
+  try {
+    const { root, press } = await make({ discoveryUrl: DISCOVERY, fetchImpl: viaFake(desk) });
+    const rows = () => [...walk(root)].filter((n) => n.attrs?.class === "rec");
+    assert.equal(rows().length, 5);
+    assert.deepEqual(rows().map((r) => r.hidden), [false, false, false, true, true]);
+    const more = find(root, (n) => n.tag === "button" && /^Show 2 more$/.test(text(n)));
+    assert.ok(more, "the button says how many are folded");
+    for (const fn of more.listeners.click) fn();
+    assert.equal(rows().every((r) => r.hidden === false), true);
+    assert.equal(find(root, (n) => n.tag === "button" && /^Show \d+ more$/.test(text(n))), undefined, "nothing left to show");
+    press.stop();
+  } finally {
+    await desk.close();
+  }
+});
+
 test("the visitor's questions stay in this browser, keyed by id: a reload shows the question again, and the public record shows it only on the visitor's own entries", async () => {
   const desk = await startFakePress({ entryDelayMs: 0, firstEpoch: 1, seed: 2 });
   try {

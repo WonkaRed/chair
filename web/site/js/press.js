@@ -16,6 +16,7 @@ const STALE_MS = 15 * 60_000; // an answer asked longer ago than this stops bein
 const KEEP = 20; // own questions remembered
 const FETCH_RECORD = 50; // entries asked of the desk, so a visitor's own entry stays in the window on a busy day
 const SHOW_RECORD = 10;
+const FIRST_RECORD = 3; // answers shown before "Show more"
 const STORE_KEY = "chair-press-questions";
 const ANSWER_CAP = 1200;
 
@@ -116,6 +117,7 @@ export function createPress(doc, host, { discoveryUrl = "", explorer = null, fet
   let timer = null;
   let inflight = null;
   let announced = "";
+  let recordAll = false; // the visitor asked for the rest of the record
 
   const input = h(doc, "textarea", { id: "press-q", name: "question", rows: 3, maxlength: MAX_QUESTION, required: true, autocomplete: "off", placeholder: "Does the Chair intend to remain the Chair?" });
   const counter = h(doc, "span", { class: "count", "aria-hidden": "true" });
@@ -202,7 +204,7 @@ export function createPress(doc, host, { discoveryUrl = "", explorer = null, fet
       ? "The press desk cannot be reached, so these are the answers already entered in the Chair's on-chain minutes, read from the chain and checked against each decision's hash. Answers not yet entered are not shown."
       : "Answers only. Each is listed with the start of its question's hash: the record never holds the question. Questions you asked from this browser are marked \u201cYou asked\u201d, because this browser remembers them; your newest one is in the panel above, not in this list."));
     if (shown.length === 0) return record.append(h(doc, "p", { class: "empty" }, "No other answer has been entered into the record yet."));
-    record.append(h(doc, "ol", { class: "rec-list" }, shown.map((x) => {
+    const rows = shown.map((x) => {
       const mine = own.find((e) => e.id === x.id);
       return h(doc, "li", { class: "rec" },
         mine ? h(doc, "p", { class: "asked" }, h(doc, "span", { class: "k" }, "You asked"), " ", safeText(mine.q, MAX_QUESTION + 20)) : null,
@@ -213,7 +215,14 @@ export function createPress(doc, host, { discoveryUrl = "", explorer = null, fet
           h(doc, "span", {}, fmtTime(x.at)),
         ),
       );
-    })));
+    });
+    record.append(h(doc, "ol", { class: "rec-list" }, rows));
+    if (shown.length > FIRST_RECORD && !recordAll) {
+      rows.forEach((li, i) => (li.hidden = i >= FIRST_RECORD));
+      const more = h(doc, "button", { type: "button", class: "chip more" }, `Show ${shown.length - FIRST_RECORD} more`);
+      more.addEventListener("click", () => ((recordAll = true), renderRecord()));
+      record.append(more);
+    }
   }
 
   function render() {

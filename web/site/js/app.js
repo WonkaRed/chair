@@ -7,10 +7,11 @@ import { loadTexts, renderHero, renderMinutes, resolveTexts } from "./minutes.js
 import { createOverreach } from "./overreach.js";
 import { createPress, pressFromChain } from "./press.js";
 import { renderRefusals } from "./refusals.js";
+import { openFoldsAround, setupReveal } from "./reveal.js";
 import { BEHAVIOURS, simulate } from "./simview.js";
 import { fixtureTransport, rpcTransport } from "./sources.js";
 import { isTxHash, safeText } from "./text.js";
-import { fmtRate, LOG_PAGE, renderFailure, renderLedger, renderLog, renderNow, renderReconcile, renderSource } from "./views.js";
+import { fmtRate, LOG_PAGE, renderFailure, renderLedger, renderLog, renderNow, renderPlain, renderReconcile, renderSource } from "./views.js";
 import { config } from "../config.js";
 
 const doc = document;
@@ -54,7 +55,8 @@ async function showChain() {
     made = await makeTransport();
   } catch (e) {
     renderFailure(doc, $("now"), e);
-    renderFailure(doc, $("hero-minutes"), e);
+    renderFailure(doc, $("now-plain"), e);
+    clear($("hero-minutes"));
     renderFailure(doc, $("minutes-body"), e);
     renderFailure(doc, $("refusals-body"), e);
     clear($("ledger-body"));
@@ -76,7 +78,8 @@ async function showChain() {
         return;
       }
       renderFailure(doc, $("now"), e);
-      renderFailure(doc, $("hero-minutes"), e);
+      renderFailure(doc, $("now-plain"), e);
+      clear($("hero-minutes"));
       renderFailure(doc, $("minutes-body"), e);
       renderFailure(doc, $("refusals-body"), e);
       clear($("ledger-body"));
@@ -89,7 +92,8 @@ async function showChain() {
     const bundled = await texts;
     const explorer = made.fixture ? null : config.explorerUrl;
     const indexerUrl = made.fixture ? null : config.indexerUrl;
-    const ctx = { texts: bundled, resolved: await resolveTexts(data.decisions, bundled), explorer, indexerUrl, repoBase: `${config.repoUrl}/blob/${config.repoRef}`, network: made.fixture ? null : config.network };
+    const ctx = { texts: bundled, resolved: await resolveTexts(data.decisions, bundled), explorer, indexerUrl, repoBase: `${config.repoUrl}/blob/${config.repoRef}`, network: made.fixture ? null : config.network, epochMs: data.params.epochMs };
+    renderPlain(doc, $("now-plain"), data);
     renderHero(doc, $("hero-minutes"), data, ctx);
     renderMinutes(doc, $("minutes-body"), data, ctx);
     renderRefusals(doc, $("refusals-body"), data, { explorer, indexerUrl });
@@ -122,8 +126,8 @@ function showSimulation() {
     lineChart(doc, { title: "Rate in effect", caption: "Basis points. Above zero mints for stakers, below zero burns a share of each transfer.", series: series("rateBps"), domain: [-200, 200], fmt: (v, axis) => (axis ? fmtRate(Math.round(v)).replace(" bps", "") : fmtRate(Math.round(v))), guides: [] }),
     lineChart(doc, { title: "Staking reward per epoch", caption: "New tokens an epoch's mint pays per staked token, as a percentage of the stake. Zero whenever the rate is not positive.", series: series("rewardPct"), fmt: (v, axis) => (axis ? `${v}%` : `${v.toFixed(3)}% of stake`) }),
   ];
-  const host = $("sim-charts");
-  for (const c of charts) host.append(c.element);
+  $("sim-charts").append(charts[0].element); // one chart up front; the other two sit in the fold-out
+  for (const c of charts.slice(1)) $("sim-charts-more").append(c.element);
 
   const legend = $("sim-legend");
   const visible = new Set(BEHAVIOURS.map((b) => b.id));
@@ -182,6 +186,23 @@ function showGuarantees() {
   });
 }
 
+/** Sections ease in as they are reached; a link into a folded section opens the fold. */
+function setupPage() {
+  setupReveal([...doc.querySelectorAll(".reveal")], doc.documentElement);
+  const open = () => {
+    let id = "";
+    try {
+      id = decodeURIComponent(location.hash.slice(1));
+    } catch {
+      // A malformed fragment names nothing.
+    }
+    const target = id === "" ? null : doc.getElementById(id);
+    if (target) openFoldsAround(target);
+  };
+  addEventListener("hashchange", open);
+  open();
+}
+
 setupTheme();
 const pageExplorer = config.fixture === null ? config.explorerUrl : null;
 linkQuips(pageExplorer);
@@ -190,4 +211,5 @@ let chainData = null; // loadLog's latest result, for the overreach panel's hint
 const overreach = createOverreach(doc, $("overreach-body"), { request: press.request, explorer: pageExplorer, rpcUrl: config.rpcUrls[0], refusals: () => chainData });
 showGuarantees();
 showSimulation();
+setupPage();
 await showChain();

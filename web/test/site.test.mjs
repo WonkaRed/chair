@@ -354,15 +354,18 @@ test("the reconciliation table labels every cell, so the narrow layout can stack
   assert.match(await readFile(join(dist, "style.css"), "utf8"), /\.recon td::before \{ content: attr\(data-label\)/);
 });
 
-test("the page opens with the joke: the headline, the latest minutes, then the press conference; the nav has at most four items and names the refusals plainly", async () => {
+test("the page opens with the joke: the headline, the plain words, the latest minutes, then the dare and the press conference; the nav has at most five items and names the refusals plainly", async () => {
   const html = await readFile(join(dist, "index.html"), "utf8");
   assert.match(html, /<h1[^>]*>.*An AI runs this memecoin's central bank\..*The contract keeps it on a leash\..*<\/h1>/);
   const at = (needle) => html.indexOf(needle);
-  assert.ok(at('id="hero-minutes"') > at("<h1") && at('id="press"') > at('id="hero-minutes"') && at('id="minutes"') > at('id="press"'), "headline, then minutes, then press, then the list");
+  assert.ok(at('id="now-plain"') > at("<h1") && at('id="hero-minutes"') > at('id="now-plain"'), "headline, then what is happening in plain words, then the Chair's own minutes");
+  assert.ok(at('id="overreach"') > at('id="hero-minutes"') && at('id="press"') > at('id="overreach"') && at('id="minutes"') > at('id="press"'), "then the dare, the press conference, and the list");
   const nav = html.match(/<nav[^>]*>([\s\S]*?)<\/nav>/)[1];
   const links = [...nav.matchAll(/<a href="(#[\w-]+)">([^<]+)<\/a>/g)];
-  assert.ok(links.length > 0 && links.length <= 4, `${links.length} nav items`);
-  assert.ok(links.some(([, , label]) => label === "Times the contract told the Chair no"));
+  assert.ok(links.length > 0 && links.length <= 5, `${links.length} nav items`);
+  assert.ok(links.some(([, id, label]) => id === "#refusals" && label === "Contract said no"));
+  assert.ok(links.some(([, id]) => id === "#overreach") && links.some(([, id]) => id === "#press"), "the two toys are in the nav");
+  assert.ok(html.includes('href="#overreach">Make the Chair overreach</a>') && html.includes('href="#press">Ask the Chair a question</a>'), "the landing screen names both things to do");
   assert.ok(!html.includes(">Refusals<"));
   for (const [, id] of links) assert.equal(html.split(`id="${id.slice(1)}"`).length - 1, 1, `${id} names exactly one element`);
   const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
@@ -377,7 +380,7 @@ test("the best-of strip quotes only lines in the reviewed book, carries no host,
   const strip = html.match(/<section id="best-of"[\s\S]*?<\/section>/)[0];
   const quips = [...strip.matchAll(/<li data-tx="([^"]+)" data-epoch="(\d+)"><blockquote lang="en">([^<]+)<\/blockquote>/g)];
   assert.equal(quips.length, 4);
-  assert.ok(html.indexOf('id="best-of"') > html.indexOf('id="hero-minutes"') && html.indexOf('id="best-of"') < html.indexOf('id="press"'));
+  assert.ok(html.indexOf('id="best-of"') > html.indexOf('id="press"') && html.indexOf('id="best-of"') < html.indexOf('id="minutes"'));
   for (const [, tx, epoch, quote] of quips) {
     assert.ok(book.includes(quote.replaceAll("&#39;", "'")), `the book holds: ${quote}`);
     assert.match(tx, /^[1-9A-HJ-NP-Za-km-z]{43,44}$/);
@@ -386,6 +389,6 @@ test("the best-of strip quotes only lines in the reviewed book, carries no host,
   assert.doesNotMatch(strip, /href=/, "the links are built in the page from the configured explorer");
   for (const id of ["ledger", "log"]) {
     const section = html.match(new RegExp(`<section id="${id}"[\\s\\S]*?</section>`))[0];
-    assert.match(section, /<\/h2>\s*<p class="scripted"><strong>Scripted test activity\.<\/strong>[^<]*test accounts run by this project, not users\./, `${id}: the notice follows the heading`);
+    assert.match(section, /<\/h3>\s*<p class="scripted"><strong>Scripted test activity\.<\/strong>[^<]*test accounts run by this project, not users\./, `${id}: the notice follows the heading`);
   }
 });

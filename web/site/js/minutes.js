@@ -5,9 +5,9 @@
 import { HASH_RE } from "./decisions.js";
 import { h, svg } from "./dom.js";
 import { isAccountId, isTxHash, safeLines, safeText, showAccount } from "./text.js";
-import { fmtPct, fmtRate, fmtSignedPct, fmtTime, rawTxCommand, shortHash } from "./views.js";
+import { fmtPct, fmtRate, fmtSignedPct, fmtTime, plainDecision, plainSigned, rawTxCommand, shortHash } from "./views.js";
 
-const FIRST = 5; // the newest earlier decisions shown before anyone asks for more
+const FIRST = 3; // the newest earlier decisions shown before anyone asks for more
 const PAGE = 20;
 const isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -69,13 +69,13 @@ export async function resolveTexts(decisions, texts, subtle = globalThis.crypto?
 
 /** What the chair's silence, if any, has done to the rate: the views already apply the decay (SPEC "Views"). */
 export function silence(policy, latest) {
-  const rate = fmtRate(policy.rateBps);
+  const rate = fmtSignedPct(policy.rateBps);
   if (policy.lastSetEpoch === null) return { cls: "warn", text: `The Chair has not set a rate yet. The rate in effect is ${rate}.` };
-  if (policy.lastSetEpoch === policy.epoch) return { cls: "ok", text: `The Chair has decided in the current epoch, ${policy.epoch}.` };
+  if (policy.lastSetEpoch === policy.epoch) return { cls: "ok", text: `The Chair has decided in the current meeting, ${policy.epoch}.` };
   const missed = policy.epoch - policy.lastSetEpoch - 1;
-  if (missed === 0) return { cls: "ok", text: `No decision yet in epoch ${policy.epoch}; the last was in epoch ${policy.lastSetEpoch}. The rate in effect is ${rate}.` };
+  if (missed === 0) return { cls: "ok", text: `No decision yet in meeting ${policy.epoch}; the last was in meeting ${policy.lastSetEpoch}. The rate in effect is ${rate}.` };
   const moved = latest !== undefined && latest.rateBps === policy.rateBps ? `the rate stays at ${rate}` : latest === undefined ? `the rate in effect is ${rate}` : `the rate has decayed to ${rate}`;
-  return { cls: "warn", text: `No decision for ${plural(missed, "epoch")}; ${moved}. The last decision was in epoch ${policy.lastSetEpoch}.` };
+  return { cls: "warn", text: `No decision for ${plural(missed, "meeting")}; ${moved}. The last decision was in meeting ${policy.lastSetEpoch}.` };
 }
 
 const MARKS = {
@@ -101,11 +101,11 @@ export function splitMinutes(text) {
 
 const move = (d) => {
   const delta = d.rateBps - d.previousRateBps;
-  return delta === 0 ? `unchanged from ${fmtRate(d.previousRateBps)}` : `${delta > 0 ? "up" : "down"} ${Math.abs(delta)} bps from ${fmtRate(d.previousRateBps)}`;
+  return delta === 0 ? `unchanged from ${fmtSignedPct(d.previousRateBps)}` : `${delta > 0 ? "up" : "down"} ${fmtPct(delta)} from ${fmtSignedPct(d.previousRateBps)}`;
 };
 
 /** What a rate does, in the contract's terms (SPEC "Rollover"). */
-const effect = (bps) => (bps > 0 ? `Mints ${fmtPct(bps)} of supply for stakers each epoch.` : bps < 0 ? `Burns ${fmtPct(bps)} of every transfer.` : "Nothing minted, nothing burned.");
+const effect = (bps) => (bps > 0 ? `Mints ${fmtPct(bps)} of supply for stakers each round.` : bps < 0 ? `Burns ${fmtPct(bps)} of every transfer.` : "Nothing minted, nothing burned.");
 
 function who(doc, d, rec) {
   const label = rec?.chair ? safeText(rec.chair, 80) : null;
@@ -132,13 +132,16 @@ function proof(doc, d, ctx) {
   );
 }
 
+/** The page's own plain line is only for a decision whose text is not already plain: no text, or a text still in basis points and epochs. */
+const needsPlain = (p) => !p.rec || /basis points|bps|epoch/i.test(p.prose);
+
 /** The pieces of one decision: its state, the prose to lead with, the boilerplate as metadata, and the notes that belong with the proof. */
 function parts(doc, d, ctx) {
   const rec = ctx.resolved.get(d.tx);
   const state = rec ? rec.verdict : "absent";
   if (!rec) {
     const lead = h(doc, "p", { class: "m-absent" }, ctx.texts === null ? "The bundled reasoning texts could not be loaded, so no text is shown for this decision." : "no reasoning text for this decision: its transaction carries none and none was saved");
-    return { state, rec, lead, meta: null, notes: [] };
+    return { state, rec, lead, prose: "", meta: null, notes: [] };
   }
   const shown = safeLines(rec.text);
   const { meta, prose } = splitMinutes(shown);
@@ -146,6 +149,7 @@ function parts(doc, d, ctx) {
   return {
     state,
     rec,
+    prose,
     lead: h(doc, "blockquote", { class: "reasoning", lang: "en" }, prose),
     meta: meta.length === 0 && !d.byVisitor ? null : h(doc, "p", { class: "m-meta" }, d.byVisitor ? h(doc, "strong", { class: "visitor-tag" }, "Forced by a visitor through the press desk, not decided by the AI chair: the chair account signed it. ") : null, meta.map((line) => h(doc, "span", {}, line))),
     notes: [
@@ -165,15 +169,16 @@ const verdictLabel = (state, ctx) => (state === "verified" ? (ctx.network ? `Ver
 /** The latest decision as the page's pull-quote: the prose large, the epoch, the rate as a percent with bps second, and the proof folded behind the mark. */
 function heroCard(doc, d, ctx, silent) {
   const p = parts(doc, d, ctx);
-  return h(doc, "figure", { class: `minutes-paper ${p.state}`, "aria-label": `Latest minutes, epoch ${d.epoch}` },
+  return h(doc, "figure", { class: `minutes-paper ${p.state}`, "aria-label": `Latest minutes, meeting ${d.epoch}` },
     svg(doc, "svg", { class: "watermark", "aria-hidden": "true" }, svg(doc, "use", { href: "#seal" })),
-    h(doc, "p", { class: "paper-head" }, h(doc, "span", {}, "Minutes of the Committee of One"), h(doc, "span", { class: "paper-epoch" }, `Epoch ${d.epoch}`)),
+    h(doc, "p", { class: "paper-head" }, h(doc, "span", {}, "Latest minutes of the Committee of One"), h(doc, "span", { class: "paper-epoch", title: `Epoch ${d.epoch}` }, `Meeting ${d.epoch}`)),
+    needsPlain(p) ? [h(doc, "p", { class: "plain-line" }, plainDecision(d.rateBps, d.previousRateBps, ctx.epochMs)), h(doc, "p", { class: "said-k" }, "In the Chair's words")] : null,
     p.lead,
     h(doc, "figcaption", { class: "paper-rate" },
       h(doc, "span", { class: "rate-big" }, fmtSignedPct(d.rateBps)),
       h(doc, "span", { class: "rate-bps" }, fmtRate(d.rateBps)),
       h(doc, "span", { class: "rate-effect" }, effect(d.rateBps)),
-      h(doc, "span", { class: "rate-prev" }, `Previous rate ${fmtRate(d.previousRateBps)}.`),
+      h(doc, "span", { class: "rate-prev" }, `Before: ${plainSigned(d.previousRateBps)}.`),
     ),
     silent ? h(doc, "p", { class: "m-status warn" }, silent) : null,
     h(doc, "details", { class: `seal ${p.state}` },
@@ -201,9 +206,10 @@ export function renderHero(doc, host, d, ctx) {
 function card(doc, d, ctx) {
   const p = parts(doc, d, ctx);
   return h(doc, "article", { class: `minute card ${p.state}` },
+    needsPlain(p) ? h(doc, "p", { class: "plain-line" }, plainDecision(d.rateBps, d.previousRateBps, ctx.epochMs)) : null,
     p.lead,
     h(doc, "p", { class: "m-line" },
-      h(doc, "strong", {}, `Epoch ${d.epoch}`),
+      h(doc, "strong", { title: `Epoch ${d.epoch}` }, `Meeting ${d.epoch}`),
       h(doc, "span", {}, `${fmtSignedPct(d.rateBps)} (${fmtRate(d.rateBps)}), ${move(d)}`),
       pill(doc, p.state),
     ),
@@ -233,7 +239,7 @@ function cards(doc, list, ctx) {
   return [count, rows, more];
 }
 
-/** The earlier decisions as cards, newest first (the latest is the hero). `ctx` is `{texts, resolved, explorer, indexerUrl, repoBase, network}`: `indexerUrl` the transactions index, null on a recorded run; `texts` the bundled texts or null, `resolved` from `resolveTexts`. */
+/** The earlier decisions as cards, newest first (the latest is the hero). `ctx` is `{texts, resolved, explorer, indexerUrl, repoBase, network, epochMs}`: `indexerUrl` the transactions index, null on a recorded run; `texts` the bundled texts or null, `resolved` from `resolveTexts`. */
 export function renderMinutes(doc, host, d, ctx) {
   while (host.firstChild) host.removeChild(host.firstChild);
   const [latest, ...older] = d.decisions;

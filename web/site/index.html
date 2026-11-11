@@ -21,48 +21,56 @@
   <div class="wrap bar">
     <a class="mark" href="#top" id="top" aria-label="$CHAIR, top of page"><svg class="seal-icon" aria-hidden="true"><use href="#seal"/></svg>$CHAIR</a>
     <nav aria-label="Sections">
-      <a href="#press">Press conference</a>
+      <a href="#overreach">Overreach</a>
+      <a href="#press">Ask the Chair</a>
       <a href="#minutes">Minutes</a>
-      <a href="#refusals">Times the contract told the Chair no</a>
-      <a href="#guarantees">Guarantees</a>
+      <a href="#refusals">Contract said no</a>
+      <a href="#guarantees">Proof</a>
     </nav>
     <button type="button" id="theme" class="chip" aria-label="Colour theme">Theme</button>
   </div>
 </header>
 <main class="wrap">
   <section class="hero" aria-labelledby="hero-h">
-    <h1 id="hero-h"><span>An AI runs this memecoin's central bank.</span> <span class="h1-second">The contract keeps it on a leash.</span></h1>
-    <p class="sub-line">Once per epoch the Chair sets how much supply is minted or burned, and publishes its minutes. The contract refuses any rate beyond 2%, and any move of more than 0.5% at a time.</p>
+    <div class="hero-copy">
+      <h1 id="hero-h"><span>An AI runs this memecoin's central bank.</span> <span class="h1-second">The contract keeps it on a leash.</span></h1>
+      <div id="now-plain" class="slot">Reading the chain…</div>
+      <p class="hero-do"><a class="btn btn-main" href="#overreach">Make the Chair overreach</a><a class="btn" href="#press">Ask the Chair a question</a></p>
+      <noscript><p class="source fixture">This page reads the chain with JavaScript. Nothing is sent anywhere and no script is loaded from any other host.</p></noscript>
+    </div>
     <div id="hero-minutes" class="slot hero-slot">Reading the chain…</div>
-    <noscript><p class="source fixture">This page reads the chain with JavaScript. Nothing is sent anywhere and no script is loaded from any other host.</p></noscript>
   </section>
 
-  <section id="overreach" aria-labelledby="overreach-h">
+  <section id="overreach" class="dare reveal" aria-labelledby="overreach-h">
     <h2 id="overreach-h">Make the Chair overreach</h2>
-    <p class="lede">Type a rate beyond the Chair's limit of 2% (200 bps). The press desk has the real chair account send it to the contract on NEAR testnet, and the contract answers. Only rates beyond that limit are sent, because the contract refuses them whatever the Chair is doing. Nothing here is a mock-up: the refusal below is a transaction you can open.</p>
+    <p class="dare-line">The AI is not allowed to print more than 2% at a time. Tell it to try 5%. Watch the contract say no.</p>
     <div id="overreach-body" class="slot"></div>
   </section>
 
-  <section id="best-of" class="best-of" aria-labelledby="best-h">
-    <h2 id="best-h">Best of the press desk</h2>
-    <p class="note">Four answers the Chair has entered into its on-chain minutes. Each is a line from the reviewed book of statements it answers from; a local model only picks the line. The record keeps no questions, so none is shown.</p>
+  <section id="press" class="reveal" aria-labelledby="press-h">
+    <h2 id="press-h">Ask the Chair a question</h2>
+    <p class="lede">It replies from its approved statements, and the reply is entered into the on-chain minutes. Your question goes to the submitter's press desk, so keep anything private out of it.</p>
+    <div id="press-body" class="slot"></div>
+  </section>
+
+  <section id="best-of" class="best-of reveal" aria-labelledby="best-h">
+    <h2 id="best-h">The Chair's best lines</h2>
     <ul class="quips">
       <li data-tx="GuLkS2VJmnxq9gL6tJH7PD2tMRUnqv7FV721cbw2Fo2a" data-epoch="525"><blockquote lang="en">The Chair is neither up nor down. The Chair is seated.</blockquote></li>
       <li data-tx="83mpWP962bzCPpeGzTyt3Aw566a9VQgiFtsiqVbJFsia" data-epoch="485"><blockquote lang="en">The Chair is not in the business of tomorrow. The Chair is in the business of this sentence.</blockquote></li>
       <li data-tx="BdGPDUMdDhggLCtVa3mTV4qJWY3qr6BNLL2GAoycnbH4" data-epoch="478"><blockquote lang="en">The Chair has taken the question under advisement. The advisement is the Chair.</blockquote></li>
       <li data-tx="EHKcA7GmruEEa8EoTdorBucK3wmMio4uP2uFHY2UFpwA" data-epoch="461"><blockquote lang="en">The Chair observes inflation as one observes weather: it arrives, it departs, and the Chair remains.</blockquote></li>
     </ul>
+    <details class="fold">
+      <summary>Where these lines come from</summary>
+      <p class="note">Four answers the Chair has entered into its on-chain minutes. Each is a line from the reviewed book of statements it answers from; a local model only picks the line. The record keeps no questions, so none is shown.</p>
+    </details>
   </section>
 
-  <section id="press" aria-labelledby="press-h">
-    <h2 id="press-h">Press conference</h2>
-    <p class="lede">Put one question to the Chair. It replies from its approved statements, and the reply is entered into the on-chain minutes. Your question goes to the submitter's press desk, so keep anything private out of it.</p>
-    <div id="press-body" class="slot"></div>
-  </section>
-
-  <section id="minutes" aria-labelledby="minutes-h">
-    <h2 id="minutes-h">Chair minutes</h2>
-    <p class="note">Every decision the Chair has put on chain, newest first. The latest is at the top of this page.</p>
+  <div class="band">
+  <section id="minutes" class="reveal" aria-labelledby="minutes-h">
+    <h2 id="minutes-h">What the Chair has decided</h2>
+    <p class="note">Every decision the Chair has put on chain, newest first, each with a line in plain words. The latest is at the top of this page.</p>
     <div id="minutes-body" class="slot">Loading…</div>
     <details class="assumptions">
       <summary>How the check works, and what it does not show</summary>
@@ -75,65 +83,74 @@
     </details>
   </section>
 
-  <section id="refusals" aria-labelledby="refusals-h">
+  <section id="refusals" class="reveal" aria-labelledby="refusals-h">
     <h2 id="refusals-h">Times the contract told the Chair no</h2>
     <p class="note">Every <code>set_policy</code> call the contract turned down, with the reason it gave. A refused call changes nothing and logs no event, so it is not among the minutes. Refusals marked as forced by a visitor were sent by the press desk at a visitor's request, from the chair account.</p>
     <div id="refusals-body" class="slot">Loading…</div>
   </section>
+  </div>
 
-  <section id="rate" aria-labelledby="now-h">
-    <h2 id="now-h">The rate right now</h2>
+  <section id="rate" class="reveal" aria-labelledby="now-h">
+    <h2 id="now-h">The numbers right now</h2>
     <div id="now" class="slot">Loading…</div>
+    <details class="fold" id="ledger-fold">
+      <summary>Show the ledger and every mint and burn</summary>
+      <section id="ledger" aria-labelledby="ledger-h">
+        <h3 id="ledger-h">The supply ledger</h3>
+        <p class="scripted"><strong>Scripted test activity.</strong> The three holders behind these stakes, transfers and claims are test accounts run by this project, not users.</p>
+        <div id="ledger-body" class="slot">Loading…</div>
+      </section>
+      <section id="log" aria-labelledby="log-h">
+        <h3 id="log-h">Every mint and burn</h3>
+        <p class="scripted"><strong>Scripted test activity.</strong> The three holders whose stakes and transfers move these numbers are test accounts run by this project, not users.</p>
+        <div id="reconcile" class="slot"></div>
+        <div id="log-body" class="slot"></div>
+      </section>
+    </details>
   </section>
 
-  <section id="ledger" aria-labelledby="ledger-h">
-    <h2 id="ledger-h">The supply ledger</h2>
-    <p class="scripted"><strong>Scripted test activity.</strong> The three holders behind these stakes, transfers and claims are test accounts run by this project, not users.</p>
-    <div id="ledger-body" class="slot">Loading…</div>
-  </section>
-
-  <section id="log" aria-labelledby="log-h">
-    <h2 id="log-h">Every mint and burn</h2>
-    <p class="scripted"><strong>Scripted test activity.</strong> The three holders whose stakes and transfers move these numbers are test accounts run by this project, not users.</p>
-    <div id="reconcile" class="slot"></div>
-    <div id="log-body" class="slot"></div>
-  </section>
-
-  <section id="simulation" aria-labelledby="sim-h">
-    <h2 id="sim-h">Sixty epochs under five chairs</h2>
-    <p class="lede">The same contract rules run for 60 epochs under five behaviours of the chair. With one-day epochs that is 60 days; the epoch length is a launch setting, and the simulation only counts epochs. It is the repo's own simulator (<code>sim/</code>) running in your browser, not a recording.</p>
+  <section id="simulation" class="reveal" aria-labelledby="sim-h">
+    <h2 id="sim-h">What if the Chair went rogue?</h2>
+    <p class="lede">Five ways a Chair could behave, 60 rounds each, under the contract's own rules. Press a name to hide it.</p>
     <div id="sim-legend" class="legend-row"></div>
     <div id="sim-charts" class="charts"></div>
-    <div id="sim-summary" class="slot"></div>
-    <details class="assumptions" open>
-      <summary>What the simulation assumes</summary>
+    <details class="fold" id="sim-more">
+      <summary>More charts, the numbers, and what it assumes</summary>
+      <p class="note">The same contract rules run for 60 epochs under five behaviours of the chair. With one-day epochs that is 60 days; the epoch length is a launch setting, and the simulation only counts epochs. It is the repo's own simulator (<code>sim/</code>) running in your browser, not a recording.</p>
+      <div id="sim-charts-more" class="charts"></div>
+      <div id="sim-summary" class="slot"></div>
+      <h3>What the simulation assumes</h3>
       <div id="sim-assumptions"></div>
     </details>
   </section>
 
-  <section id="guarantees" aria-labelledby="g-h">
+  <section id="guarantees" class="reveal" aria-labelledby="g-h">
     <h2 id="g-h">What the contract guarantees</h2>
     <div id="guarantee-list"></div>
     <div class="verify">
       <p>Check it yourself with one command from a clone of the repo. It runs the real contract in a local NEAR sandbox and fails if any administrative method exists.</p>
       <div class="cmd"><code id="verify-cmd"></code><button type="button" id="copy" class="chip">Copy</button></div>
-      <p class="note">For a deployed account, anyone can also ask any RPC node for its access keys. The answer must be an empty list, which is also shown in the ledger above.</p>
+      <p class="note">For a deployed account, anyone can also ask any RPC node for its access keys. The answer must be an empty list, which is also shown in the supply ledger.</p>
     </div>
   </section>
 
-  <section id="limits" aria-labelledby="l-h">
-    <h2 id="l-h">What this page does not prove</h2>
-    <ul class="plain">
-      <li>It does not say the chair is wise. The contract bounds the chair; it does not make it right.</li>
-      <li>It does not say anything about price, liquidity or returns. The simulation is a model of supply under stated assumptions.</li>
-      <li>The log comes from an index, so it is checked, not signed: its sums must equal the chain's own ledger, and a difference is shown as such. Each row links to its transaction so you can check any entry by hand.</li>
-    </ul>
+  <section id="limits" class="reveal" aria-label="What this page does not prove">
+    <details class="fold">
+      <summary id="l-h">What this page does not prove</summary>
+      <ul class="plain">
+        <li>It does not say the chair is wise. The contract bounds the chair; it does not make it right.</li>
+        <li>It does not say anything about price, liquidity or returns. The simulation is a model of supply under stated assumptions.</li>
+        <li>The log comes from an index, so it is checked, not signed: its sums must equal the chain's own ledger, and a difference is shown as such. Each row links to its transaction so you can check any entry by hand.</li>
+      </ul>
+    </details>
   </section>
 </main>
 <footer class="wrap foot">
   <p id="foot">$CHAIR is a hackathon project and a toy monetary experiment. Nothing here is advice. The transfers, stakes and claims in the log are scripted test activity by three accounts the submitter controls, not users.</p>
-  <h2 class="foot-h">Where this page reads from</h2>
-  <p id="source" class="source" role="note">Loading the chain…</p>
+  <details class="fold">
+    <summary>Where this page reads from</summary>
+    <p id="source" class="source" role="note">Loading the chain…</p>
+  </details>
 </footer>
 </body>
 </html>
