@@ -201,9 +201,18 @@ test("bad arguments are rejected at the boundary", async () => {
 });
 
 test("a node that is down is a clean error, not a crash", async () => {
-  const o = io();
-  assert.equal(await main(["run", "--rpc", "http://127.0.0.1:1", "--token", TOKEN, "--account", CHAIR, "--dry-run", "--once"], {}, o), 2);
-  assert.match(o.err_.join("\n"), /rpc status/);
+  // A node that drops every connection: the port stays held by this test, so no other process can answer on it.
+  const down = createServer();
+  down.on("connection", (socket) => socket.destroy());
+  await new Promise<void>((r) => down.listen(0, "127.0.0.1", r));
+  try {
+    const o = io();
+    const url = `http://127.0.0.1:${(down.address() as AddressInfo).port}`;
+    assert.equal(await main(["run", "--rpc", url, "--token", TOKEN, "--account", CHAIR, "--dry-run", "--once"], {}, o), 2);
+    assert.match(o.err_.join("\n"), /rpc status/);
+  } finally {
+    down.close();
+  }
 });
 
 test("the loop sleeps until the epoch ends, acts once per epoch, and stops on abort", async () => {

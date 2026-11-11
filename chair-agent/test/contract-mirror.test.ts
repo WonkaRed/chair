@@ -15,7 +15,7 @@ import { DecisionLog, findReasoning } from "../src/log.js";
 import { ruleChair } from "../src/rule-chair.js";
 import type { Chair, Decision } from "../src/types.js";
 import { FakeNode } from "./fake-node.js";
-import { randInt, rng, tempDir } from "./helpers.js";
+import { PATIENT_MS, randInt, rng, tempDir } from "./helpers.js";
 
 const CHAIR = "chair.test";
 const HASH_PANIC = "reasoning_hash must be a SHA-256 digest: 64 lowercase hex characters";
@@ -99,7 +99,7 @@ test("every reasoning_hash the agent sends is the SHA-256 of the reasoning text 
       const rec = recorder(chain);
       for (let e = 0; e < 30; e++) {
         chain.advanceTo(chain.params.startMs + e * chain.params.epochMs + 1000);
-        const res = await tick({ reader: chain, log, chairAccount: CHAIR, submitter: rec, decideOptions: { chair, marginMs: 15_000, timeoutMs: 100 } });
+        const res = await tick({ reader: chain, log, chairAccount: CHAIR, submitter: rec, decideOptions: { chair, marginMs: 15_000, timeoutMs: PATIENT_MS } });
         assert.equal(res.status, "executed", `${name} epoch ${e}`);
       }
       assert.equal(rec.sent.length, 30, name);

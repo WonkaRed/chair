@@ -25,6 +25,15 @@ export function tempDir(prefix: string): string {
   return mkdtempSync(join(root, `${prefix}-`));
 }
 
+/**
+ * The time limit for a chair stand-in that answers at once (or fails at once). Far beyond any scheduler stall, so
+ * the timeout can never win a race it is not meant to; a test that wants the timeout to win uses a stand-in that never answers.
+ */
+export const PATIENT_MS = 10_000;
+
+/** The time limit for a stand-in that never answers: the timeout always wins it, so the value only sets how long the test takes. */
+export const IMPATIENT_MS = 20;
+
 /** SPEC "Epochs and rollover" step 2, written from the SPEC and sharing nothing with src/bounds.ts. */
 export function specDecay(rate: number): number {
   return rate - Math.sign(rate) * Math.min(Math.abs(rate), 50);

@@ -6,9 +6,9 @@ import { LlmChair, type LlmClient, type LlmResponse } from "../src/llm-chair.js"
 import { reasoningHash } from "../src/reasoning.js";
 import { ruleChair } from "../src/rule-chair.js";
 import type { Chair } from "../src/types.js";
-import { contractAccepts, randInt, rng, snapshot, specDecay } from "./helpers.js";
+import { IMPATIENT_MS, PATIENT_MS, contractAccepts, randInt, rng, snapshot, specDecay } from "./helpers.js";
 
-const opts = (chair: Chair, timeoutMs = 200) => ({ chair, marginMs: 15_000, timeoutMs });
+const opts = (chair: Chair, timeoutMs = PATIENT_MS) => ({ chair, marginMs: 15_000, timeoutMs });
 const llmReturning = (res: LlmResponse | (() => Promise<LlmResponse>)): LlmChair =>
   new LlmChair({ label: "llm:scripted-stand-in", complete: typeof res === "function" ? res : () => Promise.resolve(res) });
 const answer = (rate: unknown, reasoning: unknown = "because"): LlmResponse => ({
@@ -78,10 +78,10 @@ const failures: [string, Chair, string][] = [
   ["proposal with NaN rate", { name: "x", propose: () => Promise.resolve({ rateBps: NaN, reasoning: "r" }) } as Chair, "malformed"],
 ];
 for (const [name, chair, reason] of failures) {
-  test(`LLM failure mode falls back to the rule chair: ${name}`, async () => {
+  test(`LLM failure mode falls back to the rule chair: ${name}`, { timeout: 30_000 }, async () => {
     const snap = snapshot({ rate: 0, supply: 1_000_000n, staked: 100_000n });
     const expected = await decide(snap, [], opts(ruleChair));
-    const d = await decide(snap, [], opts(chair, 50));
+    const d = await decide(snap, [], opts(chair, reason === "timeout" ? IMPATIENT_MS : PATIENT_MS));
     assert.equal(d.kind, "rule-fallback");
     assert.equal(d.rate, expected.rate);
     assert.match(d.reasoning, new RegExp(`failed \\(${reason}\\); the rule chair decided instead`));
@@ -108,11 +108,15 @@ test("near the epoch end the window survives a rollover; earlier it is the plain
   assert.equal(late.rate, 120);
 });
 
-test("an LLM client that returns after the timeout cannot override the fallback", async () => {
-  const slow: LlmClient = { complete: () => new Promise((res) => setTimeout(() => res(answer(50)), 150)) };
-  const d = await decide(snapshot({ staked: 0n }), [], opts(new LlmChair(slow), 30));
+test("an LLM client that returns after the timeout cannot override the fallback", { timeout: 30_000 }, async () => {
+  // The stand-in answers only once the time limit has aborted it, so its answer is late by construction, not by a race of sleeps.
+  const late: LlmClient = { complete: ({ signal }) => new Promise((res) => signal.addEventListener("abort", () => setImmediate(() => res(answer(-30))))) };
+  const snap = snapshot({ staked: 0n });
+  const d = await decide(snap, [], opts(new LlmChair(late), IMPATIENT_MS));
   assert.equal(d.kind, "rule-fallback");
-  await new Promise((r) => setTimeout(r, 200));
+  assert.equal(d.rate, (await decide(snap, [], opts(ruleChair))).rate, "the rule chair's rate, not the late -30");
+  await new Promise((r) => setImmediate(r)); // let the late answer land
+  assert.match(d.reasoning, /failed \(timeout\); the rule chair decided instead/);
 });
 
 test("a chair only ever sees history strictly before the epoch being decided", async () => {

@@ -9,7 +9,7 @@ import { LlmChair } from "../src/llm-chair.js";
 import { DecisionLog, findReasoning, verifyLog } from "../src/log.js";
 import { ruleChair } from "../src/rule-chair.js";
 import type { Chair } from "../src/types.js";
-import { randInt, rng, snapshot, tempDir } from "./helpers.js";
+import { PATIENT_MS, randInt, rng, snapshot, tempDir } from "./helpers.js";
 
 const CHAIR = "chair.test";
 
@@ -21,7 +21,7 @@ function setup(): { chain: FakeChain; log: DecisionLog; path: string; done: () =
 }
 
 const deps = (chain: FakeChain, log: DecisionLog, chair: Chair, marginMs = 15_000) => ({
-  reader: chain, log, chairAccount: CHAIR, submitter: chain, decideOptions: { chair, marginMs, timeoutMs: 100 },
+  reader: chain, log, chairAccount: CHAIR, submitter: chain, decideOptions: { chair, marginMs, timeoutMs: PATIENT_MS },
 });
 
 test("60 epochs, rule chair and a wildly wrong LLM: the contract model never refuses a call", async () => {
