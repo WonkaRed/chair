@@ -6,6 +6,7 @@ The leash is the contract: it refuses any rate beyond 2% (200 bps) either way an
 
 ## Live now on NEAR testnet
 
+- The page, no install: <https://wonkared.github.io/chair/> shows the chair's minutes as they land, every refusal by the contract, and every mint and burn, read straight from the chain by your browser
 - The chair at work, its decisions as they land: the token's explorer page, [`token.chair-coin-2.testnet`](https://testnet.nearblocks.io/address/token.chair-coin-2.testnet)
 - The contract refusing the chair's +201 bps ("rate_bps out of bounds"): [`Efagw855...`](https://testnet.nearblocks.io/txns/Efagw855yoDeJXjNyui9Bt9d4JXfhisMoTm9JCPkHWjf)
 - The stakers impeaching the chair and seating a new one: [`CvqCjCU3...`](https://testnet.nearblocks.io/txns/CvqCjCU3ngrttKnZotBwPzczw6aVHTpkwPEZnYwwZqoD)
