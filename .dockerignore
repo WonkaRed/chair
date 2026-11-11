@@ -1,6 +1,8 @@
 .git
 .scratch
-target
-res
-dist
-node_modules
+**/target
+**/res
+**/dist
+**/node_modules
+**/out
+.claude
