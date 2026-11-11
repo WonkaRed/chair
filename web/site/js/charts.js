@@ -5,7 +5,7 @@ import { clear, h, svg } from "./dom.js";
 
 const W = 640;
 const H = 250;
-const M = { l: 52, r: 16, t: 12, b: 28 };
+const M = { l: 72, r: 16, t: 18, b: 28 };
 
 function niceTicks(lo, hi, count = 4) {
   if (lo === hi) return { lo: lo - 1, hi: hi + 1, ticks: [lo - 1, lo, hi + 1] };

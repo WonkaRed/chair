@@ -36,7 +36,7 @@ test("the recorded run loads, reconciles to the chain's ledger and says what it 
   renderLog(doc, h, d, { filter: "all", newestFirst: true, shown: 50 }, { explorer: null, rerender() {} });
   assert.match(textOf(h), /Launch/);
   assert.match(textOf(h), /Burn/);
-  const rows = [...walk(h)].filter((n) => n.tag === "tr" && n.attrs.class?.startsWith("entry"));
+  const rows = [...walk(h)].filter((n) => n.tag === "tr" && n.attrs.class?.startsWith("log-row"));
   assert.equal(rows.length, d.entries.length);
   assert.ok([...walk(h)].every((n) => n.tag !== "a"), "no transaction links without an explorer");
 });

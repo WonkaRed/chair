@@ -167,7 +167,7 @@ export function renderLog(doc, host, d, state, { explorer, rerender }) {
     else if (e.kind === "launch" || e.memo === "storage_unregister" || e.memo === "refund") detail.push(showAccount(e.account));
     const link = explorer && isTxHash(e.hash) ? h(doc, "a", { href: `${explorer}/txns/${e.hash}`, rel: "noopener noreferrer", target: "_blank" }, shortHash(e.hash)) : h(doc, "span", { title: safeText(e.hash, 64) }, isTxHash(e.hash) ? shortHash(e.hash) : safeText(e.hash, 20));
     body.append(
-      h(doc, "tr", { class: `entry ${e.kind}` },
+      h(doc, "tr", { class: `log-row ${e.kind}` },
         h(doc, "td", { "data-label": "Epoch" }, h(doc, "span", {}, String(e.epoch)), e.epochFrom === "block time" ? h(doc, "span", { class: "sub", title: "No chair event carries the epoch for this change; it is computed from the block time." }, "from block time") : null),
         h(doc, "td", { "data-label": "Change", class: "amt", title: formatExact(e.amount) }, h(doc, "span", { class: `sign ${burn ? "burn" : "mint"}` }, burn ? `${MINUS} Burn` : e.kind === "launch" ? "Launch" : "+ Mint"), h(doc, "span", {}, formatTokens(e.amount))),
         h(doc, "td", { "data-label": "Reason" }, h(doc, "span", {}, e.reason), detail.length ? h(doc, "span", { class: "sub" }, detail.join("; ")) : null),
