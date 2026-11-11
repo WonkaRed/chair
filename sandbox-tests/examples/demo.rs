@@ -4,7 +4,7 @@
 
 use anyhow::{Result, ensure};
 use near_workspaces::result::ExecutionFinalResult;
-use sandbox_tests::{EPOCH_MS, events, failure_text, launch};
+use sandbox_tests::{EPOCH_MS, NOMINATE_BOND, TOKEN, ensure_success, events, failure_text, launch};
 
 /// Print a decision the contract must refuse, failing the demo if it was accepted or refused for another reason.
 fn refused(what: &str, result: &ExecutionFinalResult, expected: &str) -> Result<()> {
@@ -97,6 +97,76 @@ async fn main() -> Result<()> {
     for event in events(&result) {
         println!("  event {}: {}", event["event"], event["data"]);
     }
+
+    println!(
+        "\na mint epoch: alice stakes 500 tokens, the +140 bps rate pays stakers at the boundary"
+    );
+    ensure_success(&t.stake(&t.alice, 500 * TOKEN).await?)?;
+    let supply = t.total_supply().await?;
+    t.advance_to_epoch(7).await?;
+    let pending: u128 = t.staking(&t.alice).await?.pending_reward.parse()?;
+    ensure!(pending > 0, "no reward after an epoch at +140 bps");
+    let minted = t.total_supply().await? - supply;
+    ensure!(
+        minted > 0 && pending <= minted,
+        "the staker's {pending} must come out of the {minted} minted"
+    );
+    ensure_success(&t.claim(&t.alice).await?)?;
+    println!(
+        "epoch 7: {minted} base units minted, {pending} of them the staker's claim (supply {supply} -> {})",
+        t.total_supply().await?
+    );
+    ensure_success(&t.set_policy(&chair, 90).await?)?;
+
+    println!("\na burn epoch: the chair tightens to -10 bps, a transfer burns its share");
+    for (epoch, rate_bps) in [(8, 40), (9, -10)] {
+        t.advance_to_epoch(epoch).await?;
+        ensure_success(&t.set_policy(&chair, rate_bps).await?)?;
+        println!("epoch {epoch}: chair sets {rate_bps:+} bps -> accepted");
+    }
+    let dan = t.user("dan", 0).await?;
+    let supply = t.total_supply().await?;
+    ensure_success(&t.transfer(&t.alice, &dan, 100 * TOKEN).await?)?;
+    let burned = 100 * TOKEN * 10 / 10_000;
+    ensure!(
+        t.balance(&dan).await? == 100 * TOKEN - burned
+            && t.total_supply().await? == supply - burned,
+        "a 100 token transfer at -10 bps must burn exactly {burned}"
+    );
+    println!(
+        "  100 tokens sent, {burned} base units burned, dan received {}",
+        100 * TOKEN - burned
+    );
+    t.assert_supply_invariant(&[&t.alice, &dan, &chair]).await?;
+
+    println!(
+        "\nimpeachment: alice nominates dan; her whole stake backs him at once. It is all of the stake \
+         and over 5% of the supply, so it clears both the threshold and the quorum"
+    );
+    ensure_success(&t.nominate(&t.alice, &dan, NOMINATE_BOND).await?)?;
+    let backing = &t.candidates().await?[0].backing;
+    ensure!(
+        *backing == t.staking(&t.alice).await?.staked,
+        "nominating did not back the candidate with the nominator's stake: {backing}"
+    );
+    ensure!(
+        t.policy().await?.chair == chair.id().as_str(),
+        "the chair is replaced only at the boundary"
+    );
+    let policy = t.advance_to_epoch(10).await?;
+    ensure!(
+        policy.chair == dan.id().as_str(),
+        "expected {} to take the chair, got {}",
+        dan.id(),
+        policy.chair
+    );
+    println!("epoch 10: the stake vote seated {} as chair", policy.chair);
+    refused(
+        "the impeached chair sets 0 bps",
+        &t.set_policy(&chair, 0).await?,
+        "only the chair may set policy",
+    )?;
+    t.assert_supply_invariant(&[&t.alice, &dan, &chair]).await?;
 
     println!("\nPASS: every bound held");
     Ok(())

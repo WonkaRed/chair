@@ -137,6 +137,40 @@ describe("scenario behavior", () => {
   });
 });
 
+describe("supply quorum", () => {
+  const base = SCENARIOS.find((s) => s.id === "impeachment-silent-successor")!;
+  /** An incumbent at +200 and a candidate that all three stakers back in epoch 11, with `stakedBps` of the supply staked. */
+  const quorumRun = (stakedBps: number): Result =>
+    run({
+      ...base, stakedBps, chairs: [{ name: "incumbent", policy: (v) => Math.min(200, v.rateBps + 50) }],
+      votes: [
+        { epoch: 10, action: "nominate", candidate: "ghost" },
+        ...[0, 1, 2].map((staker) => ({ epoch: 11, action: "back", staker, candidate: "ghost" }) as const),
+      ],
+    });
+  const impeachedAt = (r: Result): number[] => r.rows.filter((row) => row.events.some((e) => e.includes("impeached"))).map((row) => row.epoch);
+
+  it("all the stake backing a candidate does not seat it while less than 5% of the supply is staked", () => {
+    assert.deepEqual(impeachedAt(quorumRun(400)), []);
+  });
+
+  it("the same vote seats it once more than 5% of the supply is staked", () => {
+    assert.deepEqual(impeachedAt(quorumRun(600)), [11]);
+  });
+
+  it("the quorum is counted on the supply before the boundary's mint", () => {
+    // 5.05% staked is over 5% of the supply the epoch saw, but under 5% of it once the 2% mint of the boundary is added.
+    assert.deepEqual(impeachedAt(quorumRun(505)), [11]);
+  });
+
+  it("a threshold above the contract's 5000, or below 1, is not a launch the contract allows", () => {
+    for (const impeachThresholdBps of [0, 5001, 10_000, 12.5]) {
+      assert.throws(() => run({ ...base, impeachThresholdBps }), /impeachThresholdBps must be an integer in 1\.\.=5000/, String(impeachThresholdBps));
+    }
+    assert.doesNotThrow(() => run({ ...base, impeachThresholdBps: 1 }));
+  });
+});
+
 describe("output", () => {
   it("formatTokens prints whole tokens with two decimals", () => {
     assert.equal(formatTokens(0n), "0.00");

@@ -84,7 +84,7 @@ export class FakeNode {
     let value: unknown;
     switch (name) {
       case "get_params":
-        value = { epoch_ms: c.params.epochMs, start_ms: c.params.startMs, max_rate_bps: c.params.maxRateBps, max_step_bps: c.params.maxStepBps, impeach_threshold_bps: 5000, nominate_bond: "1" };
+        value = { epoch_ms: c.params.epochMs, start_ms: c.params.startMs, max_rate_bps: c.params.maxRateBps, max_step_bps: c.params.maxStepBps, impeach_threshold_bps: 5000, quorum_bps: 500, nominate_bond: "1" };
         break;
       case "get_policy":
         value = {

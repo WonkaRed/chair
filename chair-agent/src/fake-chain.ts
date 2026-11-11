@@ -38,7 +38,7 @@ export class FakeChain implements Reader, Submitter {
   constructor(o: { chair: string; totalSupply: bigint; totalStaked: bigint; epochMs?: number; startMs?: number }) {
     const epochMs = o.epochMs ?? 60_000;
     const startMs = o.startMs ?? 1_700_000_000_000;
-    this.params = { epochMs, startMs, maxRateBps: 200, maxStepBps: 50, impeachThresholdBps: 5000, nominateBond: 1n };
+    this.params = { epochMs, startMs, maxRateBps: 200, maxStepBps: 50, impeachThresholdBps: 5000, quorumBps: 500, nominateBond: 1n };
     this.nowMs = startMs;
     this.chair = o.chair;
     this.totalSupply = o.totalSupply;

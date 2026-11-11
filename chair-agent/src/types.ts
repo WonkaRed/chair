@@ -5,6 +5,8 @@ export interface Params extends Bounds {
   readonly epochMs: number;
   readonly startMs: number;
   readonly impeachThresholdBps: number;
+  /** Share of the whole supply a candidate's backing must also exceed. */
+  readonly quorumBps: number;
   readonly nominateBond: bigint;
 }
 

@@ -13,6 +13,8 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 near-sdk.workspace = true
 near-contract-standards.workspace = true
+# 256-bit intermediates for the reward index (SPEC.md "Rollover"); already in the lockfile via near-workspaces.
+uint.workspace = true
 
 [dev-dependencies]
 near-sdk = { workspace = true, features = ["unit-testing"] }

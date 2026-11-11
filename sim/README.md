@@ -1,7 +1,7 @@
 # sim
 
 A 60-epoch supply simulator for $CHAIR. It does its own integer arithmetic (mint, reward accounting, burn,
-decay, the `set_policy` checks, the stake lock, the impeachment threshold) over twelve named scenarios, prints a
+decay, the `set_policy` checks, the stake lock, the impeachment threshold and supply quorum) over twelve named scenarios, prints a
 table per scenario, and writes a JSON file for charting. Its fidelity claim is exactly three things: it
 reproduces the SPEC worked vectors (tests), it was read against the contract source (below), and it does not
 execute the contract. It is a toy model of a toy monetary mechanism: it says what the rules do to supply under
@@ -51,9 +51,10 @@ Per epoch, in this order (the order the contract has):
 5. Boundary: mint `supply * rate / 10_000` (floor, capped at `u128::MAX / 10_000`) at the rate in effect
    *before* decay, if positive and someone is staked; add it to the reward index
    (`minted * 10^24 / total_staked`, floor); then decay one 50 bps step toward zero unless the chair set a
-   rate this epoch; then impeachment: a candidate whose backing is **strictly more than** the threshold of
-   the total staked becomes chair from the next epoch (most backing wins, ties go to the earliest nomination)
-   and the candidate list is cleared. This happens whether or not the winner has a script: an unscripted
+   rate this epoch; then impeachment: a candidate whose backing is **strictly more than** both the threshold
+   of the total staked and 5% of the whole supply (the supply quorum, counted before this boundary's mint)
+   becomes chair from the next epoch (most backing wins, ties go to the earliest nomination) and the candidate
+   list is cleared. This happens whether or not the winner has a script: an unscripted
    chair is seated and never calls `set_policy`.
 6. Supply conservation is asserted every epoch: `supply = initial + minted - burned = liquid + staked + unclaimed pool`.
 
@@ -62,7 +63,10 @@ epoch; stakers raise their stake to the target whenever it is above their curren
 their lock) and are limited to their liquid balance; one fixed trading velocity per scenario; the chair
 behaviors are scripted, not reacting to anything. Where the source is ambiguous the choice made is: the
 impeachment threshold is applied to the stake at the boundary after that epoch's stake moves; a staker who
-holds no stake cannot back; a vote for an unknown candidate is ignored.
+holds no stake cannot back; a vote for an unknown candidate is ignored; a scenario whose threshold is outside
+the 1..=5000 that the contract's `new` allows is refused. Not modeled: the nominator's own stake (a nomination
+here comes from an account with none, so it adds no backing, as in the contract) and the ten-candidate cap with
+its eviction rule.
 
 ## Scenarios
 
@@ -120,7 +124,7 @@ number; rates and counts are numbers. Rows are in epoch order, 60 per scenario.
 `test/model.test.ts` checks the SPEC worked vectors: mint `1_000_001 x 33 bps, staked 500 -> 3300`; burn
 `12_345 at -75 -> 92`; decay `120 -> 70 -> 20 -> 0` and `-120 -> -70 -> -20 -> 0`; step from `-10` allows `40`
 and rejects `41`; bounds from `150` allow `200` and reject `201`. Further tests cover mint before decay, the
-supply cap, no mint with nobody staked, the check order, strict-greater impeachment and the tie rule.
+supply cap, no mint with nobody staked, the check order, strict-greater impeachment (threshold and quorum) and the tie rule.
 `test/scenarios.test.ts` checks, for every scenario, 60 rows, supply conservation each epoch, rate bounds and
 step, determinism, and that the JSON has the documented shape; and the stake lock, the always-impeach rule and
 the reward-per-share rounding (literal values). The simulator was written from SPEC and read against

@@ -1,4 +1,4 @@
-import { Policy, burnAmount, impeachmentWinner, mintAmount, pendingReward, rewardPerShareDelta, type Candidate } from "./model.js";
+import { MAX_IMPEACH_THRESHOLD_BPS, Policy, QUORUM_BPS, burnAmount, impeachmentWinner, mintAmount, pendingReward, rewardPerShareDelta, type Candidate } from "./model.js";
 
 export const EPOCHS = 60;
 export const TOKEN = 10n ** 24n;
@@ -36,7 +36,7 @@ export interface Scenario {
   readonly transfersPerEpoch: number;
   /** The sitting chair first; later entries are what a nominated candidate of that name does once in office. A candidate with no entry never acts. */
   readonly chairs: readonly { readonly name: string; readonly policy: ChairPolicy }[];
-  /** Impeachment: share of total staked a candidate's backing must strictly exceed. */
+  /** Impeachment: share of total staked a candidate's backing must strictly exceed (the contract caps it at 5000). */
   readonly impeachThresholdBps: number;
   readonly votes: readonly Vote[];
 }
@@ -76,6 +76,9 @@ export function assertConserved(r: { supply: bigint; liquid: bigint; staked: big
 const silent: ChairPolicy = () => null;
 
 export function run(sc: Scenario): Result {
+  if (!Number.isInteger(sc.impeachThresholdBps) || sc.impeachThresholdBps < 1 || sc.impeachThresholdBps > MAX_IMPEACH_THRESHOLD_BPS) {
+    throw new RangeError(`impeachThresholdBps must be an integer in 1..=${MAX_IMPEACH_THRESHOLD_BPS}, as the contract's \`new\` requires`);
+  }
   const policy = new Policy();
   let supply = INITIAL_SUPPLY;
   let liquid = INITIAL_SUPPLY;
@@ -154,7 +157,9 @@ export function run(sc: Scenario): Result {
     supply -= burned;
     burnedTotal += burned;
 
-    // Boundary closing this epoch: mint at the pre-decay rate, then decay, then impeachment.
+    // Boundary closing this epoch: mint at the pre-decay rate, then decay, then impeachment. The quorum is
+    // counted on the supply as it stood before this mint.
+    const supplyBeforeMint = supply;
     const minted = mintAmount(supply, rateInEffect, totalStaked);
     if (minted > 0n) {
       supply += minted;
@@ -166,11 +171,11 @@ export function run(sc: Scenario): Result {
     const live: Candidate[] = candidates.map((c) => ({
       id: c.id, order: c.order, backing: [...c.backers].reduce((a, i) => a + staked[i]!, 0n),
     }));
-    const winner = impeachmentWinner(live, sc.impeachThresholdBps, totalStaked);
+    const winner = impeachmentWinner(live, sc.impeachThresholdBps, totalStaked, supplyBeforeMint);
     if (winner !== null) {
       events.push(
         `impeached ${chair.name}: ${winner.id} backed by ${(Number((winner.backing * 10_000n) / totalStaked) / 100).toFixed(1)}% of stake ` +
-          `(threshold ${sc.impeachThresholdBps / 100}%, strictly greater); chair from epoch ${epoch + 1}`,
+          `(threshold ${sc.impeachThresholdBps / 100}% of stake and ${QUORUM_BPS / 100}% of supply, both strictly exceeded); chair from epoch ${epoch + 1}`,
       );
       chair = sc.chairs.find((c) => c.name === winner.id) ?? { name: winner.id, policy: silent };
       candidates.length = 0;

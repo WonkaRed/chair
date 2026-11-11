@@ -1,6 +1,7 @@
 //! Policy math with no NEAR host calls, so every rule below runs under plain `cargo test`.
 //! SPEC.md "Epochs and rollover" is the written contract for this file.
 
+use crate::MAX_TOTAL_SUPPLY;
 use near_sdk::near;
 use std::fmt;
 
@@ -12,6 +13,34 @@ pub const MAX_STEP_BPS: i32 = 50;
 /// Which epoch a timestamp falls in. Epoch 0 starts at `start_ms`; times before it count as epoch 0.
 pub fn epoch_at(now_ms: u64, start_ms: u64, epoch_ms: u64) -> u64 {
     now_ms.saturating_sub(start_ms) / epoch_ms
+}
+
+/// A SHA-256 digest as the chair publishes it: exactly 64 lowercase hex characters. One canonical
+/// form, so two accounts hashing the same reasoning always produce the same string.
+pub fn is_sha256_hex(hash: &str) -> bool {
+    hash.len() == 64 && hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+}
+
+/// What an easing epoch mints: `supply * rate / 10_000`, rounded down so the contract never mints more
+/// than the formula's exact value, and clipped so the supply never passes `MAX_TOTAL_SUPPLY`.
+/// Zero unless the rate is positive. `supply <= MAX_TOTAL_SUPPLY` keeps the product inside `u128`.
+pub fn mint_amount(supply: u128, rate_bps: i32) -> u128 {
+    let Ok(rate) = u128::try_from(rate_bps) else {
+        return 0;
+    };
+    (supply * rate / 10_000).min(MAX_TOTAL_SUPPLY.saturating_sub(supply))
+}
+
+/// What a transfer burns while the rate is negative: `amount * |rate| / 10_000`, rounded down, so a
+/// transfer smaller than `10_000 / |rate|` burns nothing. Zero unless the rate is negative. The result is
+/// strictly below `amount` because `|rate| <= MAX_RATE_BPS < 10_000`. A product that overflows `u128`
+/// is split so the burn is still exact: `(a / 10_000) * r + (a % 10_000) * r / 10_000`.
+pub fn burn_amount(amount: u128, rate_bps: i32) -> u128 {
+    if rate_bps >= 0 {
+        return 0;
+    }
+    let rate = u128::from(rate_bps.unsigned_abs());
+    amount / 10_000 * rate + amount % 10_000 * rate / 10_000
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -71,9 +100,9 @@ impl PolicyState {
         }
     }
 
-    /// Nothing changes at further boundaries. Extension point: staking and impeachment lanes
-    /// extend this test so their per-boundary work is never skipped (SPEC.md "Extension points").
-    fn is_quiescent(&self) -> bool {
+    /// The policy alone changes at no further boundary. `EpochState::advance_to` adds the other half:
+    /// a candidate over the impeachment threshold keeps the next boundary from being skipped.
+    pub fn is_quiescent(&self) -> bool {
         self.rate_bps == 0
     }
 
@@ -133,6 +162,26 @@ mod tests {
             rate_bps,
             epoch,
             last_set_epoch,
+        }
+    }
+
+    #[test]
+    fn a_reasoning_hash_is_exactly_64_lowercase_hex_characters() {
+        let valid = "0123456789abcdef".repeat(4);
+        assert!(is_sha256_hex(&valid));
+        assert!(is_sha256_hex(&"0".repeat(64)));
+        for (what, bad) in [
+            ("empty", String::new()),
+            ("63 characters", valid[..63].to_string()),
+            ("65 characters", format!("{valid}a")),
+            ("uppercase", valid.to_uppercase()),
+            ("mixed case", format!("A{}", &valid[1..])),
+            ("non-hex letter", format!("g{}", &valid[1..])),
+            ("0x prefix", format!("0x{}", &valid[2..])),
+            ("padded with a space", format!(" {}", &valid[1..])),
+            ("multibyte, 64 bytes", "é".repeat(32)),
+        ] {
+            assert!(!is_sha256_hex(&bad), "{what} was accepted");
         }
     }
 
@@ -258,5 +307,72 @@ mod tests {
     #[should_panic(expected = "set_rate before advance_to")]
     fn set_rate_on_a_stale_state_is_a_programming_error() {
         state(0, 1, None).set_rate(2, 10).ok();
+    }
+
+    #[test]
+    fn worked_vector_mint_floors() {
+        // SPEC.md worked vector: supply 1_000_001 at 33 bps is 3300.0033, minted as 3300.
+        assert_eq!(mint_amount(1_000_001, 33), 3300);
+    }
+
+    #[test]
+    fn worked_vector_burn_floors() {
+        // SPEC.md worked vector: 12_345 at -75 bps is 92.5875, burned as 92.
+        assert_eq!(burn_amount(12_345, -75), 92);
+    }
+
+    #[test]
+    fn mint_is_zero_unless_the_rate_is_positive() {
+        assert_eq!(mint_amount(1_000_000, 0), 0);
+        assert_eq!(mint_amount(1_000_000, -200), 0);
+        assert_eq!(mint_amount(1_000_000, 1), 100);
+        assert_eq!(
+            mint_amount(9_999, 1),
+            0,
+            "a mint under one unit rounds to nothing"
+        );
+    }
+
+    #[test]
+    fn mint_stops_at_the_supply_cap_and_cannot_overflow() {
+        assert_eq!(mint_amount(MAX_TOTAL_SUPPLY, 200), 0);
+        assert_eq!(mint_amount(MAX_TOTAL_SUPPLY - 7, 200), 7);
+        let just_under = MAX_TOTAL_SUPPLY - 1_000_000_000_000;
+        assert_eq!(
+            mint_amount(just_under, 200),
+            1_000_000_000_000,
+            "2% of the supply would pass the cap, so the cap wins"
+        );
+        // 2% of a near-max supply is below the cap headroom of an emptier supply: the formula decides.
+        assert_eq!(
+            mint_amount(MAX_TOTAL_SUPPLY / 2, 200),
+            MAX_TOTAL_SUPPLY / 2 / 50
+        );
+    }
+
+    #[test]
+    fn burn_is_zero_unless_the_rate_is_negative_and_never_reaches_the_amount() {
+        assert_eq!(burn_amount(1_000_000, 0), 0);
+        assert_eq!(burn_amount(1_000_000, 200), 0);
+        assert_eq!(burn_amount(1_000_000, -200), 20_000);
+        assert_eq!(
+            burn_amount(49, -200),
+            0,
+            "dust below 10_000 / |rate| burns nothing"
+        );
+        assert_eq!(burn_amount(50, -200), 1);
+        for amount in [1, 2, 49, 50, 9_999, 10_000, u128::MAX] {
+            assert!(burn_amount(amount, -200) < amount);
+        }
+    }
+
+    #[test]
+    fn burn_is_exact_for_the_largest_amounts() {
+        // At 200 bps the burn is floor(amount / 50) and at 50 bps floor(amount / 200), for every amount,
+        // including the ones where `amount * rate` would overflow `u128`.
+        for amount in [u128::MAX, u128::MAX - 1, u128::MAX / 3, 10u128.pow(36) + 49] {
+            assert_eq!(burn_amount(amount, -200), amount / 50);
+            assert_eq!(burn_amount(amount, -50), amount / 200);
+        }
     }
 }

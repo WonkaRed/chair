@@ -29,7 +29,7 @@ function good(): Snapshot {
     tokenCodeHash: record.wasm.codeHash,
     tokenCodeSha256: record.wasm.sha256,
     keys: { token: [], chair: [scoped("ed25519:CHAIRKEY")], challenger: [scoped("ed25519:CHALLKEY")], alice: [full("a")], bob: [full("b")], carol: [full("c")] },
-    params: { epochMs: 90000, startMs: 1, maxRateBps: 200, maxStepBps: 50, impeachThresholdBps: 3000, nominateBond: 100n },
+    params: { epochMs: 90000, startMs: 1, maxRateBps: 200, maxStepBps: 50, impeachThresholdBps: 3000, quorumBps: 500, nominateBond: 100n },
     supply: { epoch: 12, launch: 1000n, minted: 80n, burned: 5n, total: 1075n, staked: 400n, rewardPool: 70n },
     totalSupplyView: 1075n,
     policy: { epoch: 12, rateBps: 20, chair: accounts.challenger, streak: 2, lastSetEpoch: 12, epochEndsMs: 9 },

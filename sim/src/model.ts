@@ -5,6 +5,10 @@
 
 export const MAX_RATE_BPS = 200;
 export const MAX_STEP_BPS = 50;
+/** contract `QUORUM_BPS`: share of the whole supply a seated candidate's backing must also exceed. */
+export const QUORUM_BPS = 500;
+/** contract `MAX_IMPEACH_THRESHOLD_BPS`: `new` rejects a threshold above half the stake, so the seat stays within a majority's reach. */
+export const MAX_IMPEACH_THRESHOLD_BPS = 5_000;
 export const REWARD_SCALE = 10n ** 24n;
 export const MAX_TOTAL_SUPPLY = (2n ** 128n - 1n) / 10_000n;
 const U256_MAX = 2n ** 256n - 1n;
@@ -76,13 +80,19 @@ export interface Candidate {
 }
 
 /**
- * Step 3: among candidates with `backing * 10_000 > threshold_bps * total_staked` (strictly greater),
- * the one with the most backing wins; ties go to the earliest nomination.
+ * Step 3: among candidates with `backing * 10_000 > max(threshold_bps * total_staked, QUORUM_BPS * total_supply)`
+ * (strictly greater), the one with the most backing wins; ties go to the earliest nomination. `totalSupply` is the
+ * supply before the boundary's mint.
  */
-export function impeachmentWinner(candidates: readonly Candidate[], thresholdBps: number, totalStaked: bigint): Candidate | null {
+export function impeachmentWinner(
+  candidates: readonly Candidate[], thresholdBps: number, totalStaked: bigint, totalSupply: bigint,
+): Candidate | null {
+  const stakeBar = BigInt(thresholdBps) * totalStaked;
+  const supplyBar = BigInt(QUORUM_BPS) * totalSupply;
+  const bar = stakeBar > supplyBar ? stakeBar : supplyBar;
   let best: Candidate | null = null;
   for (const c of candidates) {
-    if (c.backing * 10_000n <= BigInt(thresholdBps) * totalStaked) continue;
+    if (c.backing * 10_000n <= bar) continue;
     if (best === null || c.backing > best.backing || (c.backing === best.backing && c.order < best.order)) best = c;
   }
   return best;

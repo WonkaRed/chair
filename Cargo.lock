@@ -451,6 +451,7 @@ version = "0.1.0"
 dependencies = [
  "near-contract-standards",
  "near-sdk",
+ "uint",
 ]
 
 [[package]]
@@ -3621,10 +3622,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cargo-near-build",
+ "near-sandbox",
  "near-workspaces",
  "serde",
  "serde_json",
  "tokio",
+ "uint",
 ]
 
 [[package]]

@@ -10,7 +10,7 @@ const NOW = START + 5 * EPOCH_MS + 1000; // epoch 5
 function reader(o: { policyEpoch?: number; epochEndsMs?: number; maxRate?: number; maxStep?: number } = {}): ChainReader {
   const epoch = o.policyEpoch ?? 5;
   const views: Record<string, unknown> = {
-    get_params: { epoch_ms: EPOCH_MS, start_ms: START, max_rate_bps: o.maxRate ?? 200, max_step_bps: o.maxStep ?? 50, impeach_threshold_bps: 5000, nominate_bond: "1" },
+    get_params: { epoch_ms: EPOCH_MS, start_ms: START, max_rate_bps: o.maxRate ?? 200, max_step_bps: o.maxStep ?? 50, impeach_threshold_bps: 5000, quorum_bps: 500, nominate_bond: "1" },
     get_policy: { epoch, rate_bps: 10, chair: "chair.test", streak: 1, last_set_epoch: null, epoch_ends_ms: o.epochEndsMs ?? START + (epoch + 1) * EPOCH_MS },
     ft_total_supply: "1000000",
     get_reward_pool: { total_staked: "100", reward_pool: "0", reward_per_share: "0" },

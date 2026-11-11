@@ -23,9 +23,9 @@ export const GUARANTEES = [
     tests: [["sandbox-tests/tests/ledger.rs", "every_mint_and_burn_is_in_the_events_and_adds_up_to_the_ledger_view"]],
   },
   {
-    text: "Holders decide who the chair is: a candidate backed by more than the threshold share of staked tokens replaces the chair at the next epoch boundary. The chair's own key can call set_policy and nothing else.",
+    text: "Holders decide who the chair is: a candidate backed by more than the threshold share of staked tokens, and by more than 5% of the whole supply, replaces the chair at the next epoch boundary. The chair's own key can call set_policy and nothing else.",
     spec: ["Epochs and rollover: impeachment", "epochs-and-rollover"],
-    tests: [["sandbox-tests/tests/impeachment.rs", "enough_backing_replaces_the_chair_at_the_next_boundary"], ["sandbox-tests/tests/policy.rs", "function_call_key_can_set_policy_but_cannot_transfer"]],
+    tests: [["sandbox-tests/tests/impeachment.rs", "enough_backing_replaces_the_chair_at_the_next_boundary"], ["sandbox-tests/tests/impeachment.rs", "backing_must_also_exceed_five_percent_of_the_supply_to_seat_a_chair"], ["sandbox-tests/tests/policy.rs", "function_call_key_can_set_policy_but_cannot_transfer"]],
   },
 ];
 

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-  MAX_TOTAL_SUPPLY, Policy, burnAmount, decay, impeachmentWinner, mintAmount, pendingReward, rewardPerShareDelta,
+  MAX_IMPEACH_THRESHOLD_BPS, MAX_TOTAL_SUPPLY, Policy, QUORUM_BPS, burnAmount, decay, impeachmentWinner, mintAmount, pendingReward, rewardPerShareDelta,
 } from "../src/model.js";
 
 describe("SPEC worked vectors", () => {
@@ -134,18 +134,41 @@ describe("Policy.setRate", () => {
 
 describe("impeachmentWinner", () => {
   const cand = (id: string, backing: bigint, order: number) => ({ id, backing, order });
+  // Supply 1: the quorum bar is below 1 yocto, so a stake-only expectation holds unless a test raises the supply.
+  const SUPPLY = 1n;
 
   it("requires strictly more than the threshold", () => {
-    assert.equal(impeachmentWinner([cand("a", 50n, 0)], 5000, 100n), null);
-    assert.equal(impeachmentWinner([cand("a", 51n, 0)], 5000, 100n)?.id, "a");
+    assert.equal(impeachmentWinner([cand("a", 50n, 0)], 5000, 100n, SUPPLY), null);
+    assert.equal(impeachmentWinner([cand("a", 51n, 0)], 5000, 100n, SUPPLY)?.id, "a");
   });
 
   it("the most backing wins, and a tie goes to the earliest nomination", () => {
-    assert.equal(impeachmentWinner([cand("a", 60n, 2), cand("b", 70n, 5)], 5000, 100n)?.id, "b");
-    assert.equal(impeachmentWinner([cand("late", 70n, 5), cand("early", 70n, 2)], 5000, 100n)?.id, "early");
+    assert.equal(impeachmentWinner([cand("a", 60n, 2), cand("b", 70n, 5)], 5000, 100n, SUPPLY)?.id, "b");
+    assert.equal(impeachmentWinner([cand("late", 70n, 5), cand("early", 70n, 2)], 5000, 100n, SUPPLY)?.id, "early");
   });
 
   it("nobody wins with nothing staked", () => {
-    assert.equal(impeachmentWinner([cand("a", 0n, 0)], 5000, 0n), null);
+    assert.equal(impeachmentWinner([cand("a", 0n, 0)], 5000, 0n, SUPPLY), null);
+  });
+
+  it("also requires strictly more than 5% of the whole supply, however large the share of the stake", () => {
+    // All of the stake (100 of 100) backs "a", but 100 is not more than 5% of a supply of 2000.
+    assert.equal(impeachmentWinner([cand("a", 100n, 0)], 5000, 100n, 2000n), null);
+    assert.equal(impeachmentWinner([cand("a", 101n, 0)], 5000, 101n, 2000n)?.id, "a");
+    assert.equal(impeachmentWinner([cand("a", 100n, 0)], 5000, 100n, 1999n)?.id, "a");
+  });
+
+  it("a candidate under the bar does not block one over it, and the higher of the two bars applies", () => {
+    const quorumOnly = [cand("small", 99n, 0), cand("big", 101n, 1)];
+    assert.equal(impeachmentWinner(quorumOnly, 1, 200n, 2000n)?.id, "big");
+    // The stake bar (50% of 400 = 200) is the higher of the two bars here: 150 clears the quorum (100) and still loses.
+    assert.equal(impeachmentWinner([cand("a", 150n, 0)], 5000, 400n, 2000n), null);
+  });
+});
+
+describe("quorum constants", () => {
+  it("match the contract: 5% of supply, thresholds up to 50% of stake", () => {
+    assert.equal(QUORUM_BPS, 500);
+    assert.equal(MAX_IMPEACH_THRESHOLD_BPS, 5000);
   });
 });
