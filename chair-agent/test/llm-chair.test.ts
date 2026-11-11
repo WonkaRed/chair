@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
-import { ANSWER_SCHEMA, AnthropicLlmClient, LLM_MODEL, buildPrompt, llmConfigured, parseAnswer } from "../src/llm-chair.js";
+import { ANSWER_SCHEMA, AnthropicLlmClient, LLM_MODEL, LlmChair, buildPrompt, llmConfigured, parseAnswer } from "../src/llm-chair.js";
 import { snapshot } from "./helpers.js";
 
 test("the prompt is numbers only: no account ids and no free-form chain text", () => {
@@ -53,6 +53,9 @@ test("AnthropicLlmClient builds the documented request and reads the reply", asy
     assert.deepEqual(out, { text: '{"rate_bps": 5, "reasoning": "ok"}', stopReason: "end_turn" });
     const b = seen!.body;
     assert.equal(b["model"], "claude-sonnet-5-5");
+    assert.equal(client.label, "llm:claude-sonnet-5-5", "only the client that calls the real model carries its id");
+    assert.equal(new LlmChair(client).name, "llm:claude-sonnet-5-5");
+    assert.equal(new LlmChair({ complete: client.complete.bind(client) }).name, "llm:unlabelled-client", "a client with no label never inherits the real model id");
     assert.equal(b["system"], "S");
     assert.deepEqual(b["messages"], [{ role: "user", content: "U" }]);
     assert.deepEqual((b["output_config"] as Record<string, unknown>)["format"], { type: "json_schema", schema: ANSWER_SCHEMA });

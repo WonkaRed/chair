@@ -1,7 +1,7 @@
 # sim
 
 A 60-epoch supply simulator for $CHAIR. It does its own integer arithmetic (mint, reward accounting, burn,
-decay, the `set_policy` checks, the stake lock, the impeachment threshold) over nine named scenarios, prints a
+decay, the `set_policy` checks, the stake lock, the impeachment threshold) over twelve named scenarios, prints a
 table per scenario, and writes a JSON file for charting. Its fidelity claim is exactly three things: it
 reproduces the SPEC worked vectors (tests), it was read against the contract source (below), and it does not
 execute the contract. It is a toy model of a toy monetary mechanism: it says what the rules do to supply under
@@ -19,12 +19,12 @@ Contract: [`../SPEC.md`](../SPEC.md) ("Epochs and rollover", "Worked vectors").
 
 ## Run it
 
-Needs Node 22 or newer and npm (the only dependencies are `typescript` and `@types/node`, pinned exactly).
+Needs Node 22 or newer (`engines.node` in `package.json` is `>=22`; `chair-agent` and `web` ask for 22.22.2, the floor the repo is developed on) and npm (the only dependencies are `typescript` and `@types/node`, pinned exactly).
 No network is used after `npm ci`, no keys.
 
 ```sh
-make test     # typecheck, then 67 tests (node --test)
-make demo     # the nine scenario tables on stdout, and out/scenarios.json
+make test     # typecheck, then 81 tests (node --test)
+make demo     # the twelve scenario tables on stdout, and out/scenarios.json
 node dist/src/main.js --all --out /some/where.json   # after a build: every epoch, custom JSON path
 ```
 
@@ -68,6 +68,9 @@ holds no stake cannot back; a vote for an unknown candidate is ignored.
 
 | id | what it shows |
 | --- | --- |
+| `honest-rule-chair` | the shipped rule chair `rule-v1` (hand-ported, same constants): asks for +50 bps at 30% staked and brakes to 0 after supply grew 3% in 6 epochs |
+| `max-inflation` | +50 bps per epoch to the +200 bound, held |
+| `max-deflation` | -50 bps per epoch to the -200 bound, held |
 | `steady-easing` | +25 bps per epoch to +100, held; 30% staked |
 | `steady-tightening` | -25 bps per epoch to -100, held |
 | `chair-goes-silent` | eases to +150, then never calls `set_policy`: the rate holds one epoch, then decays 50 bps per epoch to 0 |

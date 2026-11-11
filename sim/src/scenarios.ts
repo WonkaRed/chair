@@ -16,9 +16,49 @@ const silentAfter = (until: number, inner: ChairPolicy): ChairPolicy => (v) => (
 /** Eases for the first half and tightens for the second. */
 const wave: ChairPolicy = (v) => (v.epoch < 30 ? ramp(25, 100)(v) : ramp(50, -100)(v));
 
+/**
+ * rule-v1 of `../chair-agent/src/rule-chair.ts`, same constants, hand-ported to what the simulator shows a chair:
+ * it wants half the supply staked and asks for `(5000 - staked share bps) / 40` bps, holds easing at 0 when supply grew
+ * more than 3% over the last 6 epochs (tightening when it shrank that much), moves one step toward the wanted rate and ignores
+ * gaps under 5 bps unless the wanted rate is 0. The supply history is its own, indexed by epoch, so a second run starts clean.
+ */
+const ruleChair = (): ChairPolicy => {
+  const supplyAt: bigint[] = [];
+  return (v) => {
+    supplyAt[v.epoch] = v.supply;
+    let wanted = Math.trunc((5000 - Number((v.totalStaked * 10_000n) / v.supply)) / 40);
+    const oldest = supplyAt[v.epoch - 6];
+    if (oldest !== undefined) {
+      const drift = ((v.supply - oldest) * 10_000n) / oldest;
+      if ((drift > 300n && wanted > 0) || (drift < -300n && wanted < 0)) wanted = 0;
+    }
+    const gap = wanted - v.rateBps;
+    if (gap === 0 || (wanted !== 0 && Math.abs(gap) < 5)) return v.rateBps;
+    return v.rateBps + Math.max(-50, Math.min(50, gap));
+  };
+};
+
 const common = { velocityBps: 2000, transfersPerEpoch: 5, impeachThresholdBps: 5000, votes: [] } as const;
 
 export const SCENARIOS: readonly Scenario[] = [
+  {
+    ...common, id: "honest-rule-chair", stakedBps: 3000,
+    title: "Honest chair",
+    description: "The shipped rule chair (rule-v1): with 30% staked it asks for +50 bps, and it brakes to 0 whenever supply has grown more than 3% over the last 6 epochs, so it eases in bursts and never runs away.",
+    chairs: [{ name: "rule-v1", policy: ruleChair() }],
+  },
+  {
+    ...common, id: "max-inflation", stakedBps: 3000,
+    title: "Maximally inflationary chair",
+    description: "The chair raises the rate 50 bps per epoch, the most the contract allows, to the +200 bound and holds it. 30% of the supply is staked, so every epoch mints 2% of supply to stakers.",
+    chairs: [{ name: "inflator", policy: ramp(50, 200) }],
+  },
+  {
+    ...common, id: "max-deflation", stakedBps: 3000,
+    title: "Maximally deflationary chair",
+    description: "The chair lowers the rate 50 bps per epoch to the -200 bound and holds it. Nothing is minted; every transfer burns 2%.",
+    chairs: [{ name: "deflator", policy: ramp(50, -200) }],
+  },
   {
     ...common, id: "steady-easing", stakedBps: 3000,
     title: "Steady easing",

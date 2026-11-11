@@ -70,6 +70,22 @@ describe("scenario behavior", () => {
     assert.ok(tail.every((r) => r.minted === 0n && r.burned === 0n));
   });
 
+  it("the honest rule chair eases to +50, brakes to 0 once supply has grown 3% in 6 epochs, and starts clean on a second run", () => {
+    const rates = get("honest-rule-chair").rows.map((r) => r.rateBps);
+    assert.deepEqual(rates.slice(0, 9), [50, 50, 50, 50, 50, 50, 0, 50, 50]);
+    assert.ok(rates.every((x) => x === 0 || x === 50), "with 30% staked it asks for +50 and never anything else");
+    const again = run(SCENARIOS.find((s) => s.id === "honest-rule-chair")!);
+    assert.deepEqual(again.rows.map((r) => r.rateBps), rates);
+  });
+
+  it("the maximally inflationary and deflationary chairs climb 50 bps a step to a bound and stay", () => {
+    assert.deepEqual(get("max-inflation").rows.map((r) => r.rateBps).slice(0, 6), [50, 100, 150, 200, 200, 200]);
+    assert.deepEqual(get("max-deflation").rows.map((r) => r.rateBps).slice(0, 6), [-50, -100, -150, -200, -200, -200]);
+    assert.ok(get("max-inflation").rows.every((r) => r.burned === 0n));
+    assert.equal(get("max-deflation").totalMinted, 0n);
+    assert.ok(get("max-inflation").rows[EPOCHS - 1]!.supply > get("honest-rule-chair").rows[EPOCHS - 1]!.supply);
+  });
+
   it("the max-step chair moves 50 bps every epoch and touches both bounds", () => {
     const rates = get("max-step-pusher").rows.map((r) => r.rateBps);
     assert.ok(rates.every((x, i) => Math.abs(x - (rates[i - 1] ?? 0)) === 50));

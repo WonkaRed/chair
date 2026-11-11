@@ -21,6 +21,8 @@ export interface LlmResponse {
 
 /** The boundary to the model. The real one wraps the Anthropic SDK; tests supply a fake. */
 export interface LlmClient {
+  /** The chair name shown in decisions and the log. Only a client that really calls a model names it; a stand-in must say so. */
+  readonly label?: string;
   complete(req: LlmRequest): Promise<LlmResponse>;
 }
 
@@ -110,8 +112,10 @@ export function parseAnswer(res: LlmResponse): Proposal {
 }
 
 export class LlmChair implements Chair {
-  readonly name = `llm:${LLM_MODEL}`;
-  constructor(private readonly client: LlmClient) {}
+  readonly name: string;
+  constructor(private readonly client: LlmClient) {
+    this.name = client.label ?? "llm:unlabelled-client";
+  }
 
   async propose(input: DecisionInput, signal: AbortSignal): Promise<Proposal> {
     const { system, user } = buildPrompt(input);
@@ -121,6 +125,7 @@ export class LlmChair implements Chair {
 
 /** The real client. The key comes from ANTHROPIC_API_KEY only, read by the SDK itself. */
 export class AnthropicLlmClient implements LlmClient {
+  readonly label = `llm:${LLM_MODEL}`;
   private readonly sdk: Anthropic;
   /** `baseURL` exists so a test can point the real SDK at a local server; leave it unset otherwise. */
   constructor(opts: { baseURL?: string; apiKey?: string } = {}) {

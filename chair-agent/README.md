@@ -19,12 +19,12 @@ Needs Node 22.22.2 or newer and npm. Dependencies are pinned exactly in `package
 `@types/node` 26.6.6.
 
 ```sh
-make test   # typecheck, then 102 tests with node --test; no network except loopback fakes, no key; temp files go under out/test-tmp (override with CHAIR_TEST_TMP)
+make test   # typecheck, then 108 tests with node --test; no network except loopback fakes, no key; temp files go under out/test-tmp (override with CHAIR_TEST_TMP)
 make demo   # 16 epochs against an in-memory model of the token; prints a table, writes out/demo-decisions.jsonl
 ```
 
-The demo exercises the guard rails: the agent is "down" for two epochs (the rate decays), a fake LLM answers
-garbage (fallback to the rule chair), and a fake LLM asks for +900 bps (clamped). It ends with `PASS` only if
+The demo exercises the guard rails: the agent is "down" for two epochs (the rate decays), a scripted stand-in for the LLM answers
+garbage (fallback to the rule chair) and later asks for +900 bps (clamped). No model is called: the stand-in is labelled `llm:scripted-stand-in` in the demo output and in `out/demo-decisions.jsonl`; only the real client carries the model id. It ends with `PASS` only if
 every decision stayed inside the bounds and every on-chain hash matches its logged text.
 
 ## Use it against a test network
@@ -68,7 +68,7 @@ final block; supply history comes from its own decision log.
 ## The LLM chair
 
 `LlmChair` sends the model only numbers (rate, bounds, supply, staked share, drift), asks for a JSON object
-`{rate_bps, reasoning}` through structured output, and uses model `claude-sonnet-5-5` via the official SDK. The
+`{rate_bps, reasoning}` through structured output, and uses model `claude-sonnet-5-5` via the official SDK (the chair name `llm:claude-sonnet-5-5` is reported by that client only; any other client is `llm:unlabelled-client` unless it names itself). The
 agent then clamps the rate into the bounds of the window read after the model answered (see below). Any error, timeout (`--llm-timeout-ms`, default 30000), refusal,
 truncated answer, wrong or duplicate keys, non-integer or out-of-range type falls back to the rule chair, and the reasoning
 text says so. Model text is never used for anything but the logged reasoning: it does not reach a shell, a path,
@@ -116,6 +116,10 @@ full-access and wrongly scoped keys are refused; the real RPC, signing and SDK c
 loopback fake servers. NOT verified: the LLM chair against the real Anthropic API, and the signer and RPC client
 against a real NEAR sandbox or testnet. The chain reader assumes the SPEC view shapes.
 
-Choices where SPEC is silent: the format of `reasoning_hash` (SPEC only requires 1..=128 bytes; this agent uses
-SHA-256 hex), and the rule above. The agent acts late-epoch-safe: it picks a rate valid both before and after a
+`reasoning_hash` is a rule of the contract, not a choice of this agent: `set_policy` panics unless it is exactly 64
+lowercase hex characters (`reasoning_hash must be a SHA-256 digest: 64 lowercase hex characters`), and `fake-chain.ts`
+mirrors that check, in the contract's order. `test/contract-mirror.test.ts` fails if the agent ever signs another
+shape or a hash that is not the SHA-256 of the text it logged. The agent calls `set_policy` only: it never calls
+`back`, `unback`, `claim` or `withdraw_nomination` (now `#[payable]`, exactly 1 yoctoNEAR), `stake` or `nominate`, and its
+key cannot attach a deposit. The agent acts late-epoch-safe: it picks a rate valid both before and after a
 rollover that happens while the transaction is in flight (`--margin-ms`).

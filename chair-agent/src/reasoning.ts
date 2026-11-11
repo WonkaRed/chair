@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-/** The contract takes 1..=128 bytes; a lowercase hex SHA-256 is always 64. */
+/** What `set_policy` accepts as `reasoning_hash` (policy.rs `is_sha256_hex`): a SHA-256 digest as 64 lowercase hex characters. */
 export const HASH_RE = /^[0-9a-f]{64}$/;
 
 /** Cap on the text a decision may carry. Model output is cut, never trusted to be short. */

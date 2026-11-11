@@ -1,6 +1,6 @@
 // Offline demo: the chair runs 16 epochs against an in-memory model of the token. No network, no key,
 // no spend. Three epochs are scripted to show what the guard rails do: the agent is down for two epochs
-// (the rate decays), a fake LLM answers garbage (fallback to the rule chair), and a fake LLM asks for
+// (the rate decays), a scripted stand-in for the LLM (labelled `llm:scripted-stand-in`, no model is called) answers garbage (fallback to the rule chair), and a fake LLM asks for
 // a rate far outside the bounds (clamped).
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
@@ -22,6 +22,7 @@ const FAKE_LLM: Record<number, string> = {
 
 function fakeLlm(epoch: () => number): LlmClient {
   return {
+    label: "llm:scripted-stand-in",
     complete: () => Promise.resolve({ text: FAKE_LLM[epoch()] ?? "", stopReason: "end_turn" }),
   };
 }

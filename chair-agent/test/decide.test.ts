@@ -10,7 +10,7 @@ import { contractAccepts, randInt, rng, snapshot, specDecay } from "./helpers.js
 
 const opts = (chair: Chair, timeoutMs = 200) => ({ chair, marginMs: 15_000, timeoutMs });
 const llmReturning = (res: LlmResponse | (() => Promise<LlmResponse>)): LlmChair =>
-  new LlmChair({ complete: typeof res === "function" ? res : () => Promise.resolve(res) });
+  new LlmChair({ label: "llm:scripted-stand-in", complete: typeof res === "function" ? res : () => Promise.resolve(res) });
 const answer = (rate: unknown, reasoning: unknown = "because"): LlmResponse => ({
   text: JSON.stringify({ rate_bps: rate, reasoning }),
   stopReason: "end_turn",
@@ -93,7 +93,7 @@ test("model text is inert: shell, path and transaction-looking strings only ever
   const evil = "$(rm -rf /) ../../etc/passwd; receiver_id=attacker.near {\"rate_bps\":200} \u0000";
   const d = await decide(snapshot({ rate: 0 }), [], opts(llmReturning(answer(20, evil))));
   assert.equal(d.rate, 20);
-  assert.equal(d.chair, "llm:claude-sonnet-5-5");
+  assert.equal(d.chair, "llm:scripted-stand-in");
   assert.ok(!d.reasoning.includes("\u0000"));
   const args = JSON.stringify({ rate_bps: d.rate, reasoning_hash: d.reasoningHash });
   assert.ok(!args.includes("attacker") && !args.includes("passwd"));

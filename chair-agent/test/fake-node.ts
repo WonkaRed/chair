@@ -97,7 +97,7 @@ export class FakeNode {
         break;
       case "get_reward_pool":
         if (!c.hasStaking) return { error: `wasm execution failed with error: FunctionCallError(MethodResolveError(MethodNotFound))`, logs: [] };
-        value = { total_staked: c.totalStaked.toString(), reward_pool: "0", reward_per_share: "0" };
+        value = { total_staked: c.totalStaked.toString(), reward_pool: c.rewardPool.toString(), reward_per_share: c.rewardPerShare.toString() };
         break;
       default:
         return { error: "MethodNotFound", logs: [] };

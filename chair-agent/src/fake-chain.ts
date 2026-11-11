@@ -1,11 +1,18 @@
 // An in-memory stand-in for the token, used by the tests and the offline demo. It follows SPEC.md
 // ("Methods", "Epochs and rollover") and is not the contract: sandbox-tests/ is where the real wasm
-// is exercised. It exists so the chair can be driven through many epochs without a network.
+// is exercised. It exists so the chair can be driven through many epochs without a network. Modeled from the
+// contract: `set_policy` checks and order, the mint, the decay, the reward pool. Not modeled: impeachment (the
+// chair never changes), staking, voting, transfers and the burn; the agent calls none of them.
 import type { Reader } from "./chain.js";
 import type { Submitter, SubmitResult } from "./signer.js";
 import type { Decision, Params, Policy, Snapshot } from "./types.js";
 
-const MAX_TOTAL_SUPPLY = (1n << 128n) / 10_000n - 1n;
+const U128_MAX = (1n << 128n) - 1n;
+/** Contract constant `MAX_TOTAL_SUPPLY = u128::MAX / 10_000` (lib.rs). */
+const MAX_TOTAL_SUPPLY = U128_MAX / 10_000n;
+/** `is_sha256_hex` (policy.rs): exactly 64 characters, each `0-9` or `a-f`. Written here, not shared with reasoning.ts. */
+const SHA256_HEX = /^[0-9a-f]{64}$/;
+const REWARD_SCALE = 10n ** 24n;
 
 export class FakeChain implements Reader, Submitter {
   readonly params: Params;
@@ -16,6 +23,10 @@ export class FakeChain implements Reader, Submitter {
   chairSince = 0;
   totalSupply: bigint;
   totalStaked: bigint;
+  /** Minted for stakers and not claimed; nothing here claims, so it only grows (`reward_pool` in `get_reward_pool`). */
+  rewardPool = 0n;
+  /** `reward_per_share` in `get_reward_pool`: the floor-accrued index, scaled by 10^24. */
+  rewardPerShare = 0n;
   /** Set to false to model a contract that has no staking views yet. */
   hasStaking = true;
   /** Every `set_policy` that went through: what a `policy_set` event would carry. */
@@ -44,9 +55,12 @@ export class FakeChain implements Reader, Submitter {
     while (this.applied < this.epoch) {
       const closing = this.applied;
       if (this.rateBps > 0 && this.totalStaked > 0n) {
-        const room = MAX_TOTAL_SUPPLY - this.totalSupply;
-        const minted = (this.totalSupply * BigInt(this.rateBps)) / 10_000n;
-        this.totalSupply += minted < room ? minted : room;
+        const room = this.totalSupply < MAX_TOTAL_SUPPLY ? MAX_TOTAL_SUPPLY - this.totalSupply : 0n; // saturating_sub
+        const exact = (this.totalSupply * BigInt(this.rateBps)) / 10_000n;
+        const minted = exact < room ? exact : room;
+        this.totalSupply += minted;
+        this.rewardPool += minted;
+        this.rewardPerShare += (minted * REWARD_SCALE) / this.totalStaked;
       }
       if (this.lastSetEpoch !== closing) this.rateBps -= Math.sign(this.rateBps) * Math.min(Math.abs(this.rateBps), 50); // SPEC step 2, written here on its own, not shared with bounds.ts
       this.applied++;
@@ -71,7 +85,7 @@ export class FakeChain implements Reader, Submitter {
       params: this.params,
       policy,
       totalSupply: this.totalSupply,
-      staking: this.hasStaking ? { totalStaked: this.totalStaked, rewardPool: 0n } : null,
+      staking: this.hasStaking ? { totalStaked: this.totalStaked, rewardPool: this.rewardPool } : null,
     });
   }
 
@@ -80,7 +94,7 @@ export class FakeChain implements Reader, Submitter {
     const { maxRateBps, maxStepBps } = this.params;
     let panic: string | null = null;
     if (caller !== this.chair) panic = "only the chair may set policy";
-    else if (reasoningHash.length < 1 || reasoningHash.length > 128) panic = "reasoning_hash must be 1..=128 bytes";
+    else if (!SHA256_HEX.test(reasoningHash)) panic = "reasoning_hash must be a SHA-256 digest: 64 lowercase hex characters";
     else if (this.lastSetEpoch === this.epoch) panic = "policy already set this epoch";
     else if (!Number.isInteger(rateBps) || Math.abs(rateBps) > maxRateBps) panic = `rate_bps out of bounds: must be within -${maxRateBps}..=${maxRateBps}`;
     else if (Math.abs(rateBps - this.rateBps) > maxStepBps) panic = "rate step too large: must move at most 50 bps from the current rate";

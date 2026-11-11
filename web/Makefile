@@ -1,5 +1,16 @@
-.PHONY: build test demo
+.PHONY: build test serve record
 
-# Stub: this lane has not started. Replace these targets with real ones.
-build test demo:
-	@echo "web: stub, nothing to do yet"
+# The page runs the repo's own simulator, so the sim is compiled first (needs Node 22.22.2 or newer and npm).
+build:
+	$(MAKE) -C ../sim build
+	node scripts/build.mjs
+
+test: build
+	node --test "test/*.test.mjs"
+
+serve: build
+	node scripts/serve.mjs
+
+# Re-records fixtures/sandbox-run.json from a local NEAR sandbox. Slow (builds the contract); needs the Rust toolchain.
+record:
+	cd recorder && cargo run --release -- ../fixtures/sandbox-run.json
