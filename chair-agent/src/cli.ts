@@ -74,7 +74,7 @@ export function formatDecision(d: Decision, token: string, account: string): str
     "--- reasoning (the text behind the hash; each line prefixed, the prefix is not hashed) ---",
     ...d.reasoning.split("\n").map((line) => `${QUOTE}${line}`),
     "--- transaction ---",
-    `${account} -> ${token}.${METHOD}(${args})`,
+    `${account} -> ${token}.${METHOD}(${args} plus "reasoning": the text above)`,
   ].join("\n");
 }
 

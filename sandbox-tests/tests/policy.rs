@@ -2,6 +2,7 @@
 //! Each test launches its own token and acts as the chair through a function-call key scoped to
 //! `set_policy`, the way the chair runs in production.
 
+use near_workspaces::types::Gas;
 use sandbox_tests::{EPOCH_MS, events, failure_text, launch};
 use serde_json::json;
 
@@ -30,6 +31,45 @@ async fn chair_can_set_an_in_bounds_rate() -> anyhow::Result<()> {
             "chair": chair.id(), "epoch": 0, "rate_bps": 40, "previous_rate_bps": 0,
             "reasoning_hash": "ab".repeat(32),
         })
+    );
+    Ok(())
+}
+
+/// The chair publishes its reasoning text as an extra `reasoning` argument of `set_policy`. The method does not
+/// declare it and near-sdk ignores JSON fields a method does not declare, so the same hash is stored and logged
+/// and the call burns under half of the 30 Tgas the agent attaches, even with the longest text the agent sends:
+/// 2000 UTF-16 units, which take 3 bytes each in UTF-8.
+#[tokio::test]
+async fn an_extra_reasoning_argument_is_ignored_and_the_hash_is_unchanged() -> anyhow::Result<()> {
+    let t = launch(EPOCH_MS).await?;
+    let chair = t.scoped_chair().await?;
+    let reasoning = "\u{20ac}".repeat(2000);
+    assert_eq!(reasoning.len(), 6000);
+
+    let result = chair
+        .call(t.token.id(), "set_policy")
+        .args_json(json!({
+            "rate_bps": 40, "reasoning_hash": "ab".repeat(32), "reasoning": reasoning,
+        }))
+        .gas(Gas::from_tgas(30))
+        .transact()
+        .await?;
+    assert!(result.is_success(), "{}", failure_text(&result));
+
+    assert_eq!(t.policy().await?.rate_bps, 40);
+    let events = events(&result);
+    assert_eq!(events.len(), 1);
+    assert_eq!(
+        events[0]["data"],
+        json!({
+            "chair": chair.id(), "epoch": 0, "rate_bps": 40, "previous_rate_bps": 0,
+            "reasoning_hash": "ab".repeat(32),
+        })
+    );
+    let burnt: u64 = result.outcomes().iter().map(|o| o.gas_burnt.as_gas()).sum();
+    assert!(
+        burnt <= Gas::from_tgas(15).as_gas(),
+        "6000 bytes of reasoning burnt {burnt} gas, over half of the 30 Tgas attached"
     );
     Ok(())
 }

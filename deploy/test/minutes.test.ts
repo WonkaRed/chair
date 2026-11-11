@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { sha256Hex } from "../src/deploy.ts";
-import { describeMinutes, gatherMinutes } from "../src/minutes.ts";
+import { describeMinutes, gatherMinutes, listEpochs } from "../src/minutes.ts";
 
 const scratch = join(homedir(), ".scratch", "tmp");
 mkdirSync(scratch, { recursive: true });
@@ -16,11 +16,12 @@ const ACCOUNT = "challenger.chair-coin.testnet";
 const text = (epoch: number) => `$CHAIR decision, epoch ${epoch}.\nRate in effect 0 bps; decision 10 bps.\n${"A long reasoning line. ".repeat(10)}`;
 const txHash = (n: number) => `${String(n)}`.repeat(44).slice(0, 44);
 
-/** One `set_policy` transaction in the shape the indexer returns it. */
-function tx(n: number, epoch: number, rate: number, hash: string) {
+/** One `set_policy` transaction in the shape the indexer returns it; `reasoning` is the extra argument the chair sends with the text. */
+function tx(n: number, epoch: number, rate: number, hash: string, reasoning?: string) {
+  const args = Buffer.from(JSON.stringify({ rate_bps: rate, reasoning_hash: hash, ...(reasoning === undefined ? {} : { reasoning }) })).toString("base64");
   const event = { standard: "chair", version: "1.0.0", event: "policy_set", data: { chair: ACCOUNT, epoch, rate_bps: rate, previous_rate_bps: 0, reasoning_hash: hash } };
   return {
-    transaction: { hash: txHash(n), signer_id: ACCOUNT, actions: [{ FunctionCall: { method_name: "set_policy" } }] },
+    transaction: { hash: txHash(n), signer_id: ACCOUNT, actions: [{ FunctionCall: { method_name: "set_policy", args } }] },
     receipts: [{ execution_outcome: { block_height: 100 + n, block_timestamp: "1700000000000000000", outcome: { executor_id: TOKEN, status: { SuccessValue: "" }, logs: [`EVENT_JSON:${JSON.stringify(event)}`] } } }],
   };
 }
@@ -53,10 +54,27 @@ test("a recorded text that hashes to the chain's hash is verified; a decision wi
   const lines = describeMinutes(m);
   assert.equal(lines[0], "latest decisions on chain (2 of 2, newest first):");
   assert.equal(lines[1], `  epoch 2, rate +20 bps, reasoning_hash ${"b".repeat(64)}`);
-  assert.equal(lines[2], "      no text recorded in docs/ for this hash, so nothing to compare (not an error)");
+  assert.equal(lines[2], "      no text in the transaction or in docs/ for this hash, so nothing to compare (not an error)");
   assert.equal(lines[3], `  epoch 1, rate +10 bps, reasoning_hash ${sha256Hex(text(1))}`);
   assert.equal(lines[4], `      "${text(1).replace(/\s+/g, " ").slice(0, 100)}..."`);
-  assert.equal(lines[5], "      SHA-256 of the recorded text equals the hash on chain");
+  assert.equal(lines[5], "      SHA-256 of the text recorded in docs/ equals the hash on chain");
+  assert.deepEqual(lines.slice(6), ["", "decisions with no checkable text (1 of 2), by epoch: 2"]);
+});
+
+test("a text in the transaction's arguments is checked against the event's hash, and a wrong one is a mismatch", async () => {
+  const txs = [tx(1, 1, 10, sha256Hex(text(1)), text(1)), tx(2, 2, 20, sha256Hex(text(2)), "not what was hashed"), tx(3, 3, 30, "e".repeat(64))];
+  const m = await gatherMinutes("https://rpc.invalid", TOKEN, docs("empty-chain", []), indexer(txs));
+  assert.deepEqual(m.decisions.map((d) => [d.epoch, d.onChain, d.verdict]), [[3, false, null], [2, true, "mismatch"], [1, true, "verified"]]);
+  const lines = describeMinutes(m);
+  assert.ok(lines.includes("      SHA-256 of the text in the transaction's arguments equals the hash on chain"));
+  assert.ok(lines.includes("      MISMATCH: SHA-256 of the text in the transaction's arguments is NOT the hash on chain"));
+  assert.equal(lines.at(-1), "decisions with no checkable text (1 of 3), by epoch: 3");
+});
+
+test("the epochs without a checkable text are listed in order, runs of three or more as a range", () => {
+  assert.equal(listEpochs([]), "");
+  assert.equal(listEpochs([1, 2, 3, 4, 7, 8, 9, 10, 31, 32, 36, 37, 219, 220, 310]), "1 to 4, 7 to 10, 31, 32, 36, 37, 219, 220, 310");
+  assert.equal(listEpochs([5, 6, 9]), "5, 6, 9");
 });
 
 test("a recorded text that does not hash to the chain's hash is a mismatch, never a pass", async () => {
@@ -82,18 +100,19 @@ test("the list shows only the newest five, and a text is cut to 100 characters w
   const weird = { ...m, decisions: [{ ...(m.decisions[0] as (typeof m.decisions)[number]), text: "a\u001b[2Jb", verdict: "verified" as const }] };
   assert.equal(describeMinutes(weird)[2], '      "a?[2Jb"');
   const bad = { ...weird, decisions: weird.decisions.map((d) => ({ ...d, verdict: "mismatch" as const })) };
-  assert.equal(describeMinutes(bad)[3], "      MISMATCH: SHA-256 of the recorded text is NOT the hash on chain");
+  assert.equal(describeMinutes(bad)[3], "      MISMATCH: SHA-256 of the text recorded in docs/ is NOT the hash on chain");
 });
 
 test("older decisions with a recorded text are listed after the newest five when those have none", async () => {
   const dir = docs("older", [{ epoch: 1, reasoning: text(1), hash: sha256Hex(text(1)) }]);
   const txs = [tx(1, 1, 10, sha256Hex(text(1))), ...[2, 3, 4, 5, 6, 7].map((n) => tx(n, n, 0, "d".repeat(64)))];
   const lines = describeMinutes(await gatherMinutes("https://rpc.invalid", TOKEN, dir, indexer(txs)));
-  const at = lines.indexOf("latest decisions with a text recorded in docs/ (1 more):");
+  const at = lines.indexOf("latest decisions with a checkable text (1 more):");
   assert.ok(at > 0, lines.join("\n"));
   assert.equal(lines[at - 1], "");
   assert.equal(lines[at + 1], `  epoch 1, rate +10 bps, reasoning_hash ${sha256Hex(text(1))}`);
-  assert.equal(lines.at(-1), "      SHA-256 of the recorded text equals the hash on chain");
+  assert.equal(lines.at(-3), "      SHA-256 of the text recorded in docs/ equals the hash on chain");
+  assert.equal(lines.at(-1), "decisions with no checkable text (6 of 7), by epoch: 2 to 7");
 });
 
 test("an index that cannot be read is reported, not hidden, and a missing docs folder is a warning", async () => {

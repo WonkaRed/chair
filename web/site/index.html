@@ -20,6 +20,7 @@
     <a class="mark" href="#top" id="top" aria-label="$CHAIR, top of page"><span class="glyph" aria-hidden="true"></span>$CHAIR</a>
     <nav aria-label="Sections">
       <a href="#minutes">Minutes</a>
+      <a href="#refusals">Refusals</a>
       <a href="#now">Rate</a>
       <a href="#ledger">Ledger</a>
       <a href="#log">Log</a>
@@ -43,12 +44,18 @@
     <details class="assumptions">
       <summary>How the check works, and what it does not show</summary>
       <ul class="plain">
-        <li>The contract stores the hash and logs it in a <code>policy_set</code> event with the epoch and the rate. The reasoning text is not on chain.</li>
-        <li>The texts are the ones the chair saved when it ran. They are copied into this page's files when the page is built, from the <code>docs/</code> folder of the repo. Nothing is fetched from a model or a server of ours.</li>
-        <li>Your browser computes the SHA-256 of the exact text shown and compares it with the hash read from the chain. Verified means this is the text the chair committed to in that transaction. A decision without a saved text shows its hash only.</li>
+        <li>The contract stores the hash and logs it in a <code>policy_set</code> event with the epoch and the rate. The chair also sends the reasoning text as an extra argument of the same <code>set_policy</code> call. The contract ignores it, but it stays in the transaction, so it is public.</li>
+        <li>This page reads that text from the transaction's arguments. Decisions made before the chair sent it have no text there: for those, the chair's own saved text is used, copied into this page's files when the page is built, from the <code>docs/</code> folder of the repo. Nothing is fetched from a model or a server of ours.</li>
+        <li>Your browser computes the SHA-256 of the exact text shown and compares it with the hash read from the chain. Verified means this is the text the chair committed to in that transaction. A decision with neither text shows its hash only.</li>
         <li>A match does not show the chair was right, or that the text is the real reason for the rate. It shows the text was not edited after the decision.</li>
       </ul>
     </details>
+  </section>
+
+  <section id="refusals" aria-labelledby="refusals-h">
+    <h2 id="refusals-h">Refusals</h2>
+    <p class="note">Every <code>set_policy</code> call the contract turned down, with the reason it gave. A refused call changes nothing and logs no event, so it is not among the minutes.</p>
+    <div id="refusals-body" class="slot">Loading…</div>
   </section>
 
   <section id="now" aria-labelledby="now-h">

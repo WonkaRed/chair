@@ -19,7 +19,7 @@ export interface Snapshot {
   readonly policy: Policy;
   /** `ft_balance_of` plus stake for every recorded account. */
   readonly recordedHoldings: bigint;
-  /** The chair's decisions from the chain's events, with the recorded reasoning text matched to each hash. */
+  /** The chair's decisions from the chain's events, with the reasoning text (from the transaction or docs/) matched to each. */
   readonly minutes: Minutes;
 }
 
@@ -119,14 +119,15 @@ export function evaluate(record: DeploymentRecord, s: Snapshot, wasmSha256?: str
   // deployment. A recorded text that does not hash to its own hash is wrong whether or not the index is up, so that still fails.
   const m = s.minutes;
   if (m.error === null || m.warnings.length > 0) {
-    const recorded = m.decisions.filter((d) => d.verdict !== null).length;
+    const withText = m.decisions.filter((d) => d.verdict !== null).length;
+    const onChain = m.decisions.filter((d) => d.verdict !== null && d.onChain).length;
     const verified = m.decisions.filter((d) => d.verdict === "verified").length;
     const docsProblems = m.warnings.length > 0 ? `docs/ problems: ${m.warnings.join("; ")}` : "";
     check(
-      "each recorded reasoning text hashes (SHA-256) to the reasoning_hash the chain holds",
-      m.warnings.length === 0 && verified === recorded,
+      "each reasoning text, from the transaction or docs/, hashes (SHA-256) to the reasoning_hash the chain holds",
+      m.warnings.length === 0 && verified === withText,
       m.error === null
-        ? `${recorded} of ${m.decisions.length} decisions on chain have a text recorded in docs/, ${verified} of them match${docsProblems === "" ? "" : `; ${docsProblems}`}`
+        ? `${withText} of ${m.decisions.length} decisions on chain have a text (${onChain} in the transaction, ${withText - onChain} in docs/), ${verified} of them match${docsProblems === "" ? "" : `; ${docsProblems}`}`
         : `${docsProblems}; the decisions on chain could not be read, so no text was compared with the chain`,
     );
   }

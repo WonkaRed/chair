@@ -3,10 +3,11 @@ import { lineChart } from "./charts.js";
 import { clear, h } from "./dom.js";
 import { renderGuarantees, VERIFY_COMMAND } from "./guarantees.js";
 import { loadLog } from "./loadlog.js";
-import { checkDecisions, loadTexts, renderMinutes } from "./minutes.js";
+import { loadTexts, renderMinutes, resolveTexts } from "./minutes.js";
+import { renderRefusals } from "./refusals.js";
 import { BEHAVIOURS, simulate } from "./simview.js";
 import { fixtureTransport, rpcTransport } from "./sources.js";
-import { fmtPct, fmtRate, renderFailure, renderLedger, renderLog, renderNow, renderReconcile, renderSource } from "./views.js";
+import { fmtRate, renderFailure, renderLedger, renderLog, renderNow, renderReconcile, renderSource } from "./views.js";
 import { config } from "../config.js";
 
 const doc = document;
@@ -51,6 +52,7 @@ async function showChain() {
   } catch (e) {
     renderFailure(doc, $("now"), e);
     renderFailure(doc, $("minutes-body"), e);
+    renderFailure(doc, $("refusals-body"), e);
     clear($("ledger-body"));
     return;
   }
@@ -63,17 +65,20 @@ async function showChain() {
     } catch (e) {
       renderFailure(doc, $("now"), e);
       renderFailure(doc, $("minutes-body"), e);
+      renderFailure(doc, $("refusals-body"), e);
       clear($("ledger-body"));
       clear($("reconcile"));
       clear($("log-body"));
       return;
     }
     const bundled = await texts;
-    renderMinutes(doc, $("minutes-body"), data, { texts: bundled, checks: await checkDecisions(data.decisions, bundled), explorer: made.fixture ? null : config.explorerUrl, repoBase: `${config.repoUrl}/blob/${config.repoRef}` });
+    const explorer = made.fixture ? null : config.explorerUrl;
+    renderMinutes(doc, $("minutes-body"), data, { texts: bundled, resolved: await resolveTexts(data.decisions, bundled), explorer, repoBase: `${config.repoUrl}/blob/${config.repoRef}` });
+    renderRefusals(doc, $("refusals-body"), data, { explorer });
     renderNow(doc, $("now"), data);
     renderLedger(doc, $("ledger-body"), data);
     renderReconcile(doc, $("reconcile"), data, { onRetry: run });
-    const draw = () => renderLog(doc, $("log-body"), data, state, { explorer: made.fixture ? null : config.explorerUrl, rerender: draw });
+    const draw = () => renderLog(doc, $("log-body"), data, state, { explorer, rerender: draw });
     draw();
   };
   await run();

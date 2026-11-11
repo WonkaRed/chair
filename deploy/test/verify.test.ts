@@ -22,7 +22,7 @@ const record: DeploymentRecord = {
   scenarioBaseEpoch: 1,
   transactions: [],
 };
-const decision = (epoch: number, verdict: Decision["verdict"]): Decision => ({ epoch, rateBps: 10, hash: "a".repeat(64), tx: "T", text: verdict === null ? null : "reasoning", verdict });
+const decision = (epoch: number, verdict: Decision["verdict"]): Decision => ({ epoch, rateBps: 10, hash: "a".repeat(64), tx: "T", text: verdict === null ? null : "reasoning", onChain: false, verdict });
 const scoped = (publicKey: string): AccessKey => ({ publicKey, permission: { receiverId: accounts.token, methodNames: ["set_policy"], allowance: null } });
 const full = (publicKey: string): AccessKey => ({ publicKey, permission: "FullAccess" });
 
@@ -94,7 +94,7 @@ test("recorded accounts can never hold more than the supply", () => {
 
 test("the recorded reasoning texts must hash to the chain's hashes", () => {
   const s = good();
-  const name = "each recorded reasoning text hashes (SHA-256) to the reasoning_hash the chain holds";
+  const name = "each reasoning text, from the transaction or docs/, hashes (SHA-256) to the reasoning_hash the chain holds";
   const withMinutes = (m: Minutes) => failing({ ...s, minutes: m });
   assert.deepEqual(withMinutes({ decisions: [decision(12, "mismatch")], warnings: [], error: null }), [name]);
   assert.deepEqual(withMinutes({ decisions: [decision(12, "verified"), decision(11, "unchecked")], warnings: [], error: null }), [name]);

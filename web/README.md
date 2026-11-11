@@ -10,8 +10,8 @@ Needs Node 22.22.2 or newer and npm (the build compiles `../sim` first).
 
 ```sh
 make -C web build    # compiles ../sim, writes web/dist (site + config + fixture + the reasoning bundle + a verbatim copy of the compiled simulator + the CSP)
-make -C web serve    # builds, then serves web/dist at http://127.0.0.1:8080/ (PORT=... to change)
-make -C web test     # builds, then `node --test "test/*.test.mjs"`: 27 tests, no browser, no network
+make -C web serve    # builds, then serves web/dist at http://127.0.0.1:8080/ (`PORT=8081 make -C web serve` to change it; a busy port is reported with that hint)
+make -C web test     # builds, then `node --test "test/*.test.mjs"`: 33 tests, no browser, no network
 ```
 
 Deploying is copying `web/dist` to any static host.
@@ -45,15 +45,20 @@ The first section of the page lists the chair's decisions, newest first: the lat
 previous rate, who decided, the reasoning text, the transaction, and a mark. From the voice change on, the reasoning is written in character ("The Chair", a deadpan parody of a central banker); older decisions keep their plain text, and the page shows either exactly as hashed. When the chair has been silent the section says for how many epochs and what the rate has decayed to.
 
 - **From the chain:** every `policy_set` event (`epoch`, `rate_bps`, `previous_rate_bps`, `reasoning_hash`, the chair account) in the same transactions the log reads (`js/decisions.js`), so the feed is live and shares the log's trust rules.
-- **From the build:** the reasoning text is not on chain. `scripts/minutes.mjs` reads `../docs/testnet-run-agent-*decisions.jsonl` (the text exactly, as JSON) and `../docs/testnet-run-agent-*.txt` (the same text behind a `  | ` prefix on each line)
+- **From the transaction:** the live agent sends the reasoning text as an extra `reasoning` argument of its `set_policy` call, which the contract ignores. The page reads it from the transaction's arguments (`argsOf` and `chainText` in `js/decisions.js`), keyed by transaction, and checks it against the hash in that transaction's own event, so a text that does not belong to its transaction is shown as a mismatch, never hidden. Arguments that are not a text (another method, bad base64 or UTF-8, a non-string or empty `reasoning`, oversize arguments) count as no text.
+- **From the build:** older decisions have no text in the transaction. `scripts/minutes.mjs` reads `../docs/testnet-run-agent-*decisions.jsonl` (the text exactly, as JSON) and `../docs/testnet-run-agent-*.txt` (the same text behind a `  | ` prefix on each line)
   and writes `dist/minutes.json`, keyed by hash, with the chair's label and kind from the record. It bundles a text only if its SHA-256 equals the hash the record claims; anything else (a missing folder or file, a bad line, a text that does not hash)
   is skipped with a warning and never stops the build. Add a run record to `docs/` under that naming and rebuild to publish its texts.
 - **In the browser:** `crypto.subtle.digest("SHA-256", ...)` over the exact UTF-8 bytes of the text, compared with the on-chain hash: verified, mismatch, or not checked (a browser without `crypto.subtle`, which needs https or localhost). A decision with no bundled text shows its hash and
   "reasoning text not published for this decision". The text is shown through `textContent`, with control and bidi characters escaped and said so; the check still runs on the exact text.
 
-Decisions made by the live agent show "reasoning text not published for this decision" until their text is added under `docs/` in the file naming above and the page is rebuilt.
+A decision with neither a text in its transaction nor a bundled one shows "reasoning text not published for this decision". When both exist, the one that verifies is used.
 
 A match shows the text is the one the chair committed to in that transaction. It does not show the chair was right or that the text caused the rate.
+
+## Refusals
+
+A `set_policy` call the contract turns down changes nothing and logs no event, but the indexer lists the failed transaction. The Refusals section (`js/refusals.js`, from `refusalsOfTxs` in `js/decisions.js`) lists every such call, newest first, with the rate it asked for when its arguments can be read, the contract's own panic text taken from the failed receipt (`Smart contract panicked: ...`), and a transaction link. It reads the same transactions as the log, so it shares its trust rules: an index that cannot be read is said, not shown as "no refusals". A refusal by the protocol before the contract runs (for example a wrong method on the chair's restricted key) creates no transaction and so cannot appear.
 
 ## Simulation
 

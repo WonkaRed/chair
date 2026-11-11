@@ -22,7 +22,7 @@ const USAGE = `usage: node src/cli.ts <command> [options]
   deploy    --parent <name.testnet> --wasm <file>   create every account and launch the token (resumable)
   scenario                                          the scripted run on chain (resumable)
   verify    [--wasm <file>]                         re-check the deployment from public views; needs no key
-options: --record <file> (default docs/testnet-deployment.json)  --rpc <url> (default ${DEFAULT_RPC})  --keys <dir> (default $CHAIR_TESTNET_KEYS or ~/.claude/secrets/survival-testnet/chair)`;
+options: --record <file> (default docs/testnet-deployment.json)  --rpc <url> (default ${DEFAULT_RPC})  --keys <dir> (default $CHAIR_TESTNET_KEYS or ~/.config/chair-testnet-keys)`;
 
 async function main(argv: string[]): Promise<number> {
   const { positionals, values } = parseArgs({

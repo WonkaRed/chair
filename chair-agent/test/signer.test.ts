@@ -6,7 +6,7 @@ import { test } from "node:test";
 import { KeyPair, SignedTransaction, baseEncode } from "near-api-js";
 import { createHash } from "node:crypto";
 import { RateWindow, DEFAULT_BOUNDS } from "../src/bounds.js";
-import { reasoningHash } from "../src/reasoning.js";
+import { MAX_REASONING_CHARS, reasoningHash } from "../src/reasoning.js";
 import { NearRpc } from "../src/rpc.js";
 import { ChairSigner, GAS, KeyError, assertScoped, loadSecretKey } from "../src/signer.js";
 
@@ -17,8 +17,7 @@ const rate = RateWindow.around(0, DEFAULT_BOUNDS).pick(25);
 
 test("the signed transaction is one zero-deposit set_policy call to the token, signed by the chair key", async () => {
   const signer = new ChairSigner(secret, "chair.test", "token.test", rpc);
-  const hash = reasoningHash("why");
-  const signed = await signer.build(rate, hash, 41n, blockHash);
+  const signed = await signer.build(rate, "why", 41n, blockHash);
   const decoded = SignedTransaction.decode(signed.encode());
   const tx = decoded.transaction;
   assert.equal(tx.signerId, "chair.test");
@@ -29,17 +28,33 @@ test("the signed transaction is one zero-deposit set_policy call to the token, s
   const call = tx.actions[0]!.functionCall;
   assert.ok(call, "the only action is a function call");
   assert.equal(call.methodName, "set_policy");
-  assert.deepEqual(JSON.parse(Buffer.from(call.args).toString("utf8")), { rate_bps: 25, reasoning_hash: hash });
+  assert.deepEqual(JSON.parse(Buffer.from(call.args).toString("utf8")), { rate_bps: 25, reasoning_hash: reasoningHash("why"), reasoning: "why" });
   assert.equal(call.deposit, 0n);
   assert.equal(call.gas, GAS);
   const digest = createHash("sha256").update(tx.encode()).digest();
   assert.ok(tx.publicKey.verify(digest, Uint8Array.from(decoded.signature.ed25519Signature!.data)), "signature verifies against the chair's public key");
 });
 
-test("a reasoning hash that is not 64 hex characters never reaches a transaction", async () => {
+test("the transaction carries the whole reasoning text, longest allowed included, and a hash computed from it", async () => {
   const signer = new ChairSigner(secret, "chair.test", "token.test", rpc);
-  for (const bad of ["", "abc", "A".repeat(64), `${"a".repeat(63)}\n`, "a".repeat(65)]) {
-    await assert.rejects(signer.build(rate, bad, 1n, blockHash), /64 lowercase hex/, JSON.stringify(bad));
+  const longest = "\u20ac".repeat(MAX_REASONING_CHARS);
+  const args = async (text: string): Promise<Record<string, unknown>> => {
+    const call = SignedTransaction.decode((await signer.build(rate, text, 1n, blockHash)).encode()).transaction.actions[0]!.functionCall!;
+    assert.ok(call.args.length <= 6200, `${call.args.length} bytes of arguments`);
+    return JSON.parse(Buffer.from(call.args).toString("utf8")) as Record<string, unknown>;
+  };
+  for (const text of [longest, "line one\nline \u201ctwo\u201d with \"quotes\" and \\ and \u{1F600}"]) {
+    const sent = await args(text);
+    assert.deepEqual(Object.keys(sent).sort(), ["rate_bps", "reasoning", "reasoning_hash"]);
+    assert.equal(sent["reasoning"], text);
+    assert.equal(sent["reasoning_hash"], reasoningHash(text));
+  }
+});
+
+test("text that is empty, too long or not cleaned never reaches a transaction", async () => {
+  const signer = new ChairSigner(secret, "chair.test", "token.test", rpc);
+  for (const bad of ["", " ", "x".repeat(MAX_REASONING_CHARS + 1), " padded ", "bell\u0007", "bidi\u202e", "zero\u200bwidth", "\ud800"]) {
+    await assert.rejects(signer.build(rate, bad, 1n, blockHash), /cleaned text of 1 to 2000 characters/, JSON.stringify(bad));
   }
 });
 

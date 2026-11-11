@@ -48,7 +48,7 @@ test("dry run prints the decision and the transaction, sends nothing, writes no 
   assert.equal(code, 0, o.err_.join("\n"));
   const text = o.out_.join("\n");
   assert.match(text, /rate 0 -> 50 bps/);
-  assert.match(text, /chair\.test -> token\.test\.set_policy\(\{"rate_bps":50,"reasoning_hash":"[0-9a-f]{64}"\}\)/);
+  assert.match(text, /chair\.test -> token\.test\.set_policy\(\{"rate_bps":50,"reasoning_hash":"[0-9a-f]{64}"\} plus "reasoning": the text above\)/);
   assert.match(text, /dry run: nothing sent, nothing logged/);
   assert.equal(node.sent.length, 0);
   assert.equal(existsSync(join(dir, "log.jsonl")), false);

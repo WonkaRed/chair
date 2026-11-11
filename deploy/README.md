@@ -7,20 +7,20 @@ is the only way to get an `Rpc`). Testnet NEAR is free; nothing here touches mai
 Needs Node 22.22.2 or newer (it runs the `.ts` files directly). One dependency, `near-api-js`; `verify` also reads the transaction index with the page's own modules in `web/` (a clone of the whole repo has them, no install needed).
 
 ```sh
-make -C deploy test      # offline: typecheck and 38 unit tests, no key, no network
+make -C deploy test      # offline: typecheck and 42 unit tests, no key, no network
 make -C deploy verify    # read-only: re-checks the live deployment from public view calls; needs no key
 ```
 
 ## What is deployed
 
 The record is `docs/testnet-deployment.json` (written by the tool, one entry per transaction with its hash, what it proves and
-its outcome). The run logs are `docs/testnet-run-scenario.txt`, `docs/testnet-run-agent-rule.txt` and `docs/testnet-run-verify.txt`.
+its outcome). The run logs are `docs/testnet-run-scenario.txt`, `docs/testnet-run-verify.txt` and, for the agents that chaired, `docs/testnet-run-agent-*` (index in `docs/ai-chair-runs.md`).
 
 | account | role | keys on chain |
 |---|---|---|
 | `token.chair-coin-2.testnet` | the $CHAIR contract | **none**: created, funded, given the code and initialised in one transaction with no `AddKey`. Nobody can upgrade or drain it. |
 | `chair.chair-coin-2.testnet` | the founding chair | one function-call key: receiver the token, methods `["set_policy"]`, no allowance cap. No full-access key ever existed. |
-| `challenger.chair-coin-2.testnet` | the nominated chair the stakers vote in; the rule-based agent ran as this account | the same kind of key |
+| `challenger.chair-coin-2.testnet` | the nominated chair the stakers vote in; the rule-based agent and then the model-driven agent ran as this account | the same kind of key |
 | `alice` / `bob` / `carol` `.chair-coin-2.testnet` | holders: two stakers and one liquid holder | one full-access key each (ordinary users) |
 | `chair-coin-2.testnet` | parent, created by the testnet faucet | one full-access key; only used to fund and create the accounts above |
 
@@ -33,9 +33,8 @@ Epochs are 90 s. The contract's own bounds are fixed at +-200 bps and 50 bps per
 
 ## Keys
 
-Secret keys live only in `~/.claude/secrets/survival-testnet/chair/` by default (directory mode 700, files mode 600, one
-`<account>.key` file per account; override the directory with `CHAIR_TESTNET_KEYS` or `--keys`; the recorded deployment
-used `.../chair2/`). The tool creates a key file with
+Secret keys live only in one directory outside the repository, `~/.config/chair-testnet-keys/` by default (directory mode 700,
+files mode 600, one `<account>.key` file per account; override the directory with `CHAIR_TESTNET_KEYS` or `--keys`). The tool creates a key file with
 exclusive-create, refuses to read one that anyone else can read, and writes only public keys into the record. Nothing prints a
 secret key. A stranger needs no keys at all to `verify`.
 
@@ -66,16 +65,18 @@ run rather than reshaping the story; start a new deployment then.
 4. the bounds the contract reports (`get_params`: `max_rate_bps` 200, `max_step_bps` 50, `quorum_bps` 500) and the recorded launch parameters;
 5. the supply identity `total_supply = launch + minted - burned`, `ft_total_supply` equal to it, and recorded accounts' balances plus
    stake plus the reward pool not exceeding the supply;
-6. every reasoning text recorded in `docs/testnet-run-agent-*` (the page's own bundler, `web/scripts/minutes.mjs`) hashes with SHA-256 to
-   the `reasoning_hash` of the `policy_set` event the chain holds for that decision. The events come from the transaction index the page uses
-   (`web/config.js`, FastNEAR), read with the page's own code (`web/site/js`), so this check needs that index as well as the RPC. If the index
-   cannot be read, `verify` prints one `NOTE:` line, skips this check and does not count it (11 checks; the others read the RPC only), and exits
-   by the rest. A decision with no recorded text is listed as such and is not a failure; a text that does not match, or a record in `docs/` that
-   does not hash to its own hash (also when the index is down), is.
+6. every reasoning text hashes with SHA-256 to the `reasoning_hash` of the `policy_set` event the chain holds for that decision. The text comes
+   from the `reasoning` argument of the decision's own `set_policy` transaction (compared with the hash in that transaction's event) or, for
+   decisions made before the agent sent it, from the text recorded in `docs/testnet-run-agent-*` (the page's own bundler,
+   `web/scripts/minutes.mjs`). The transactions come from the index the page uses (`web/config.js`, FastNEAR), read with the page's own code
+   (`web/site/js`), so this check needs that index as well as the RPC. If the index cannot be read, `verify` prints one `NOTE:` line, skips this
+   check and does not count it (11 checks; the others read the RPC only), and exits by the rest. A decision with no text anywhere is not a
+   failure: it is counted and its epoch listed. A text that does not match, or a record in `docs/` that does not hash to its own hash (also
+   when the index is down), is a failure.
 
 It prints PASS/FAIL per check, the current state (it moves, since the chair keeps deciding), the five newest decisions on chain (epoch, rate,
-`reasoning_hash`, and for those with a recorded text its first 100 characters and whether its SHA-256 equals the hash), then up to three more
-recent decisions that have a recorded text; it exits non-zero on any FAIL.
+`reasoning_hash`, and for those with a text its first 100 characters and whether its SHA-256 equals the hash), up to three more recent
+decisions that have a text, and the epochs of all decisions with no checkable text; it exits non-zero on any FAIL.
 
 ## Reproduce the wasm hash
 
@@ -87,8 +88,7 @@ make -C deploy verify WASM=../contract/res/chair_token.wasm
 
 The recorded wasm (sha256 `91cd11b6...8abc013`, in the record) was built from commit `c61e0ff` (the contract is unchanged since).
 `verify --wasm` passes when your build is byte-identical and says so when it is not. Whether a rebuild on another machine is
-byte-identical has not been checked. The deployed file itself is kept at `.scratch/deployed/chair_token.wasm` (gitignored),
-so `make -C deploy verify WASM=../.scratch/deployed/chair_token.wasm` passes on the deploying machine.
+byte-identical has not been checked. The deployed file itself is not in the repository; a byte-identical build of the commit above passes the check.
 
 ## Redeploy after a contract change
 
@@ -110,8 +110,8 @@ A deployed token has no key, so it cannot be upgraded; a changed contract is a n
   `MethodNameMismatch`, the method restriction.
 - The scripted run took about 17 minutes. It is resumable, and a resumed run passes through epochs it already began; a step that is not
   yet recorded and would land in the wrong epoch stops the run instead.
-- The rule-based agent in `chair-agent/` ran against the live token as the challenger (`docs/testnet-run-agent-rule*`). The LLM chair ran once
-  against it with a local model, `local:qwen3.8-27b` (`docs/testnet-run-agent-llm*`); it has never run with Claude. `tools/llm-usage-proxy.mjs` measures the spend of a run against the Anthropic API without changing the agent: it is a
+- The rule-based agent in `chair-agent/` ran against the live token as the challenger (`docs/testnet-run-agent-rule*`). The LLM chair has run against it
+  with a local model, `local:qwen3.8-27b` (`docs/testnet-run-agent-llm*`, `docs/testnet-run-agent-live-decisions.jsonl`), in five runs; it has never run with Claude. `tools/llm-usage-proxy.mjs` measures the spend of a run against the Anthropic API without changing the agent: it is a
   pass-through that prints tokens and dollars per call and enforces a call and dollar cap (the local run cost nothing and did not use it).
 
 ## Sandbox versus the real chain

@@ -4,7 +4,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { after, test } from "node:test";
 import { testnetAccount } from "../src/guard.ts";
-import { KeyStore } from "../src/keys.ts";
+import { DEFAULT_KEY_DIR, KeyStore } from "../src/keys.ts";
 
 // Scratch lives on disk under ~/.scratch/tmp, not in /tmp (RAM).
 const scratch = join(homedir(), ".scratch", "tmp");
@@ -46,4 +46,18 @@ test("a key file that others can read is refused", () => {
 test("a missing key file names the file", () => {
   const store = new KeyStore(join(root, "e"));
   assert.throws(() => store.signer(alice), /no key file for alice\.chair-coin\.testnet/);
+});
+
+test("the key directory is $CHAIR_TESTNET_KEYS, else a neutral directory under the user's config", () => {
+  const saved = process.env["CHAIR_TESTNET_KEYS"];
+  try {
+    process.env["CHAIR_TESTNET_KEYS"] = join(root, "from-env");
+    assert.equal(new KeyStore().dir, join(root, "from-env"));
+    delete process.env["CHAIR_TESTNET_KEYS"];
+    assert.equal(new KeyStore().dir, DEFAULT_KEY_DIR);
+    assert.equal(DEFAULT_KEY_DIR, join(homedir(), ".config", "chair-testnet-keys"));
+  } finally {
+    if (saved === undefined) delete process.env["CHAIR_TESTNET_KEYS"];
+    else process.env["CHAIR_TESTNET_KEYS"] = saved;
+  }
 });

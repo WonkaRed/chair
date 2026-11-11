@@ -6,7 +6,7 @@ import { isTxHash, safeText, showAccount } from "./text.js";
 
 const MINUS = "−";
 export const fmtRate = (bps) => `${bps > 0 ? "+" : bps < 0 ? MINUS : ""}${Math.abs(bps)} bps`;
-export const fmtPct = (bps) => `${bps > 0 ? "+" : bps < 0 ? MINUS : ""}${(Math.abs(bps) / 100).toFixed(2)}%`;
+const fmtPct = (bps) => `${(Math.abs(bps) / 100).toFixed(2)}%`;
 export const fmtTime = (ms) => `${new Date(Number(ms)).toISOString().replace("T", " ").slice(0, 16)} UTC`;
 export const shortHash = (hash) => `${hash.slice(0, 6)}…${hash.slice(-6)}`;
 
@@ -64,7 +64,7 @@ export function renderNow(doc, host, d) {
   const path = silentPath(policy, params.maxStepBps);
   host.append(
     h(doc, "div", { class: "now-grid" },
-      h(doc, "div", { class: "fact big" }, h(doc, "span", { class: "k" }, "Rate in effect"), h(doc, "span", { class: "v rate" }, fmtRate(policy.rateBps)), h(doc, "span", { class: "s" }, policy.rateBps > 0 ? `eases: mints ${fmtPct(policy.rateBps)} of supply to stakers at the end of each epoch` : policy.rateBps < 0 ? `tightens: every transfer burns ${fmtPct(-policy.rateBps).replace(MINUS, "")}` : "neutral: nothing is minted or burned")),
+      h(doc, "div", { class: "fact big" }, h(doc, "span", { class: "k" }, "Rate in effect"), h(doc, "span", { class: "v rate" }, fmtRate(policy.rateBps)), h(doc, "span", { class: "s" }, policy.rateBps > 0 ? `eases: mints ${fmtPct(policy.rateBps)} of supply to stakers at the end of each epoch` : policy.rateBps < 0 ? `tightens: every transfer burns ${fmtPct(policy.rateBps)}` : "neutral: nothing is minted or burned")),
       h(doc, "div", { class: "fact" }, h(doc, "span", { class: "k" }, "Epoch"), h(doc, "span", { class: "v" }, String(policy.epoch)), h(doc, "span", { class: "s" }, `ends ${fmtTime(policy.epochEndsMs)}; epochs last ${formatDuration(params.epochMs)}`)),
       h(doc, "div", { class: "fact" }, h(doc, "span", { class: "k" }, "Chair"), h(doc, "span", { class: "v acct" }, showAccount(policy.chair)), h(doc, "span", { class: "s" }, `${policy.streak} complete epochs in office; ${acted ? "has set this epoch's rate" : "has not set this epoch's rate yet"}`)),
     ),

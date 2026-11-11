@@ -3,11 +3,15 @@ import { actions, baseDecode, createTransaction, KeyPairSigner, type SignedTrans
 import type { Rate } from "./bounds.js";
 import { NearRpc, type AccessKeyInfo } from "./rpc.js";
 import type { Decision } from "./types.js";
-import { HASH_RE } from "./reasoning.js";
+import { cleanReasoning, MAX_REASONING_CHARS, reasoningHash } from "./reasoning.js";
 import { accountId as checkAccountId } from "./validate.js";
 
 export const METHOD = "set_policy";
-/** set_policy is a few reads and writes; rollover can add at most a handful of decay events. */
+/**
+ * set_policy is a few reads and writes; rollover can add at most a handful of decay events. The reasoning text adds
+ * at most 6000 bytes of arguments (MAX_REASONING_CHARS UTF-16 units, 3 bytes each in UTF-8): sandbox-tests/tests/policy.rs
+ * sends that much to the contract's wasm and asserts it burns under half of these 30 Tgas.
+ */
 export const GAS = 30_000_000_000_000n;
 const KEY_RE = /^ed25519:[1-9A-HJ-NP-Za-km-z]{80,100}$/;
 
@@ -77,8 +81,19 @@ export interface Submitter {
 }
 
 /**
+ * The arguments of `set_policy`: the rate, the SHA-256 of the reasoning text and the text itself. The contract declares
+ * only the first two and ignores `reasoning` (sandbox-tests/tests/policy.rs proves it), so the text rides on the
+ * transaction without touching the hash it stores: anyone can read it from the transaction and hash it. Nothing but the
+ * text is added, and the hash is computed here from the text, so the two cannot disagree.
+ */
+export function policyArgs(rate: Rate, reasoning: string): { rate_bps: number; reasoning_hash: string; reasoning: string } {
+  if (cleanReasoning(reasoning) !== reasoning) throw new Error(`reasoning must be cleaned text of 1 to ${MAX_REASONING_CHARS} characters`);
+  return { rate_bps: rate, reasoning_hash: reasoningHash(reasoning), reasoning };
+}
+
+/**
  * Builds and sends `set_policy` transactions. The only action it can construct is one function call to
- * `set_policy` with zero deposit; the only fields taken from a `Decision` are its `Rate` and its hash.
+ * `set_policy` with zero deposit; the only fields taken from a `Decision` are its `Rate` and its reasoning text.
  */
 export class ChairSigner implements Submitter {
   private readonly keys: KeyPairSigner;
@@ -102,15 +117,15 @@ export class ChairSigner implements Submitter {
   }
 
   /** Sign one set_policy call. Exposed for tests; `submit` is the normal path. */
-  async build(rate: Rate, reasoningHash: string, nonce: bigint, blockHash: string): Promise<SignedTransaction> {
-    if (!HASH_RE.test(reasoningHash)) throw new Error("reasoning hash must be 64 lowercase hex characters");
+  async build(rate: Rate, reasoning: string, nonce: bigint, blockHash: string): Promise<SignedTransaction> {
+    const args = policyArgs(rate, reasoning);
     const publicKey = await this.keys.getPublicKey();
     const tx = createTransaction(
       this.accountId,
       publicKey,
       this.token,
       nonce + 1n,
-      [actions.functionCall(METHOD, { rate_bps: rate, reasoning_hash: reasoningHash }, GAS, 0n)],
+      [actions.functionCall(METHOD, args, GAS, 0n)],
       baseDecode(blockHash),
     );
     const { signedTransaction } = await this.keys.signTransaction(tx);
@@ -122,7 +137,7 @@ export class ChairSigner implements Submitter {
     const info = await this.rpc.accessKey(this.accountId, key);
     assertScoped(info, this.token);
     const block = await this.rpc.finalBlock();
-    const signed = await this.build(decision.rate, decision.reasoningHash, info.nonce, block.hash);
+    const signed = await this.build(decision.rate, decision.reasoning, info.nonce, block.hash);
     return this.rpc.sendTx(Buffer.from(signed.encode()).toString("base64"));
   }
 }

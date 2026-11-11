@@ -1,6 +1,7 @@
-// The chair minutes: each decision the chain recorded (decisions.js), with the reasoning text bundled at build time
-// (minutes.json, keyed by the SHA-256 the chain stores) and a check, done here in the browser, that the text shown
-// hashes to the hash on chain. Chain strings and bundled text are untrusted: they reach the page through `textContent` only.
+// The chair minutes: each decision the chain recorded (decisions.js), with its reasoning text and a check, done here in the
+// browser, that the text shown hashes to the hash on chain. The text comes from the decision's own transaction (the `reasoning`
+// argument of `set_policy`) or, for decisions made before the chair sent it, from the texts bundled at build time (minutes.json,
+// keyed by the SHA-256 the chain stores). Chain strings and bundled text are untrusted: they reach the page through `textContent` only.
 import { HASH_RE } from "./decisions.js";
 import { h } from "./dom.js";
 import { isAccountId, isTxHash, safeLines, safeText, showAccount } from "./text.js";
@@ -40,13 +41,27 @@ export async function checkReasoning(text, hash, subtle = globalThis.crypto?.sub
   }
 }
 
-/** `Map<hash, "verified" | "mismatch" | "unchecked">` for every decision that has a bundled text. */
-export async function checkDecisions(decisions, texts, subtle = globalThis.crypto?.subtle) {
+/** The texts a decision can be checked against, best first: the one on its own transaction, then the bundled one for its hash. */
+function candidates(d, texts) {
+  const bundled = texts?.get(d.hash);
+  return [
+    d.chainText === null ? null : { text: d.chainText, chair: null, kind: null, source: null, onChain: true },
+    bundled ? { ...bundled, onChain: false } : null,
+  ].filter((c) => c !== null);
+}
+
+/**
+ * `Map<tx, {text, chair, kind, source, onChain, verdict}>` for every decision that has a text on its transaction or bundled. The text kept is
+ * the first candidate whose SHA-256 equals the chain's hash; when none does, the first candidate, as a "mismatch" (never shown as verified).
+ */
+export async function resolveTexts(decisions, texts, subtle = globalThis.crypto?.subtle) {
   const out = new Map();
-  if (texts === null) return out;
   await Promise.all(decisions.map(async (d) => {
-    const rec = texts.get(d.hash);
-    if (rec && !out.has(d.hash)) out.set(d.hash, await checkReasoning(rec.text, d.hash, subtle));
+    const found = candidates(d, texts);
+    if (found.length === 0) return;
+    const verdicts = await Promise.all(found.map((c) => checkReasoning(c.text, d.hash, subtle)));
+    const at = Math.max(0, verdicts.indexOf("verified"));
+    out.set(d.tx, { ...found[at], verdict: verdicts[at] });
   }));
   return out;
 }
@@ -98,24 +113,25 @@ function proof(doc, d, ctx) {
   );
 }
 
-function reasoning(doc, rec, state, ctx) {
+function reasoning(doc, rec, ctx) {
   if (!rec) {
-    return h(doc, "p", { class: "m-absent" }, ctx.texts === null ? "The bundled reasoning texts could not be loaded, so no text is shown for this decision." : "reasoning text not published for this decision");
+    return h(doc, "p", { class: "m-absent" }, ctx.texts === null ? "The bundled reasoning texts could not be loaded, so no text is shown for this decision." : "no reasoning text for this decision: its transaction carries none and none was saved");
   }
   const shown = safeLines(rec.text);
+  const state = rec.verdict;
   const src = rec.source && /^[\w.-]+$/.test(rec.source) && ctx.repoBase ? h(doc, "a", { href: `${ctx.repoBase}/docs/${rec.source}`, rel: "noopener noreferrer", target: "_blank" }, `docs/${rec.source}`) : null;
   return [
     h(doc, "div", { class: "reasoning", lang: "en" }, shown),
     h(doc, "p", { class: `m-check ${MARKS[state].cls}`, role: "status" }, h(doc, "strong", {}, `${MARKS[state].mark} ${MARKS[state].short}.`), ` ${MARKS[state].long}`),
     shown !== rec.text ? h(doc, "p", { class: "note" }, "Some characters in this text are not printable and are shown as \\u{...} escapes. The check above ran on the exact text.") : null,
+    rec.onChain ? h(doc, "p", { class: "note" }, "The text was read from the arguments of the transaction below.") : null,
     src ? h(doc, "p", { class: "note" }, "The text was recorded when the chair ran: ", src, ".") : null,
   ];
 }
 
 function detail(doc, d, ctx) {
-  const rec = ctx.texts?.get(d.hash);
-  const state = rec ? (ctx.checks.get(d.hash) ?? "unchecked") : "absent";
-  return { state, nodes: [who(doc, d, rec), reasoning(doc, rec, state, ctx), proof(doc, d, ctx)].flat() };
+  const rec = ctx.resolved.get(d.tx);
+  return { state: rec ? rec.verdict : "absent", nodes: [who(doc, d, rec), reasoning(doc, rec, ctx), proof(doc, d, ctx)].flat() };
 }
 
 function latestCard(doc, d, ctx) {
@@ -167,7 +183,7 @@ function olderList(doc, older, ctx) {
   return [toggle, list];
 }
 
-/** `d` is `loadLog`'s result; `ctx` is `{texts, checks, explorer, repoBase}`. */
+/** `d` is `loadLog`'s result; `ctx` is `{texts, resolved, explorer, repoBase}`: `texts` the bundled texts or null, `resolved` from `resolveTexts`. */
 export function renderMinutes(doc, host, d, ctx) {
   while (host.firstChild) host.removeChild(host.firstChild);
   const [latest, ...older] = d.decisions;

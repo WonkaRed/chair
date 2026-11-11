@@ -8,7 +8,7 @@ const dist = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 const TYPES = { ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".json": "application/json" };
 const port = Number(process.env.PORT ?? 8080);
 
-createServer(async (req, res) => {
+const server = createServer(async (req, res) => {
   let path;
   try {
     path = normalize(join(dist, decodeURIComponent(new URL(req.url, "http://x").pathname)));
@@ -24,4 +24,11 @@ createServer(async (req, res) => {
     return void res.writeHead(404).end("not found");
   }
   res.writeHead(200, { "content-type": TYPES[extname(file)] ?? "application/octet-stream", "cache-control": "no-store" }).end(body);
-}).listen(port, "127.0.0.1", () => console.log(`http://127.0.0.1:${port}/`));
+});
+
+server.on("error", (e) => {
+  if (e.code !== "EADDRINUSE") throw e;
+  console.error(`port ${port} is already in use; pick another one: PORT=${port + 1} make -C web serve`);
+  process.exit(1);
+});
+server.listen(port, "127.0.0.1", () => console.log(`http://127.0.0.1:${port}/`));

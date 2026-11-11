@@ -3,10 +3,10 @@
 SHELL := bash -o pipefail
 # The compiler comes from rust-toolchain.toml; an exported RUSTUP_TOOLCHAIN would silently override it.
 unexport RUSTUP_TOOLCHAIN
-LANES := contract sandbox-tests chair-agent sim web
+LANES := contract sandbox-tests chair-agent sim web activity
 
-# The web page has nothing to narrate in a terminal: `make -C web serve` shows it.
-DEMO_LANES := $(filter-out web,$(LANES))
+# The web page has nothing to narrate in a terminal (`make -C web serve` shows it), and the activity bot has no demo.
+DEMO_LANES := $(filter-out web activity,$(LANES))
 
 .PHONY: build test demo
 build test:

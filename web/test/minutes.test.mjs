@@ -1,4 +1,5 @@
-// The chair minutes: decisions read from chain events, reasoning texts bundled from docs/, and the in-browser hash check.
+// The chair minutes: decisions read from chain events, reasoning texts from the transaction's arguments or bundled from docs/, the in-browser
+// hash check, and the refusals read from the same transactions.
 // Imports the site's modules from site/ directly, so this file never touches dist (site.test.mjs rebuilds it).
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -13,8 +14,9 @@ import { bundleMinutes } from "../scripts/minutes.mjs";
 const root = join(fileURLToPath(import.meta.url), "..", "..");
 const docs = join(root, "..", "docs");
 const site = (f) => import(join(root, "site", "js", f));
-const { decisionsOfTxs } = await site("decisions.js");
-const { checkDecisions, checkReasoning, loadTexts, renderMinutes, sha256Hex, silence } = await site("minutes.js");
+const { decisionsOfTxs, refusalsOfTxs } = await site("decisions.js");
+const { checkReasoning, loadTexts, renderMinutes, resolveTexts, sha256Hex, silence } = await site("minutes.js");
+const { renderRefusals } = await site("refusals.js");
 const { loadLog } = await site("loadlog.js");
 const { fixtureTransport } = await site("sources.js");
 const fixture = JSON.parse(await readFile(join(root, "fixtures", "sandbox-run.json"), "utf8"));
@@ -171,9 +173,13 @@ function assertInert(root, label) {
   }
 }
 
-const decision = (over = {}) => ({ chair: "chair.test.near", epoch: 5, rateBps: 10, previousRateBps: 0, hash: sha("t"), tx: "5".repeat(44), tsMs: 1_700_000_000_000, height: 1, ...over });
+// Every decision gets its own transaction hash, as on chain: the page keys what it resolved by it.
+const BASE58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const txId = (n) => `${"1".repeat(42)}${BASE58[Math.floor(n / 58)]}${BASE58[n % 58]}`;
+let txCount = 0;
+const decision = (over = {}) => ({ chair: "chair.test.near", epoch: 5, rateBps: 10, previousRateBps: 0, hash: sha("t"), chainText: null, tx: txId(++txCount), tsMs: 1_700_000_000_000, height: 1, ...over });
 const policy = { epoch: 9, rateBps: 0, lastSetEpoch: 5, streak: 1, epochEndsMs: 1, chair: "chair.test.near" };
-const ctx = (texts, checks) => ({ texts, checks, explorer: "https://example.invalid", repoBase: "https://example.invalid/repo/blob/main" });
+const ctx = (texts, resolved) => ({ texts, resolved, explorer: "https://example.invalid", repoBase: "https://example.invalid/repo/blob/main" });
 const render = (d, c) => {
   const doc = fakeDoc();
   const h = host(doc);
@@ -186,15 +192,15 @@ test("a verified decision shows its text, the verified mark, the rate and the mo
   const hash = r.reasoning_hash;
   const d = { decisions: [decision({ hash, rateBps: r.rate_bps, previousRateBps: r.previous_rate_bps, epoch: r.epoch })], policy, status: "complete" };
   const texts = await textsMap();
-  const h = render(d, ctx(texts, await checkDecisions(d.decisions, texts)));
+  const h = render(d, ctx(texts, await resolveTexts(d.decisions, texts)));
   const text = textOf(h);
   assert.ok(text.includes(r.reasoning), "the text is shown whole");
   assert.match(text, /Verified/);
   assert.match(text, new RegExp(`Epoch ${r.epoch}`));
   assert.ok(text.includes(r.chair) && text.includes("an AI model"));
   assert.match(text, /No decision for 3 epochs; the rate has decayed to 0 bps/);
-  assert.ok([...walk(h)].some((n) => n.tag === "a" && n.attrs.href === `https://example.invalid/txns/${"5".repeat(44)}`));
-  assert.ok(!text.includes("Mismatch") && !text.includes("not published"));
+  assert.ok([...walk(h)].some((n) => n.tag === "a" && n.attrs.href === `https://example.invalid/txns/${d.decisions[0].tx}`));
+  assert.ok(!text.includes("Mismatch") && !text.includes("none was saved"));
   assertInert(h, "verified");
 });
 
@@ -202,34 +208,34 @@ test("a text that does not hash to the on-chain hash is marked as a mismatch, ne
   const hash = sha("what the chain committed to");
   const texts = new Map([[hash, { text: "some other text", chair: "x", kind: "llm", source: null }]]);
   const d = { decisions: [decision({ hash })], policy, status: "complete" };
-  const checks = await checkDecisions(d.decisions, texts);
-  assert.equal(checks.get(hash), "mismatch");
-  const text = textOf(render(d, ctx(texts, checks)));
+  const resolved = await resolveTexts(d.decisions, texts);
+  assert.equal(resolved.get(d.decisions[0].tx).verdict, "mismatch");
+  const text = textOf(render(d, ctx(texts, resolved)));
   assert.match(text, /Mismatch/);
   assert.match(text, /Do not trust this text/);
   assert.doesNotMatch(text, /Verified/);
 });
 
-test("a decision without a bundled text shows its hash and the plain line, with no verified mark", async () => {
+test("a decision with neither a text on its transaction nor a bundled one shows its hash and the plain line, with no verified mark", async () => {
   const d = { decisions: [decision(), decision({ epoch: 4, hash: sha("older") })], policy, status: "complete" };
   const texts = new Map();
-  const h = render(d, ctx(texts, await checkDecisions(d.decisions, texts)));
+  const h = render(d, ctx(texts, await resolveTexts(d.decisions, texts)));
   const text = textOf(h);
-  assert.equal(text.split("reasoning text not published for this decision").length - 1, 2, "latest card and the older row");
+  assert.equal(text.split("its transaction carries none and none was saved").length - 1, 2, "latest card and the older row");
   assert.ok(text.includes(sha("t")));
   assert.doesNotMatch(text, /Verified|Mismatch/);
   const none = textOf(render(d, ctx(null, new Map())));
   assert.match(none, /could not be loaded/);
-  assert.doesNotMatch(none, /not published/, "a failed bundle load is not reported as a decision without text");
+  assert.doesNotMatch(none, /none was saved/, "a failed bundle load is not reported as a decision without text");
 });
 
 test("hostile text, label, account and hash reach the page as inert text only", async () => {
   const hash = sha(EVIL);
   const texts = new Map([[hash, { text: EVIL, chair: EVIL, kind: EVIL, source: "../../x<y>" }]]);
   const d = { decisions: [decision({ hash, chair: EVIL, tx: EVIL }), decision({ hash: sha("x"), epoch: 4 })], policy: { ...policy, chair: EVIL }, status: "complete" };
-  const checks = await checkDecisions(d.decisions, texts);
-  assert.equal(checks.get(hash), "verified", "the check runs on the exact hostile text");
-  const h = render(d, ctx(texts, checks));
+  const resolved = await resolveTexts(d.decisions, texts);
+  assert.equal(resolved.get(d.decisions[0].tx).verdict, "verified", "the check runs on the exact hostile text");
+  const h = render(d, ctx(texts, resolved));
   assertInert(h, "hostile");
   const text = textOf(h);
   assert.match(text, /<img src=x onerror=alert\(1\)>\\u\{202e\}/, "markup shown as text, controls shown as escapes");
@@ -271,4 +277,101 @@ test("older decisions sit behind a show-all control that toggles by click and sh
 test("an unreadable index says so instead of claiming there is no decision; an empty chain says that", () => {
   assert.match(textOf(render({ decisions: [], policy: { ...policy, lastSetEpoch: null }, status: "incomplete" }, ctx(new Map(), new Map()))), /index, which could not be read/);
   assert.match(textOf(render({ decisions: [], policy: { ...policy, lastSetEpoch: null }, status: "complete" }, ctx(new Map(), new Map()))), /No decision has been recorded on chain yet/);
+});
+
+// ---- the text on the transaction ----
+
+const b64 = (o) => Buffer.from(JSON.stringify(o), "utf8").toString("base64");
+const TOKEN = "tok.testnet";
+const call = (args, method = "set_policy") => ({ FunctionCall: { method_name: method, args, gas: 30_000_000_000_000, deposit: "0" } });
+/** A set_policy transaction as the index returns it: its arguments, and the token's receipt with `status` and `logs`. */
+const policyTx = (n, args, status, logs = [], over = {}) => ({
+  transaction: { hash: txId(n), signer_id: "chair.test.near", receiver_id: TOKEN, actions: [call(args)] },
+  receipts: [{ execution_outcome: { block_height: 100 + n, block_timestamp: "1700000000000000000", outcome: { executor_id: TOKEN, status, logs } } }],
+  ...over,
+});
+const policySet = (hash, over = {}) => `EVENT_JSON:${JSON.stringify({ standard: "chair", version: "1.0.0", event: "policy_set", data: { chair: "chair.test.near", epoch: 7, rate_bps: 10, previous_rate_bps: 0, reasoning_hash: hash, ...over } })}`;
+const refused = (text) => ({ Failure: { ActionError: { index: 0, kind: { FunctionCallError: { ExecutionError: text } } } } });
+const TEXT = "$CHAIR decision, epoch 7.\nThe Committee of One has met. \u00e9 \u4e2d \u{1F600}";
+
+test("a decision reads the reasoning argument of its transaction, and the page checks it against the hash", async () => {
+  const hash = sha(TEXT);
+  const txs = [policyTx(1, b64({ rate_bps: 10, reasoning_hash: hash, reasoning: TEXT }), { SuccessValue: "" }, [policySet(hash)])];
+  const { decisions } = decisionsOfTxs(txs, TOKEN);
+  assert.equal(decisions[0].chainText, TEXT, "UTF-8 survives the base64 round trip");
+  const resolved = await resolveTexts(decisions, new Map());
+  assert.deepEqual([resolved.get(decisions[0].tx).verdict, resolved.get(decisions[0].tx).onChain], ["verified", true]);
+  const d = { decisions, policy, status: "complete" };
+  const h = render(d, ctx(new Map(), resolved));
+  assert.ok(textOf(h).includes(TEXT) && /Verified/.test(textOf(h)) && /read from the arguments of the transaction/.test(textOf(h)));
+  assertInert(h, "chain text");
+});
+
+test("a reasoning argument that does not hash to the event's hash is a mismatch; a bundled text that does is used instead", async () => {
+  const hash = sha(TEXT);
+  const forged = policyTx(1, b64({ rate_bps: 10, reasoning_hash: hash, reasoning: "edited text" }), { SuccessValue: "" }, [policySet(hash)]);
+  const { decisions } = decisionsOfTxs([forged], TOKEN);
+  const alone = await resolveTexts(decisions, new Map());
+  assert.deepEqual([alone.get(decisions[0].tx).text, alone.get(decisions[0].tx).verdict], ["edited text", "mismatch"]);
+  const bundled = new Map([[hash, { text: TEXT, chair: "local:x", kind: "llm", source: "testnet-run-agent-x-decisions.jsonl" }]]);
+  const both = await resolveTexts(decisions, bundled);
+  assert.deepEqual([both.get(decisions[0].tx).text, both.get(decisions[0].tx).verdict, both.get(decisions[0].tx).onChain], [TEXT, "verified", false]);
+  assert.equal(await resolveTexts(decisions, null, null).then((m) => m.get(decisions[0].tx).verdict), "unchecked", "no crypto.subtle: never a verified mark");
+});
+
+test("arguments that are not a text are no text: other methods, bad base64, bad UTF-8, a non-string or empty reasoning, oversize arguments", () => {
+  const hash = sha(TEXT);
+  const ok = { SuccessValue: "" };
+  const cases = [
+    policyTx(1, b64({ rate_bps: 10, reasoning_hash: hash }), ok, [policySet(hash)]),
+    policyTx(2, b64({ rate_bps: 10, reasoning_hash: hash, reasoning: 5 }), ok, [policySet(hash)]),
+    policyTx(3, b64({ rate_bps: 10, reasoning_hash: hash, reasoning: "" }), ok, [policySet(hash)]),
+    policyTx(4, "!!not base64!!", ok, [policySet(hash)]),
+    policyTx(5, Buffer.from([0x7b, 0xff, 0x7d]).toString("base64"), ok, [policySet(hash)]),
+    policyTx(6, b64({ reasoning: "x".repeat(20_001) }), ok, [policySet(hash)]),
+    policyTx(7, b64([TEXT]), ok, [policySet(hash)]),
+    { ...policyTx(8, b64({ reasoning: TEXT }), ok, [policySet(hash)]), transaction: { hash: txId(8), signer_id: "chair.test.near", receiver_id: TOKEN, actions: [call(b64({ reasoning: TEXT }), "ft_transfer")] } },
+  ];
+  const { decisions } = decisionsOfTxs(cases, TOKEN);
+  assert.equal(decisions.length, cases.length, "every decision is still listed");
+  assert.deepEqual(decisions.map((d) => d.chainText), cases.map(() => null).reverse());
+});
+
+test("every refused set_policy call is listed with the contract's own panic text, newest first; accepted calls and other methods are not", () => {
+  const bad = { rate_bps: 201, reasoning_hash: "a".repeat(64) };
+  const txs = [
+    policyTx(1, b64(bad), refused("Smart contract panicked: rate_bps out of bounds: must be within -200..=200")),
+    policyTx(2, b64({ rate_bps: 10, reasoning_hash: "b".repeat(64) }), { SuccessValue: "" }, [policySet("b".repeat(64))]),
+    policyTx(3, b64({ rate_bps: 0, reasoning_hash: "c".repeat(64) }), refused("Smart contract panicked: only the chair may set policy"), [], { transaction: { hash: txId(3), signer_id: "carol.test.near", receiver_id: TOKEN, actions: [call(b64({ rate_bps: 0 }))] } }),
+    policyTx(4, "!!", refused("Smart contract panicked: policy already set this epoch")),
+    policyTx(5, b64(bad), refused("Smart contract panicked: x"), [], { transaction: { hash: txId(5), signer_id: "chair.test.near", receiver_id: TOKEN, actions: [call(b64(bad), "ft_transfer")] } }),
+    policyTx(6, b64(bad), { Failure: { ActionError: { index: 0, kind: { FunctionCallError: "CompilationError" } } } }),
+    { ...policyTx(7, b64(bad), refused("Smart contract panicked: elsewhere")), receipts: [{ execution_outcome: { block_height: 107, block_timestamp: "1700000000000000000", outcome: { executor_id: "evil.testnet", status: refused("Smart contract panicked: elsewhere"), logs: [] } } }] },
+  ];
+  const out = refusalsOfTxs(txs, TOKEN);
+  assert.deepEqual(out.map((r) => [r.tx, r.signer, r.rateBps, r.reason]), [
+    [txId(6), "chair.test.near", 201, "failed without a contract message"],
+    [txId(4), "chair.test.near", null, "policy already set this epoch"],
+    [txId(3), "carol.test.near", 0, "only the chair may set policy"],
+    [txId(1), "chair.test.near", 201, "rate_bps out of bounds: must be within -200..=200"],
+  ]);
+  assert.deepEqual(refusalsOfTxs(txs, "other.testnet"), [], "only calls to the token itself");
+});
+
+test("the Refusals section lists each refusal with its panic text and a transaction link, and says so when there is none or the index is down", () => {
+  const refusals = refusalsOfTxs([policyTx(1, b64({ rate_bps: -201, reasoning_hash: "a".repeat(64) }), refused(`Smart contract panicked: ${EVIL}`))], TOKEN);
+  const draw = (d) => {
+    const doc = fakeDoc();
+    const hostNode = host(doc);
+    renderRefusals(doc, hostNode, d, { explorer: "https://example.invalid" });
+    return hostNode;
+  };
+  const h = draw({ status: "complete", refusals });
+  assert.match(textOf(h), /1 refused set_policy call, newest first/);
+  assert.match(textOf(h), /\u2212201 bps/);
+  assert.match(textOf(h), /<img src=x onerror=alert\(1\)>\\u\{202e\}/, "the panic text is shown escaped, as text");
+  assert.ok([...walk(h)].some((n) => n.tag === "a" && n.attrs.href === `https://example.invalid/txns/${txId(1)}`));
+  assertInert(h, "refusals");
+  assert.match(textOf(draw({ status: "complete", refusals: [] })), /refused no set_policy call yet/);
+  assert.match(textOf(draw({ status: "incomplete", refusals: [] })), /index, which could not be read/);
 });

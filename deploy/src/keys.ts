@@ -1,4 +1,4 @@
-// Secret keys live in one directory outside the repository, mode 700, one file per account, mode 600, holding the bare
+// Secret keys live in one directory outside the repository (`$CHAIR_TESTNET_KEYS`, else ~/.config/chair-testnet-keys), mode 700, one file per account, mode 600, holding the bare
 // `ed25519:...` string. Nothing here prints a key, and a key file is only ever created, never overwritten.
 
 import { chmodSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { KeyPair, KeyPairSigner, type KeyPairString } from "near-api-js";
 import type { TestnetAccount } from "./guard.ts";
 
-export const DEFAULT_KEY_DIR = join(homedir(), ".claude", "secrets", "survival-testnet", "chair");
+export const DEFAULT_KEY_DIR = join(homedir(), ".config", "chair-testnet-keys");
 const KEY_RE = /^ed25519:[1-9A-HJ-NP-Za-km-z]{80,100}$/;
 
 export class KeyStore {

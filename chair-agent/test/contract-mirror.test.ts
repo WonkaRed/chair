@@ -151,7 +151,7 @@ after(async () => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-test("on the wire: the decoded set_policy arguments of every signed transaction carry a 64-hex digest of the logged text", async () => {
+test("on the wire: the decoded set_policy arguments of every signed transaction carry the logged text and its 64-hex digest", async () => {
   const log = join(dir, "log.jsonl");
   for (let e = 0; e < 4; e++) {
     chain.advanceTo(chain.params.startMs + e * chain.params.epochMs + 1000);
@@ -163,12 +163,13 @@ test("on the wire: the decoded set_policy arguments of every signed transaction 
   for (const signed of node.sent) {
     const call = SignedTransaction.decode(signed.encode()).transaction.actions[0]!.functionCall!;
     const args = JSON.parse(Buffer.from(call.args).toString("utf8")) as Record<string, unknown>;
-    assert.deepEqual(Object.keys(args).sort(), ["rate_bps", "reasoning_hash"]);
+    assert.deepEqual(Object.keys(args).sort(), ["rate_bps", "reasoning", "reasoning_hash"]);
     const hash = args["reasoning_hash"];
     assert.match(String(hash), /^[0-9a-f]{64}$/);
     const text = findReasoning(log, String(hash));
     assert.ok(text !== null, "the logged text exists");
     assert.equal(sha256(text), hash);
+    assert.equal(args["reasoning"], text, "the text on the wire is the logged text");
   }
   assert.deepEqual(chain.refusals, []);
 });

@@ -5,6 +5,7 @@ import { ChairFailure, decide } from "../src/decide.js";
 import { LlmChair, type LlmClient, type LlmResponse } from "../src/llm-chair.js";
 import { reasoningHash } from "../src/reasoning.js";
 import { ruleChair } from "../src/rule-chair.js";
+import { policyArgs } from "../src/signer.js";
 import type { Chair } from "../src/types.js";
 import { IMPATIENT_MS, PATIENT_MS, contractAccepts, randInt, rng, snapshot, specDecay } from "./helpers.js";
 
@@ -95,8 +96,10 @@ test("model text is inert: shell, path and transaction-looking strings only ever
   assert.equal(d.rate, 20);
   assert.equal(d.chair, "llm:scripted-stand-in");
   assert.ok(!d.reasoning.includes("\u0000"));
-  const args = JSON.stringify({ rate_bps: d.rate, reasoning_hash: d.reasoningHash });
-  assert.ok(!args.includes("attacker") && !args.includes("passwd"));
+  const args = policyArgs(d.rate, d.reasoning);
+  assert.deepEqual(Object.keys(args), ["rate_bps", "reasoning_hash", "reasoning"]);
+  assert.equal(args.rate_bps, 20);
+  assert.equal(args.reasoning, d.reasoning);
   assert.match(d.reasoningHash, /^[0-9a-f]{64}$/);
 });
 
