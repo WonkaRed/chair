@@ -8,6 +8,7 @@ import { createPress } from "./press.js";
 import { renderRefusals } from "./refusals.js";
 import { BEHAVIOURS, simulate } from "./simview.js";
 import { fixtureTransport, rpcTransport } from "./sources.js";
+import { safeText } from "./text.js";
 import { fmtRate, renderFailure, renderLedger, renderLog, renderNow, renderReconcile, renderSource } from "./views.js";
 import { config } from "../config.js";
 
@@ -59,12 +60,20 @@ async function showChain() {
     return;
   }
   const texts = loadTexts();
-  renderSource(doc, $("source"), { mode: made.fixture ? "fixture" : "live", config, fixture: made.fixture });
+  const showSource = () => renderSource(doc, $("source"), { mode: made.fixture ? "fixture" : "live", config, fixture: made.fixture, rpcUrl: made.transport.rpcInUse?.() });
+  showSource();
+  let shown = null; // the data on screen, if a read has succeeded
   const run = async () => {
     let data;
     try {
       data = await loadLog(made.transport);
     } catch (e) {
+      if (shown !== null) {
+        // A failed retry must not take down what was read: keep it, and say quietly that the chain is out of reach for the moment.
+        renderReconcile(doc, $("reconcile"), shown, { onRetry: run });
+        $("reconcile").prepend(h(doc, "p", { class: "note", role: "status" }, `Reconnecting: the chain could not be reached just now (${safeText(e?.message ?? String(e), 160)}). Everything on this page is from the last successful read.`));
+        return;
+      }
       renderFailure(doc, $("now"), e);
       renderFailure(doc, $("hero-minutes"), e);
       renderFailure(doc, $("minutes-body"), e);
@@ -74,6 +83,8 @@ async function showChain() {
       clear($("log-body"));
       return;
     }
+    shown = data;
+    showSource();
     const bundled = await texts;
     const explorer = made.fixture ? null : config.explorerUrl;
     const ctx = { texts: bundled, resolved: await resolveTexts(data.decisions, bundled), explorer, repoBase: `${config.repoUrl}/blob/${config.repoRef}`, network: made.fixture ? null : config.network };

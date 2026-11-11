@@ -1,11 +1,13 @@
 // The one place to point the page at a deployment. The build reads this file to write the page's Content-Security-Policy
-// (connect-src allows exactly the hosts of rpcUrl and indexerUrl, and only when `fixture` is null, plus the press desk's discovery host and its quick tunnels when `pressDiscoveryUrl` is set), then copies it unchanged.
+// (connect-src allows exactly the hosts of rpcUrls and indexerUrl, and only when `fixture` is null, plus the press desk's discovery host and its quick tunnels when `pressDiscoveryUrl` is set), then copies it unchanged.
 export const config = {
   network: "testnet",
   // The deployed token: docs/testnet-deployment.json records it, `make -C deploy verify` re-checks it.
   account: "token.chair-coin-2.testnet",
-  // NEAR JSON-RPC: the source of truth for every total on the page.
-  rpcUrl: "https://rpc.testnet.fastnear.com",
+  // NEAR JSON-RPC: the source of truth for every total on the page. Ordered: the page starts at the first and moves to the next when one
+  // is throttled (429), down, or unreachable, then sticks with whichever answered last. Each must answer `query` (call_function,
+  // view_access_key_list) and send CORS headers on its answers. Measured 2026-11-11 with the account's own calls, ordered by fewest 429s.
+  rpcUrls: ["https://rpc.testnet.fastnear.com", "https://near-testnet.drpc.org", "https://rpc.testnet.near.org"],
   // FastNEAR transactions API: which transactions touched the token, with their logs. An index, checked against the RPC.
   indexerUrl: "https://tx.test.fastnear.com",
   explorerUrl: "https://testnet.nearblocks.io",

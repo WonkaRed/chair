@@ -159,10 +159,13 @@ test("the build copies every compiled sim .js file into dist/vendor/sim byte for
 });
 
 test("CSP allows only the configured hosts, and the page has no inline script or external resource", async () => {
-  const cfg = { fixture: null, rpcUrl: "https://rpc.example.org/x", indexerUrl: "https://idx.example.org" };
+  const cfg = { fixture: null, rpcUrls: ["https://rpc.example.org/x"], indexerUrl: "https://idx.example.org" };
   assert.match(cspFor(cfg), /connect-src 'self' https:\/\/rpc\.example\.org https:\/\/idx\.example\.org;/);
   assert.match(cspFor({ ...cfg, fixture: "f.json" }), /connect-src 'self';/);
-  assert.throws(() => cspFor({ ...cfg, rpcUrl: "http://rpc.example.org" }), /https/);
+  assert.throws(() => cspFor({ ...cfg, rpcUrls: ["http://rpc.example.org"] }), /https/);
+  assert.throws(() => cspFor({ ...cfg, rpcUrls: ["https://rpc.example.org", "http://b.example.org"] }), /https/, "every fallback endpoint must be https too");
+  const many = cspFor({ ...cfg, rpcUrls: ["https://a.example.org/x", "https://b.example.org", "https://a.example.org/y", "https://c.example.org:8443"] });
+  assert.match(many, /connect-src 'self' https:\/\/a\.example\.org https:\/\/b\.example\.org https:\/\/c\.example\.org:8443 https:\/\/idx\.example\.org;/, "every host of the list, once each, and nothing else");
   const gist = "https://gist.githubusercontent.com/WonkaRed/x/raw/chair-press.json";
   assert.match(cspFor({ ...cfg, pressDiscoveryUrl: gist }), /connect-src 'self' https:\/\/rpc\.example\.org https:\/\/idx\.example\.org https:\/\/gist\.githubusercontent\.com https:\/\/\*\.trycloudflare\.com;/);
   assert.match(cspFor({ ...cfg, fixture: "f.json", pressDiscoveryUrl: gist }), /connect-src 'self' https:\/\/gist\.githubusercontent\.com https:\/\/\*\.trycloudflare\.com;/, "the desk is independent of the fixture");
@@ -170,6 +173,12 @@ test("CSP allows only the configured hosts, and the page has no inline script or
   assert.throws(() => cspFor({ ...cfg, pressDiscoveryUrl: "http://gist.example.org/x.json" }), /pressDiscoveryUrl/);
   const { config: shipped } = await import(pathToFileURL(join(root, "config.js")).href);
   assert.equal("pressUrl" in shipped, false, "the fixed pressUrl path is gone");
+  assert.equal("rpcUrl" in shipped, false, "the single rpcUrl is gone: rpcUrls is the one place");
+  assert.ok(shipped.rpcUrls.length >= 2, "the shipped page has a fallback endpoint");
+  const shippedCsp = (await readFile(join(dist, "index.html"), "utf8")).match(/connect-src ([^;]*);/)[1].split(" ");
+  const expected = new Set([...shipped.rpcUrls, shipped.indexerUrl, ...(shipped.pressDiscoveryUrl ? [shipped.pressDiscoveryUrl] : [])].map((u) => new URL(u).origin));
+  if (shipped.pressDiscoveryUrl) expected.add("https://*.trycloudflare.com");
+  assert.deepEqual(shippedCsp.filter((x) => x !== "'self'").sort(), [...expected].sort(), "the built CSP lists every configured host and no other");
   assert.match(await readFile(join(dist, "index.html"), "utf8"), shipped.pressDiscoveryUrl ? /connect-src [^;]*https:\/\/\*\.trycloudflare\.com/ : /connect-src (?![^;]*trycloudflare)/);
   const html = await readFile(join(dist, "index.html"), "utf8");
   assert.doesNotMatch(html, /__CSP__/);
@@ -270,7 +279,7 @@ test("hostile ids are named as invalid, and hostile text is shown escaped, in th
 
 test("an RPC node's error text is escaped when the page says it could not read the chain", async () => {
   const reply = { status: 200, ok: true, json: async () => ({ error: { name: EVIL } }) };
-  const t = rpcTransport({ rpcUrl: "https://rpc.example.org", indexerUrl: "https://idx.example.org", account: "chair-token.testnet", fetchImpl: async () => reply });
+  const t = rpcTransport({ rpcUrls: ["https://rpc.example.org"], indexerUrl: "https://idx.example.org", account: "chair-token.testnet", fetchImpl: async () => reply });
   const err = await loadLog(t).then(() => null, (e) => e);
   assert.ok(err instanceof SourceError);
   assert.ok(err.message.includes("<img"), "the hostile text is in the error message");

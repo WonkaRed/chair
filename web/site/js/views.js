@@ -22,7 +22,8 @@ export function silentPath(policy, maxStep = 50) {
   return out;
 }
 
-export function renderSource(doc, host, { mode, config, fixture }) {
+/** `rpcUrl` is the RPC endpoint that last answered; until one has, the page names all the ones it may use. */
+export function renderSource(doc, host, { mode, config, fixture, rpcUrl = null }) {
   clear(host);
   host.className = `source ${mode}`;
   if (mode === "fixture") {
@@ -35,7 +36,7 @@ export function renderSource(doc, host, { mode, config, fixture }) {
     host.append(
       h(doc, "strong", {}, `Live: ${safeText(config.account, 64)} on ${safeText(config.network, 12)}.`),
       " ",
-      `Views come from ${safeText(new URL(config.rpcUrl).host, 80)}, the transaction list from ${safeText(new URL(config.indexerUrl).host, 80)}. Nothing passes through a server of ours.`,
+      `Views come from ${(rpcUrl === null ? config.rpcUrls : [rpcUrl]).map((u) => safeText(new URL(u).host, 80)).join(" or ")}, the transaction list from ${safeText(new URL(config.indexerUrl).host, 80)}. Nothing passes through a server of ours.`,
     );
   }
 }
@@ -184,5 +185,5 @@ export function renderLog(doc, host, d, state, { explorer, rerender }) {
 
 export function renderFailure(doc, host, err) {
   clear(host);
-  host.append(h(doc, "p", { class: "verdict bad", role: "alert" }, h(doc, "span", { class: "mark", "aria-hidden": "true" }, "✗"), ` The chain could not be read (${safeText(err?.message ?? String(err), 160)}). No number is shown rather than a wrong one. Check the RPC URL in config.js.`));
+  host.append(h(doc, "p", { class: "verdict bad", role: "alert" }, h(doc, "span", { class: "mark", "aria-hidden": "true" }, "✗"), ` The chain could not be read (${safeText(err?.message ?? String(err), 160)}). No number is shown rather than a wrong one. Reloading the page tries again.`));
 }

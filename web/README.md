@@ -11,7 +11,7 @@ Needs Node 22.22.2 or newer and npm (the build compiles `../sim` first).
 ```sh
 make -C web build    # compiles ../sim, writes web/dist (site + config + fixture + the reasoning bundle + a verbatim copy of the compiled simulator + the CSP)
 make -C web serve    # builds, then serves web/dist at http://127.0.0.1:8080/ (`PORT=8081 make -C web serve` to change it; a busy port is reported with that hint)
-make -C web test     # builds, then `node --test "test/*.test.mjs"`: 49 tests, no browser, no network
+make -C web test     # builds, then `node --test "test/*.test.mjs"`: 67 tests, no browser, no network
 ```
 
 Deploying is copying `web/dist` to any static host.
@@ -19,11 +19,24 @@ Deploying is copying `web/dist` to any static host.
 ## Config: `config.js`
 
 The one file to edit after deployment: `account` (the token account; shipped pointing at the live testnet token `token.chair-coin-2.testnet`, see `docs/testnet-deployment.json`),
-`rpcUrl` (NEAR JSON-RPC, the source of truth for every total), `indexerUrl` (FastNEAR transactions API, the source of the event list),
+`rpcUrls` (NEAR JSON-RPC endpoints in order of preference, the source of truth for every total; see Throttled or down RPC), `indexerUrl` (FastNEAR transactions API, the source of the event list),
 `explorerUrl`, `repoUrl`/`repoRef` (spec and test links), `pressDiscoveryUrl` (where the page finds the press desk; see Press conference), and `fixture`. `fixture: null` (as shipped) reads the live chain; setting it to a path, as the tests do, shows
 `fixtures/sandbox-run.json` instead and says, in a banner, "recorded sandbox run, not a live chain". The build writes the page's
-Content-Security-Policy from this file: `connect-src` allows `'self'` and, only when `fixture` is `null`, exactly the origins of `rpcUrl` and
+Content-Security-Policy from this file: `connect-src` allows `'self'` and, only when `fixture` is `null`, exactly the origins of every `rpcUrls` entry and
 `indexerUrl` (https only), plus, only when `pressDiscoveryUrl` is set, that document's origin (https; any other scheme fails the build) and `https://*.trycloudflare.com`, where the press desk lives. Scripts and styles are `'self'` only; the page has no inline script or style.
+
+## Throttled or down RPC
+
+The page reads the chain from the visitor's browser, so a public RPC that throttles would break it for that visitor. `rpcUrls` in `config.js` is an ordered list (shipped: `rpc.testnet.fastnear.com`, `near-testnet.drpc.org`, `rpc.testnet.near.org`, ordered by fewest 429s in a 30-call probe on 2026-11-11; every one answers `query` with `call_function` and `view_access_key_list` and sends CORS headers). One transport in `site/js/sources.js` serves every call:
+
+- A network error (a rejected fetch, which is also what a browser reports for a 429 whose response has no CORS header, as FastNEAR's has), a timeout (10 s), HTTP 429, any other HTTP error, or a body that is not JSON moves the call to the next endpoint at once.
+- The endpoint that last answered is where the next call starts. After a whole failed round the call pauses 400 ms and makes one more round, then fails once.
+- A JSON-RPC error (`UNKNOWN_BLOCK`, a contract panic) is the node's real answer: no failover.
+- The footer's "Views come from" names the endpoint that last answered (all candidates until one has).
+- The transactions index (`indexerUrl`) has no second public instance with the same API, so it keeps one endpoint, with the same pause-and-retry round. FastNEAR's index does throttle (it answers 429 without CORS headers under a burst). When it stays down only the log degrades: the chain's totals stay, the status reads "Log incomplete" with a Try again button.
+- If every RPC endpoint is down on first load the page shows "The chain could not be read" and no numbers. If it fails during a Try again, after data was already on screen, the data stays and a quiet "Reconnecting" note is added above the log status.
+
+To add or reorder an endpoint, edit `rpcUrls` only: the build puts each host in the CSP.
 
 ## How the log works, and how it fails
 

@@ -14,7 +14,7 @@ const simDist = join(root, "..", "sim", "dist", "src");
 export function cspFor(config) {
   const connect = ["'self'"];
   if (config.fixture === null) {
-    for (const url of [config.rpcUrl, config.indexerUrl]) {
+    for (const url of [...config.rpcUrls, config.indexerUrl]) {
       const u = new URL(url);
       if (u.protocol !== "https:") throw new Error(`config: ${url} must be https`);
       connect.push(u.origin);
