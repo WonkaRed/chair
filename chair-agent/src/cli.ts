@@ -1,9 +1,14 @@
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import { MAX_SEND_ATTEMPTS, tick, type TickResult } from "./agent.js";
 import { ChainReader } from "./chain.js";
 import type { DecideOptions } from "./decide.js";
 import { AnthropicLlmClient, LlmChair, LocalLlmClient, llmConfigured, type LlmClient } from "./llm-chair.js";
 import { DecisionLog, findReasoning, verifyLog } from "./log.js";
+import { answerQuestion, ModelWatch } from "./press-answer.js";
+import { createPressServer, listen } from "./press-server.js";
+import { PressStore } from "./press-store.js";
 import { NearRpc } from "./rpc.js";
 import { ruleChair } from "./rule-chair.js";
 import { ChairSigner, assertScoped, loadSecretKey, METHOD } from "./signer.js";
@@ -15,6 +20,7 @@ const USAGE = `chair-agent: sets the $CHAIR rate once per epoch.
 
   chair-agent run [options]          read the chain, decide, and (unless --dry-run) send set_policy
   chair-agent verify-log <file> [hash]   recompute every logged reasoning hash; with a hash, print its text
+  chair-agent press [options]        take questions from the public page on 127.0.0.1 and answer them (see "press options")
 
 run options (each also read from the environment variable in brackets):
   --rpc <url>          JSON-RPC endpoint [CHAIR_RPC_URL]            required
@@ -29,6 +35,12 @@ run options (each also read from the environment variable in brackets):
   --llm-timeout-ms <n> give the model this long before the rule chair decides  default 30000
   --llm-endpoint <url> use a model served on this machine (http, loopback) instead of Anthropic  [CHAIR_LLM_ENDPOINT]
   --llm-model <id>     the id that endpoint serves; the chair is then named local:<id>         [CHAIR_LLM_MODEL]
+  --press <file>       the press record (JSON lines): its pending questions go into the minutes   [CHAIR_PRESS]
+
+press options:
+  --port <n>           listen on 127.0.0.1:<n> [CHAIR_PRESS_PORT]   default 18790
+  --press <file>       the press record, shared with the agent [CHAIR_PRESS]   default ~/.local/state/chair-agent/press.jsonl
+  --llm-endpoint <url> --llm-model <id>   the model on this machine that answers (both required) [CHAIR_LLM_ENDPOINT, CHAIR_LLM_MODEL]
 
 The key: CHAIR_KEY (ed25519:...) or CHAIR_KEY_FILE (a file holding it). The LLM chair also needs
 ANTHROPIC_API_KEY, unless --llm-endpoint and --llm-model are given; without either --chair llm falls back to the rule chair.
@@ -83,6 +95,7 @@ export async function main(argv: readonly string[], env: NodeJS.ProcessEnv, io: 
   try {
     if (command === "verify-log") return verifyCommand(rest, io);
     if (command === "run") return await runCommand(rest, env, io, deps);
+    if (command === "press") return await pressCommand(rest, env, io, deps);
     io.err(USAGE);
     return command === undefined || command === "help" || command === "--help" ? 0 : 2;
   } catch (err) {
@@ -126,6 +139,7 @@ async function runCommand(args: readonly string[], env: NodeJS.ProcessEnv, io: I
       "llm-timeout-ms": { type: "string" },
       "llm-endpoint": { type: "string" },
       "llm-model": { type: "string" },
+      press: { type: "string" },
     },
     strict: true,
     allowPositionals: false,
@@ -174,8 +188,10 @@ async function runCommand(args: readonly string[], env: NodeJS.ProcessEnv, io: I
     }
   }
   const log = new DecisionLog(values.log ?? env["CHAIR_LOG"] ?? "decisions.jsonl", { token, account });
-  const agent = { reader: new ChainReader(rpc, token), log, decideOptions, chairAccount: account, submitter };
-  io.out(`chair-agent on ${chainId}: token ${token}, chair ${account}, chair kind ${decideOptions.chair.name}${dryRun ? ", dry run" : ""}`);
+  const pressFile = values.press ?? env["CHAIR_PRESS"];
+  const press = pressFile === undefined ? undefined : new PressStore(pressFile);
+  const agent = { reader: new ChainReader(rpc, token), log, decideOptions, chairAccount: account, submitter, ...(press === undefined ? {} : { press }) };
+  io.out(`chair-agent on ${chainId}: token ${token}, chair ${account}, chair kind ${decideOptions.chair.name}${dryRun ? ", dry run" : ""}${press === undefined ? "" : ", press record on"}`);
 
   const signal = deps.signal ?? new AbortController().signal;
   const sleep = deps.sleep ?? realSleep;
@@ -194,6 +210,46 @@ async function runCommand(args: readonly string[], env: NodeJS.ProcessEnv, io: I
     await sleep(wait, signal);
     if (signal.aborted) return 0;
   }
+}
+
+const DEFAULT_PRESS_PORT = 18790;
+
+async function pressCommand(args: readonly string[], env: NodeJS.ProcessEnv, io: Io, deps: CliDeps): Promise<number> {
+  const { values } = parseArgs({
+    args: [...args],
+    options: { port: { type: "string" }, press: { type: "string" }, "llm-endpoint": { type: "string" }, "llm-model": { type: "string" } },
+    strict: true,
+    allowPositionals: false,
+  });
+  const port = int(Number(values.port ?? env["CHAIR_PRESS_PORT"] ?? DEFAULT_PRESS_PORT), "--port", 0, 65_535);
+  const file = values.press ?? env["CHAIR_PRESS"] ?? join(env["XDG_STATE_HOME"] ?? join(homedir(), ".local", "state"), "chair-agent", "press.jsonl");
+  const endpoint = values["llm-endpoint"] ?? env["CHAIR_LLM_ENDPOINT"];
+  const model = values["llm-model"] ?? env["CHAIR_LLM_MODEL"];
+  let client = deps.llmClient;
+  let watch: ModelWatch | null = null;
+  if (client === undefined) {
+    if (endpoint === undefined || model === undefined) throw new Error("--llm-endpoint and --llm-model (or CHAIR_LLM_ENDPOINT and CHAIR_LLM_MODEL) are required");
+    client = new LocalLlmClient(endpoint, model);
+    watch = new ModelWatch(endpoint, model);
+    await watch.start();
+  }
+  const llm = client;
+  const server = createPressServer({
+    store: new PressStore(file),
+    answer: (question) => answerQuestion(llm, question),
+    available: () => watch === null || watch.available,
+    log: (line) => io.out(line),
+  });
+  const bound = await listen(server, port);
+  io.out(`chair-agent press on 127.0.0.1:${bound}, record ${file}, model ${watch === null ? "stand-in" : model}${watch?.available === false ? " (not reachable yet; answering 503 until it is)" : ""}`);
+  const signal = deps.signal ?? new AbortController().signal;
+  if (!signal.aborted) await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
+  watch?.stop();
+  await new Promise<void>((resolve) => {
+    server.close(() => resolve());
+    server.closeAllConnections();
+  });
+  return 0;
 }
 
 /** After a failed send: back off 10 s, 20 s; after the last attempt, like everything else, until the next epoch. */

@@ -1,7 +1,9 @@
 import { RateWindow, type Rate } from "./bounds.js";
-import { cleanReasoning, reasoningHash } from "./reasoning.js";
+import { pressSection } from "./press-section.js";
+import type { PressEntry } from "./press-store.js";
+import { cleanReasoning, MAX_REASONING_CHARS, reasoningHash } from "./reasoning.js";
 import { ruleChair, ruleDecision } from "./rule-chair.js";
-import type { Chair, ChairKind, Decision, HistoryPoint, Proposal, Snapshot } from "./types.js";
+import type { Chair, ChairKind, ChairMemory, Decision, HistoryPoint, Proposal, Snapshot } from "./types.js";
 
 /** Longest chair-written body; the agent's own header and notes come on top of it. */
 const BODY_CHARS = 1500;
@@ -73,10 +75,10 @@ export interface Proposed {
  * cannot fail. The chair sees a window that stays valid across a rollover whenever the model's own time
  * allowance could carry the call past the epoch end.
  */
-export async function propose(snapshot: Snapshot, history: readonly HistoryPoint[], opts: DecideOptions): Promise<Proposed> {
+export async function propose(snapshot: Snapshot, history: readonly HistoryPoint[], opts: DecideOptions, memory?: ChairMemory): Promise<Proposed> {
   const isRule = opts.chair === ruleChair;
   const w = windowFor(snapshot, opts.marginMs, isRule ? 0 : opts.timeoutMs);
-  const input = { snapshot, history: before(history, snapshot.policy.epoch), window: { lo: w.lo, hi: w.hi } };
+  const input = { snapshot, history: before(history, snapshot.policy.epoch), window: { lo: w.lo, hi: w.hi }, ...(memory === undefined ? {} : { memory }) };
   const basedOnEpoch = snapshot.policy.epoch;
   if (!isRule) {
     try {
@@ -102,7 +104,13 @@ export async function propose(snapshot: Snapshot, history: readonly HistoryPoint
  * chair was thinking, a rule-chair proposal is recomputed from the fresh state and a model's answer is
  * only clamped.
  */
-export function finalize(fresh: Snapshot, history: readonly HistoryPoint[], proposed: Proposed, opts: Pick<DecideOptions, "marginMs">): Decision {
+export function finalize(
+  fresh: Snapshot,
+  history: readonly HistoryPoint[],
+  proposed: Proposed,
+  opts: Pick<DecideOptions, "marginMs">,
+  press: readonly PressEntry[] = [],
+): Decision {
   const { policy } = fresh;
   const rolled = policy.epoch !== proposed.basedOnEpoch;
   const window = windowFor(fresh, opts.marginMs);
@@ -117,10 +125,11 @@ export function finalize(fresh: Snapshot, history: readonly HistoryPoint[], prop
       ? ""
       : `\nThe Chair asked for ${proposal.rateBps} bps; the contract accepts ${window.lo}..${window.hi} bps here, so ${rate} bps is set. The Chair defers.`;
   const body = cleanReasoning(proposal.reasoning, BODY_CHARS) ?? "";
-  const text = cleanReasoning(
+  const base =
     `$CHAIR decision, epoch ${policy.epoch}, chair ${proposed.used.name}.\n${proposed.fallbackNote}` +
-      `Rate in effect ${policy.rateBps} bps; decision ${rate} bps.\n${body}${rolloverNote}${clampNote}`,
-  );
+    `Rate in effect ${policy.rateBps} bps; decision ${rate} bps.\n${body}${rolloverNote}${clampNote}`;
+  // The press section only ever follows the decision text, and only in the room the 2000-character cap leaves.
+  const text = cleanReasoning(`${base}${pressSection(press, MAX_REASONING_CHARS - base.length)}`);
   if (text === null) throw new Error("unreachable: decision text is never empty");
   return {
     epoch: policy.epoch,

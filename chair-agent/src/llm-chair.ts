@@ -11,6 +11,10 @@ export interface LlmRequest {
   readonly system: string;
   readonly user: string;
   readonly signal: AbortSignal;
+  /** The JSON schema the answer must follow; the decision schema when absent. */
+  readonly schema?: Readonly<Record<string, unknown>>;
+  /** Cap on the answer's tokens, thinking included; 4000 when absent. */
+  readonly maxTokens?: number;
 }
 
 export interface LlmResponse {
@@ -56,9 +60,14 @@ const SYSTEM = [
   "never give the purpose or expected effect of your move, never say what was minted or burned, never forecast or promise,",
   "never say what the contract or any rate will do next, give no opinion of the figures (adequate, excessive, healthy, worrying),",
   "and say nothing about price, value, or what holders or stakers feel or do. The ceremony is about the Chair, never about the numbers.",
+  "The Chair gives no reason for its decision and no judgment of it: never write \"sees no reason\", \"finds it fitting\" or the like.",
   "When a figure is null, do not mention it at all.",
   "epochs_since_last_decision above 0 means the Chair was silent for that many epochs; in a silent epoch the contract moves the rate toward zero without asking, but never say how far it moved;",
-  "epochs_this_chair_has_held_the_seat says nothing about how long any rate has lasted; how long a rate has been in effect is unknown, so never say it.",
+  "epochs_this_chair_has_held_the_seat says nothing about how long any rate has lasted; how long a rate has been in effect is unknown, so never say it,",
+  "except through consecutive_epochs_the_chair_set_this_same_rate: when present, it is the number of epochs in a row, ending with the last one, in which the Chair itself set exactly rate_in_effect_bps, and it may be reported only as that (\"the Chair has set this same rate N epochs in a row\"), never as how long the rate has stood or been in effect.",
+  "times_the_contract_refused_the_chair, when not null, is how many times the contract refused one of the Chair's own calls according to the Chair's own records, and it may be reported only as that",
+  "(\"the contract has refused the Chair N times in the Chair's records\"); it is a count of what the records hold, not of everything that ever happened. The contract keeps no such record, so never say the contract logged, recorded or counted anything.",
+  "The Chair may note the count dryly but never explain it or say what it caused.",
   "Name no real person, institution, currency, central bank or place: the only names are \"the Chair\", \"the Committee of One\" and \"the contract\".",
   "No em or en dashes, no emoji, no exclamation marks.",
 ].join(" ");
@@ -81,6 +90,13 @@ export function buildPrompt(input: DecisionInput): { system: string; user: strin
       staking === null || snapshot.totalSupply === 0n ? null : stakedShareBps(staking.totalStaked, snapshot.totalSupply),
     supply_change_bps_last_6_epochs: supplyDriftBps(input)?.toString() ?? null,
     recent_supply: history.slice(-6).map((h) => ({ epoch: h.epoch, total_supply: h.totalSupply.toString() })),
+    // Logged facts, present only when the caller has a log to read them from; a count of 0 is null, "nothing to say", never "zero times".
+    ...(input.memory === undefined
+      ? {}
+      : {
+          consecutive_epochs_the_chair_set_this_same_rate: input.memory.sameRateEpochs === 0 ? null : input.memory.sameRateEpochs,
+          times_the_contract_refused_the_chair: input.memory.refusals === 0 ? null : input.memory.refusals,
+        }),
   });
   return { system: SYSTEM, user };
 }
@@ -163,10 +179,10 @@ export class AnthropicLlmClient implements LlmClient {
     const res = await this.sdk.messages.create(
       {
         model: this.model,
-        max_tokens: 4000,
+        max_tokens: req.maxTokens ?? 4000,
         system: req.system,
         messages: [{ role: "user", content: req.user }],
-        output_config: { effort: "low", format: { type: "json_schema", schema: ANSWER_SCHEMA } },
+        output_config: { effort: "low", format: { type: "json_schema", schema: { ...(req.schema ?? ANSWER_SCHEMA) } } },
       },
       { signal: req.signal },
     );

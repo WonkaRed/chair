@@ -41,12 +41,21 @@ export interface HistoryPoint {
   readonly totalSupply: bigint;
 }
 
+/** What the decision log says about this chair's own record; absent when no log is at hand. */
+export interface ChairMemory {
+  /** Epochs in a row, ending with the one before this, in which an executed decision of the chair set exactly the rate now in effect. */
+  readonly sameRateEpochs: number;
+  /** Times the contract refused one of the chair's calls, as logged. */
+  readonly refusals: number;
+}
+
 export interface DecisionInput {
   readonly snapshot: Snapshot;
   /** Oldest first, strictly before `snapshot.policy.epoch`. */
   readonly history: readonly HistoryPoint[];
   /** Rates the contract accepts for this call; a chair's answer is clamped into it afterwards. */
   readonly window: { readonly lo: number; readonly hi: number };
+  readonly memory?: ChairMemory;
 }
 
 /** What a chair says it wants. Untrusted until `decide` has clamped and cleaned it. */

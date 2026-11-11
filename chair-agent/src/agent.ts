@@ -1,6 +1,7 @@
 import type { Reader } from "./chain.js";
 import { finalize, propose, windowFor, type DecideOptions } from "./decide.js";
 import type { DecisionLog, EpochState } from "./log.js";
+import type { PressEntry, PressStore } from "./press-store.js";
 import { reasoningHash } from "./reasoning.js";
 import type { Submitter } from "./signer.js";
 import type { Decision, Snapshot } from "./types.js";
@@ -31,6 +32,8 @@ export interface AgentDeps {
   readonly chairAccount: string;
   /** Absent in dry-run mode: nothing then signs, sends, or writes the log. */
   readonly submitter: Submitter | null;
+  /** The press record, when questions are taken: pending ones go into the minutes, and are marked once the transaction lands. */
+  readonly press?: PressStore;
 }
 
 /**
@@ -50,16 +53,25 @@ export async function tick(deps: AgentDeps): Promise<TickResult> {
     if (prior.decision !== null) return resend(deps, deps.submitter, snapshot, prior);
   }
 
-  const proposed = await propose(snapshot, deps.log.history(policy.epoch), deps.decideOptions);
+  const proposed = await propose(snapshot, deps.log.history(policy.epoch), deps.decideOptions, deps.log.memory(policy.epoch, policy.rateBps));
   // The chair may have taken a while: decide against the chain as it is now, not as it was.
   const fresh = await deps.reader.snapshot();
   if (fresh.policy.chair !== deps.chairAccount) return { status: "not-chair", snapshot: fresh };
   if (fresh.policy.lastSetEpoch === fresh.policy.epoch) return { status: "already-set", snapshot: fresh };
-  const decision = finalize(fresh, deps.log.history(fresh.policy.epoch), proposed, deps.decideOptions);
+  const decision = finalize(fresh, deps.log.history(fresh.policy.epoch), proposed, deps.decideOptions, pendingQuestions(deps));
   if (deps.submitter === null) return { status: "dry-run", snapshot: fresh, decision };
 
   deps.log.recordDecision(decision, fresh);
   return send(deps, deps.submitter, fresh, decision, 0);
+}
+
+/** The questions waiting for these minutes. The press is a side lane: a store that cannot be read means no press section, never a missed decision. */
+function pendingQuestions(deps: AgentDeps): PressEntry[] {
+  try {
+    return deps.press?.pending() ?? [];
+  } catch {
+    return [];
+  }
 }
 
 /** The epoch already has its decision: send that one again if it is still allowed and still valid, else give up for the epoch. */
@@ -83,11 +95,21 @@ async function resend(deps: AgentDeps, submitter: Submitter, snapshot: Snapshot,
   return send(deps, submitter, snapshot, decision, prior.failedSends);
 }
 
+/** The transaction landed: every question whose line is in the text that was sent now has its epoch and transaction. */
+function enterQuestions(deps: AgentDeps, decision: Decision, txHash: string): void {
+  try {
+    deps.press?.markEntered(decision.reasoning, decision.epoch, txHash);
+  } catch {
+    // The decision is on chain and logged; a failed mark only leaves the question pending, so it is entered again.
+  }
+}
+
 async function send(deps: AgentDeps, submitter: Submitter, snapshot: Snapshot, decision: Decision, failedBefore: number): Promise<TickResult> {
   try {
     const res = await submitter.submit(decision);
     const status = res.failure === null ? "executed" : "rejected";
     deps.log.recordOutcome(decision, status, res.txHash, res.failure);
+    if (res.failure === null) enterQuestions(deps, decision, res.txHash);
     return { status, snapshot, decision, txHash: res.txHash, error: res.failure, failedSends: failedBefore };
   } catch (err) {
     const error = err instanceof Error ? `${err.name}: ${err.message}`.slice(0, 300) : "send failed";

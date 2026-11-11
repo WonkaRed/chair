@@ -1,7 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { cleanReasoning, HASH_RE, reasoningHash } from "./reasoning.js";
-import type { ChairKind, Decision, HistoryPoint, Snapshot } from "./types.js";
+import type { ChairKind, ChairMemory, Decision, HistoryPoint, Snapshot } from "./types.js";
 import { u128 } from "./validate.js";
 
 /**
@@ -108,6 +108,24 @@ export class DecisionLog {
       }
     }
     return { decision, failedSends, settled };
+  }
+
+  /**
+   * The chair's own record as the log has it: how many epochs in a row before `epoch` an executed decision set exactly `rateInEffect`
+   * (0 when the last epoch's did not), and how many of its calls the contract refused. Numbers the log holds, never inferred.
+   */
+  memory(epoch: number, rateInEffect: number): ChairMemory {
+    const rateByHash = new Map<string, number>();
+    const executed = new Map<number, number>();
+    let refusals = 0;
+    for (const rec of this.mine()) {
+      if (rec.kind === "decision") rateByHash.set(rec.reasoning_hash, rec.rate_bps);
+      else if (rec.status === "rejected") refusals++;
+      else if (rec.status === "executed" && rateByHash.has(rec.reasoning_hash)) executed.set(rec.epoch, rateByHash.get(rec.reasoning_hash)!);
+    }
+    let sameRateEpochs = 0;
+    while (executed.get(epoch - 1 - sameRateEpochs) === rateInEffect) sameRateEpochs++;
+    return { sameRateEpochs, refusals };
   }
 
   /** Supply at past decisions of this token and account, strictly before `beforeEpoch`, oldest first, one point per epoch. */

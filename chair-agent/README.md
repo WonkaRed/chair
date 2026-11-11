@@ -25,7 +25,7 @@ Needs Node 22.22.2 or newer and npm. Dependencies are pinned exactly in `package
 `@types/node` 26.6.6.
 
 ```sh
-make test   # typecheck, then 122 tests with node --test; no network except loopback fakes, no key; temp files go under out/test-tmp (override with CHAIR_TEST_TMP)
+make test   # typecheck, then 149 tests with node --test; no network except loopback fakes, no key; temp files go under out/test-tmp (override with CHAIR_TEST_TMP)
 make demo   # 16 epochs against an in-memory model of the token; prints a table, writes out/demo-decisions.jsonl
 ```
 
@@ -55,7 +55,8 @@ acting once per epoch.
 ```
 chair-agent run [--rpc <url>] [--token <acct>] [--account <acct>] [--log <file>] [--chair rule|llm]
                 [--dry-run] [--once] [--allow-full-access-key] [--margin-ms <n>] [--llm-timeout-ms <n>]
-                [--llm-endpoint <url> --llm-model <id>]
+                [--llm-endpoint <url> --llm-model <id>] [--press <file>]
+chair-agent press [--port <n>] [--press <file>] --llm-endpoint <url> --llm-model <id>   # the press conference, below
 chair-agent verify-log <file> [hash]     # recompute every hash; with a hash, print the text it commits to
 ```
 
@@ -95,7 +96,7 @@ opens with `Chair <name> failed (<reason>). The rule chair decided instead. The 
 
 ## The LLM chair
 
-`LlmChair` sends the model only numbers (rate, bounds, supply, staked share, drift, epochs in office, epochs since the last decision), asks for a JSON object
+`LlmChair` sends the model only numbers (rate, bounds, supply, staked share, drift, epochs in office, epochs since the last decision and, when the agent has its decision log, how many epochs in a row the Chair itself set the rate now in effect and how many times the contract refused one of the Chair's own calls, as that log records them), asks for a JSON object
 `{rate_bps, reasoning}` through structured output, and uses model `claude-sonnet-5-5` via the official SDK (the chair name `llm:claude-sonnet-5-5` is reported by that client only; any other client is `llm:unlabelled-client` unless it names itself). The
 agent then clamps the rate into the bounds of the window read after the model answered (see below). Any error, timeout (`--llm-timeout-ms`, default 30000), refusal,
 truncated answer, wrong or duplicate keys, non-integer or out-of-range type falls back to the rule chair, and the reasoning
@@ -140,11 +141,44 @@ node dist/src/main.js verify-log decisions.jsonl            # recomputes every h
 node dist/src/main.js verify-log decisions.jsonl <hash>     # prints the text that hashes to <hash>
 ```
 
+## Press conference
+
+A judge types one question (at most 140 characters) on the page; the Chair answers in character within seconds; at its next on-chain decision the Chair's reasoning text records that a question was asked and what the Chair said. The hash of that text is the one the contract stores, so the exchange is verifiable like any other decision.
+
+**It runs on the submitter's workstation, behind a free tunnel, and may be offline.** The answers come from a locally run model on that machine. When the machine, the model or the tunnel is down, the page cannot ask (`/record` reports `taking_questions: false`, or the connection fails), and nothing on chain depends on it: the Chair decides every epoch with or without the press.
+
+`chair-agent press` (`scripts/run-press.sh`) serves three routes on `127.0.0.1:18790` and nothing else, JSON only, bodies capped at 1 KiB:
+
+| Route | Reply |
+| --- | --- |
+| `POST /ask` `{"question": "..."}` | `{"id","answer","question_hash","asked_at_ms","status":"answered"}`; errors `{"error": "..."}` with 400 (bad input), 429 (rate limited, with `Retry-After`), 503 (not taking questions: the model is down or the queue is full) |
+| `GET /record?limit=N` (default 20, max 50) | `{"taking_questions": bool, "entries": [{"id","question_hash","answer","asked_at_ms","epoch","tx_hash"}]}`, newest first; `epoch` and `tx_hash` are `null` until the question is in a landed decision |
+| `GET /health` | `{"ok": true}` |
+
+CORS allows `https://wonkared.github.io` and loopback origins only. A question is cleaned (the minutes' text rules, then whitespace collapsed and trimmed) and must then be 1 to 140 characters; `question_hash` is the SHA-256 of that cleaned text in UTF-8, so anyone can recompute it from the words they typed. The store keeps the question text locally (that is what the hash is checked against) and no route ever returns it. Limits: 3 questions per IP per 10 minutes (the IP is Cloudflare's `CF-Connecting-IP`, trusted only on a loopback connection, IPv6 by /64), 30 per hour overall, one model call at a time, at most 5 waiting. The record is `~/.local/state/chair-agent/press.jsonl` (mode 0600), appended to by the server and by the agent.
+
+**How a question reaches the chain.** `run --press <file>` (set by `run-chair.sh`) reads the questions not yet entered. At the next decision the reasoning gains a section after the decision text: "The press asked N question(s) since the last meeting." and, for the oldest up to 2, "A member of the press asked a question (3fa9c1d2e4b7). The Chair replied: ...", where the number is the first 12 hex characters of `question_hash`. The question text never goes on chain. The section is cut to fit the 2000-character cap (2 entries, then 1, then none; the rest wait for the next meeting, oldest first) and the final text passes the same sanitizer as any reasoning. The decision itself, its bounds and its fall-backs are untouched. When the transaction lands, the entries it carried are marked with its epoch and transaction hash, by exact match against the text that was sent, so a failed send, a dry run or a trimmed section marks nothing it did not carry. Two questions per epoch is about 80 an hour, above the limit of 30 per hour.
+
+**The answer is the model's, then a backstop.** The question goes to the model as untrusted data in a delimited block, with a system prompt that says so. The answer is accepted only if it is plain ASCII, at most 240 characters, with no digit, link or handle, no price or advice word, no well-known real name, no talk of the contract's mechanics and none of the question's own words. Otherwise, and on any model failure or timeout, a fixed in-character line is used instead: one of seven, or one of three about price when the question is about price, chosen by the question hash. The public API does not say which source an answer came from (the JSONL does). The word lists are best effort, not a guarantee: a model can still say something odd, in character, and once entered it is on chain. `docs/press-and-memory-probe.txt` has 14 sample questions and the 12-decision probe of the memory facts.
+
+**Exposure.** A named Cloudflare tunnel would give a stable URL, but it needs a domain on Cloudflare and this machine has none. What is used instead is a quick tunnel (`cloudflared tunnel --url`, no account, free, no uptime promise) whose `https://<words>.trycloudflare.com` address changes at every start, plus a public gist file that `scripts/run-press-tunnel.sh` rewrites with the current address: `{"url": "https://<words>.trycloudflare.com", "updated_at_ms": 1234}`. The page reads `https://gist.githubusercontent.com/WonkaRed/<PRESS_GIST_ID>/raw/chair-press.json?t=<now>` (CORS `*`; the raw URL is cached up to 5 minutes, and the `?t=` makes it fresh), then talks to `<url>/ask` and `<url>/record`, and re-reads the gist when a call fails to connect. The tunnel script checks the public address every 30 seconds and exits after three misses, so systemd restarts it and a new address is published. Both are transient user units (nothing installed, gone at reboot; run these again after one):
+
+```sh
+cd chair-agent && npm ci && npm run build
+# once: the gist that publishes the tunnel address (prints its id, which the page needs)
+gh api --method POST gists -F public=true -f description="chair press endpoint" -f 'files[chair-press.json][content]={"url": "", "updated_at_ms": 0}' --jq .id
+systemd-run --user --unit=chair-press --collect -p Restart=always -p RestartSec=5 "$PWD/scripts/run-press.sh"
+systemd-run --user --unit=chair-press-tunnel --collect -p Restart=always -p RestartSec=10 --setenv=PRESS_GIST_ID=<the id> --setenv=PATH "$PWD/scripts/run-press-tunnel.sh"
+journalctl --user -u chair-press-tunnel -n 5     # "published https://....trycloudflare.com"
+```
+
+The tunnel script depends on `gh` being logged in as the gist's owner and on `cloudflared` being on `PATH`; it reads no secret. `run-chair.sh` already exports `CHAIR_PRESS`, so the running agent needs only a rebuild and a restart to start entering questions. The page's content-security policy must allow `https://gist.githubusercontent.com` and `https://*.trycloudflare.com` in `connect-src`.
+
 ## Layout
 
 `src/bounds.ts` (the branded `Rate` type: a rate outside the window cannot be constructed), `rule-chair.ts`,
 `llm-chair.ts`, `decide.ts` (propose, then clamp against the fresh window, hash), `chain.ts` and `rpc.ts` (validated reads), `signer.ts`
-(scoped-key transaction), `log.ts`, `text.ts` (the one sanitizer), `agent.ts` (one epoch, retries), `cli.ts`, plus `fake-chain.ts` and `demo.ts`. Tests are in `test/`; `scripts/run-chair.sh` is the unattended runner.
+(scoped-key transaction), `log.ts`, `text.ts` (the one sanitizer), `agent.ts` (one epoch, retries), `cli.ts`, the press conference (`press-server.ts`, `press-answer.ts`, `press-store.ts`, `press-section.ts`), plus `fake-chain.ts` and `demo.ts`. Tests are in `test/`; `scripts/run-chair.sh` is the unattended runner, `scripts/run-press.sh` and `scripts/run-press-tunnel.sh` run the press conference, and `scripts/voice-probe.mjs` is the probe harness.
 
 ## What is and is not verified
 

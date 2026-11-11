@@ -45,6 +45,8 @@ fi
 mkdir -p "$state"
 # The decision log is one file, not dated: the agent reads its supply history from it across restarts.
 export CHAIR_LOG="$state/decisions.jsonl"
+# The press record the press server (run-press.sh) writes: its pending questions go into the minutes of the next decision.
+export CHAIR_PRESS="$state/press.jsonl"
 
 # One chair per key: two runners would only collide on "policy already set". The agent inherits the lock,
 # so a runner killed without a chance to clean up leaves it held by the agent, which is still deciding.
