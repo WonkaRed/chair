@@ -7,6 +7,7 @@ import type { DecideOptions } from "./decide.js";
 import { AnthropicLlmClient, LlmChair, LocalLlmClient, llmConfigured, type LlmClient } from "./llm-chair.js";
 import { DecisionLog, findReasoning, verifyLog } from "./log.js";
 import { answerQuestion, ModelWatch, RECENT_LINES, stayOffTheModel } from "./press-answer.js";
+import { Overreach } from "./press-overreach.js";
 import { createPressServer, listen } from "./press-server.js";
 import { PressStore } from "./press-store.js";
 import { NearRpc } from "./rpc.js";
@@ -214,6 +215,30 @@ async function runCommand(args: readonly string[], env: NodeJS.ProcessEnv, io: I
 
 const DEFAULT_PRESS_PORT = 18790;
 
+/**
+ * "Make the Chair overreach" needs the chair account's key (CHAIR_OVERREACH_KEY_FILE) and the chain (CHAIR_RPC_URL, CHAIR_TOKEN, CHAIR_ACCOUNT). Missing or unusable,
+ * the feature is off and says so in the log: the press desk itself must never fail to start because of it.
+ */
+async function overreachFrom(env: NodeJS.ProcessEnv, io: Io): Promise<Overreach | null> {
+  const keyFile = env["CHAIR_OVERREACH_KEY_FILE"];
+  if (keyFile === undefined) return null;
+  try {
+    const rpcUrl = env["CHAIR_RPC_URL"];
+    if (rpcUrl === undefined) throw new Error("CHAIR_RPC_URL is required");
+    const token = accountId(env["CHAIR_TOKEN"], "CHAIR_TOKEN");
+    const account = accountId(env["CHAIR_ACCOUNT"], "CHAIR_ACCOUNT");
+    const rpc = new NearRpc(rpcUrl);
+    if ((await rpc.chainId()) === "mainnet") throw new Error("refusing to run against mainnet: this is a test-network experiment");
+    const sender = new ChairSigner(loadSecretKey({ CHAIR_KEY_FILE: keyFile }, (m) => io.err(`WARNING: ${m}`)), account, token, rpc);
+    assertScoped(await rpc.accessKey(account, await sender.publicKey()), token);
+    io.out(`overreach on: ${account} signs, the contract at ${token} decides`);
+    return new Overreach({ reader: new ChainReader(rpc, token), chairAccount: account, sender, log: (line) => io.out(line) });
+  } catch (err) {
+    io.err(`overreach off: ${err instanceof Error ? sanitize(err.message, 200) : "unknown error"}`);
+    return null;
+  }
+}
+
 async function pressCommand(args: readonly string[], env: NodeJS.ProcessEnv, io: Io, deps: CliDeps): Promise<number> {
   const { values } = parseArgs({
     args: [...args],
@@ -235,8 +260,10 @@ async function pressCommand(args: readonly string[], env: NodeJS.ProcessEnv, io:
   }
   const llm = client;
   const store = new PressStore(file);
+  const overreach = await overreachFrom(env, io);
   const server = createPressServer({
     store,
+    ...(overreach === null ? {} : { overreach }),
     answer: async (question) => {
       await stayOffTheModel(() => store.decisionBusy());
       return answerQuestion(llm, question, store.recent(RECENT_LINES).map((e) => e.answer));

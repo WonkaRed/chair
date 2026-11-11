@@ -50,6 +50,31 @@ function parseEntry(e) {
   return { id, answer: e.answer, hash: e.question_hash, at: e.asked_at_ms, epoch: Number.isSafeInteger(e.epoch) && e.epoch >= 0 ? e.epoch : null, tx: isTxHash(e.tx_hash) ? e.tx_hash : null };
 }
 
+/** The text of a decision that the chain's own hash vouches for, or null: the press section of the minutes is only read from verified text. */
+const verifiedText = (resolved, tx) => {
+  const r = resolved?.get(tx);
+  return r?.verdict === "verified" && typeof r.text === "string" ? r.text : null;
+};
+const CHAIN_LINE = /^A member of the press asked a question \(([0-9a-f]{12})\)\. The Chair replied: (.+)$/;
+
+/**
+ * The press answers the chain holds, newest first, in the shape of the desk's record: each rides in the minutes of a decision (SPEC "set_policy",
+ * chair-agent press-section.ts), one line apiece. `decisions` and `resolved` are the minutes' (decisions.js, minutes.js `resolveTexts`); only a text
+ * whose SHA-256 equals the hash on chain is read, so what shows here is what the Chair committed to, not what an index says.
+ */
+export function pressFromChain(decisions, resolved) {
+  const out = [];
+  for (const d of decisions ?? []) {
+    const text = verifiedText(resolved, d.tx);
+    if (text === null) continue;
+    text.split("\n").forEach((line, i) => {
+      const m = CHAIN_LINE.exec(line);
+      if (m) out.push({ id: `chain-${d.tx}-${i}`, answer: m[2], hash: m[1], at: Number(d.tsMs), epoch: Number.isSafeInteger(d.epoch) ? d.epoch : null, tx: isTxHash(d.tx) ? d.tx : null });
+    });
+  }
+  return out;
+}
+
 const validOwn = (e) => isObj(e) && idOf(e.id) !== null && typeof e.q === "string" && typeof e.a === "string" && Number.isFinite(e.t);
 
 function loadOwn(storage) {
@@ -84,6 +109,7 @@ export function createPress(doc, host, { discoveryUrl = "", explorer = null, fet
   let open = false; // and said it is taking questions
   let loaded = false; // the record has been read at least once
   let entries = [];
+  let chainEntries = []; // the same, read from the chain: what shows while the desk cannot be reached
   let own = loadOwn(storage);
   let busy = false;
   let message = null;
@@ -167,9 +193,14 @@ export function createPress(doc, host, { discoveryUrl = "", explorer = null, fet
 
   function renderRecord() {
     clear(record);
-    if (!loaded && entries.length === 0) return;
-    const shown = entries.filter((x) => x.id !== own[0]?.id).slice(0, SHOW_RECORD);
-    record.append(h(doc, "h3", {}, "The public record"), h(doc, "p", { class: "note" }, "Answers only. Each is listed with the start of its question's hash: the record never holds the question. A question you asked from this browser also shows here, because this browser remembers it."));
+    const fromChain = !online;
+    const source = fromChain ? chainEntries : entries;
+    if (!fromChain && !loaded && entries.length === 0) return;
+    if (fromChain && source.length === 0) return;
+    const shown = source.filter((x) => x.id !== own[0]?.id).slice(0, SHOW_RECORD);
+    record.append(h(doc, "h3", {}, "The public record"), h(doc, "p", { class: "note" }, fromChain
+      ? "The press desk cannot be reached, so these are the answers already entered in the Chair's on-chain minutes, read from the chain and checked against each decision's hash. Answers not yet entered are not shown."
+      : "Answers only. Each is listed with the start of its question's hash: the record never holds the question. Questions you asked from this browser are marked \u201cYou asked\u201d, because this browser remembers them; your newest one is in the panel above, not in this list."));
     if (shown.length === 0) return record.append(h(doc, "p", { class: "empty" }, "No other answer has been entered into the record yet."));
     record.append(h(doc, "ol", { class: "rec-list" }, shown.map((x) => {
       const mine = own.find((e) => e.id === x.id);
@@ -225,7 +256,7 @@ export function createPress(doc, host, { discoveryUrl = "", explorer = null, fet
    * with a server error, it looks again once and retries only if the address changed. Anything else is the caller's to read.
    */
   async function call(path, init) {
-    if (desk === "" && now() - lastDiscovery >= POLL_MS) await discover();
+    if (desk === "" && (discovering !== null || now() - lastDiscovery >= POLL_MS)) await (discovering ?? discover());
     if (desk === "") throw new Error("no press desk");
     const tried = desk;
     let reply = null;
@@ -327,6 +358,13 @@ export function createPress(doc, host, { discoveryUrl = "", explorer = null, fet
   refresh().then(schedule);
   return {
     ask,
+    /** The chain's press answers (`pressFromChain`), shown while the desk is out of reach. */
+    setChain: (list) => {
+      chainEntries = list;
+      renderRecord();
+    },
+    /** A request to the press desk, finding it first (the overreach panel shares the desk). Throws when there is none. */
+    request: call,
     refresh: () => refresh().then(schedule),
     stop: () => {
       if (timer !== null) timers.clear(timer);

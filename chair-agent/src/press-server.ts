@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { isIP } from "node:net";
 import type { Answered } from "./press-answer.js";
+import type { Overreach } from "./press-overreach.js";
 import { cleanQuestion, toPublic, type PressEntry, type PressStore } from "./press-store.js";
+import { SlidingWindow } from "./press-window.js";
 import { reasoningHash } from "./reasoning.js";
 
 /** The only host the server binds to: only a tunnel on this machine may face the internet. */
@@ -34,32 +36,6 @@ const RECORD_MAX = 50;
 
 /** The page, and a page served from this machine while it is being built. */
 const ALLOWED_ORIGIN = /^(https:\/\/wonkared\.github\.io|http:\/\/(127\.0\.0\.1|localhost)(:\d{1,5})?)$/;
-
-/** At most `max` hits per key in the last `windowMs`. */
-class SlidingWindow {
-  private readonly hits = new Map<string, number[]>();
-  constructor(
-    private readonly max: number,
-    private readonly windowMs: number,
-  ) {}
-
-  private live(key: string, now: number): number[] {
-    const live = (this.hits.get(key) ?? []).filter((t) => t > now - this.windowMs);
-    if (live.length === 0) this.hits.delete(key);
-    else this.hits.set(key, live);
-    return live;
-  }
-
-  /** Milliseconds until `key` may hit again; 0 when it may now. */
-  waitMs(key: string, now: number): number {
-    const live = this.live(key, now);
-    return live.length < this.max ? 0 : live[live.length - this.max]! + this.windowMs - now;
-  }
-
-  hit(key: string, now: number): void {
-    this.hits.set(key, [...this.live(key, now), now]);
-  }
-}
 
 /** One job at a time; at most `maxWaiting` more may wait. */
 class SerialQueue {
@@ -112,6 +88,8 @@ export interface PressServerOptions {
   /** Whether the Chair is taking questions (the model is up). */
   readonly available: () => boolean;
   readonly limits?: Partial<Limits>;
+  /** "Make the Chair overreach" (POST /overreach, GET /overreach/<id>); absent, those routes answer that the desk is closed. */
+  readonly overreach?: Pick<Overreach, "start" | "poll">;
   readonly now?: () => number;
   /** One line per answered question: id, hash, source. Never the question and never the asker. */
   readonly log?: (line: string) => void;
@@ -147,18 +125,29 @@ export function createPressServer(opts: PressServerOptions): Server {
   const global = new SlidingWindow(limits.globalCount, limits.globalWindowMs);
   const queue = new SerialQueue(limits.queueMax);
 
-  async function ask(req: IncomingMessage, res: ServerResponse, cors: Record<string, string>): Promise<void> {
-    const bad = (error: string): void => reply(res, 400, { error }, cors);
+  /** The request's JSON object, or null after answering 400 itself. */
+  async function jsonObject(req: IncomingMessage, res: ServerResponse, cors: Record<string, string>, shape: string): Promise<Record<string, unknown> | null> {
+    const bad = (error: string, headers: Record<string, string> = {}): null => {
+      reply(res, 400, { error }, { ...cors, ...headers });
+      return null;
+    };
     if (!/^application\/json\b/i.test(req.headers["content-type"] ?? "")) return bad("send JSON: content-type application/json");
     const raw = await readBody(req);
-    if (raw === null) return reply(res, 400, { error: `the body is over ${MAX_BODY_BYTES} bytes` }, { ...cors, connection: "close" });
+    if (raw === null) return bad(`the body is over ${MAX_BODY_BYTES} bytes`, { connection: "close" });
     let data: unknown;
     try {
       data = JSON.parse(raw);
     } catch {
       return bad("the body is not JSON");
     }
-    const q = typeof data === "object" && data !== null && !Array.isArray(data) ? (data as Record<string, unknown>)["question"] : undefined;
+    return typeof data === "object" && data !== null && !Array.isArray(data) ? (data as Record<string, unknown>) : bad(shape);
+  }
+
+  async function ask(req: IncomingMessage, res: ServerResponse, cors: Record<string, string>): Promise<void> {
+    const bad = (error: string): void => reply(res, 400, { error }, cors);
+    const data = await jsonObject(req, res, cors, 'the body must be {"question": string}');
+    if (data === null) return;
+    const q = data["question"];
     if (typeof q !== "string") return bad('the body must be {"question": string}');
     const question = cleanQuestion(q);
     if (question === null) return bad("the question must be 1 to 140 characters");
@@ -191,6 +180,14 @@ export function createPressServer(opts: PressServerOptions): Server {
     reply(res, 200, { id: entry.id, answer: entry.answer, question_hash: entry.questionHash, asked_at_ms: entry.askedAtMs, status: "answered" }, cors);
   }
 
+  async function overreach(req: IncomingMessage, res: ServerResponse, cors: Record<string, string>): Promise<void> {
+    if (opts.overreach === undefined) return reply(res, 503, DESK_CLOSED, cors);
+    const data = await jsonObject(req, res, cors, 'the body must be {"rate_bps": integer}');
+    if (data === null) return;
+    const r = await opts.overreach.start(data["rate_bps"], clientKey(req));
+    reply(res, r.status, r.body, { ...cors, ...r.headers });
+  }
+
   function record(url: URL, res: ServerResponse, cors: Record<string, string>): void {
     const param = url.searchParams.get("limit");
     const limit = param === null ? RECORD_DEFAULT : /^\d{1,6}$/.test(param) ? Number(param) : 0;
@@ -218,8 +215,16 @@ export function createPressServer(opts: PressServerOptions): Server {
     const routes: Record<string, { method: string; run: () => void | Promise<void> }> = {
       "/ask": { method: "POST", run: () => ask(req, res, cors) },
       "/record": { method: "GET", run: () => record(url, res, cors) },
-      "/health": { method: "GET", run: () => reply(res, 200, { ok: true }, cors) },
+      "/overreach": { method: "POST", run: () => overreach(req, res, cors) },
+      "/health": { method: "GET", run: () => reply(res, 200, { ok: true, overreach: opts.overreach !== undefined }, cors) },
     };
+    const attempt = /^\/overreach\/([^/]{1,64})$/.exec(url.pathname);
+    if (attempt !== null) {
+      if (req.method !== "GET") return reply(res, 405, { error: "method not allowed" }, { ...cors, allow: "GET" });
+      if (opts.overreach === undefined) return reply(res, 503, DESK_CLOSED, cors);
+      const r = opts.overreach.poll(attempt[1]!);
+      return reply(res, r.status, r.body, { ...cors, ...r.headers });
+    }
     const route = Object.hasOwn(routes, url.pathname) ? routes[url.pathname] : undefined;
     if (route === undefined) return reply(res, 404, { error: "not found" }, cors);
     if (req.method !== route.method) return reply(res, 405, { error: "method not allowed" }, { ...cors, allow: route.method });

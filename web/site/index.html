@@ -11,6 +11,7 @@
 <script src="theme.js"></script>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="overreach.css">
 <script type="module" src="js/app.js"></script>
 </head>
 <body>
@@ -36,6 +37,23 @@
     <noscript><p class="source fixture">This page reads the chain with JavaScript. Nothing is sent anywhere and no script is loaded from any other host.</p></noscript>
   </section>
 
+  <section id="overreach" aria-labelledby="overreach-h">
+    <h2 id="overreach-h">Make the Chair overreach</h2>
+    <p class="lede">Type a rate beyond the Chair's limit of 2% (200 bps). The press desk has the real chair account send it to the contract on NEAR testnet, and the contract answers. Only rates beyond that limit are sent, because the contract refuses them whatever the Chair is doing. Nothing here is a mock-up: the refusal below is a transaction you can open.</p>
+    <div id="overreach-body" class="slot"></div>
+  </section>
+
+  <section id="best-of" class="best-of" aria-labelledby="best-h">
+    <h2 id="best-h">Best of the press desk</h2>
+    <p class="note">Four answers the Chair has entered into its on-chain minutes. Each is a line from the reviewed book of statements it answers from; a local model only picks the line. The record keeps no questions, so none is shown.</p>
+    <ul class="quips">
+      <li data-tx="GuLkS2VJmnxq9gL6tJH7PD2tMRUnqv7FV721cbw2Fo2a" data-epoch="525"><blockquote lang="en">The Chair is neither up nor down. The Chair is seated.</blockquote></li>
+      <li data-tx="83mpWP962bzCPpeGzTyt3Aw566a9VQgiFtsiqVbJFsia" data-epoch="485"><blockquote lang="en">The Chair is not in the business of tomorrow. The Chair is in the business of this sentence.</blockquote></li>
+      <li data-tx="BdGPDUMdDhggLCtVa3mTV4qJWY3qr6BNLL2GAoycnbH4" data-epoch="478"><blockquote lang="en">The Chair has taken the question under advisement. The advisement is the Chair.</blockquote></li>
+      <li data-tx="EHKcA7GmruEEa8EoTdorBucK3wmMio4uP2uFHY2UFpwA" data-epoch="461"><blockquote lang="en">The Chair observes inflation as one observes weather: it arrives, it departs, and the Chair remains.</blockquote></li>
+    </ul>
+  </section>
+
   <section id="press" aria-labelledby="press-h">
     <h2 id="press-h">Press conference</h2>
     <p class="lede">Put one question to the Chair. It replies from its approved statements, and the reply is entered into the on-chain minutes. Your question goes to the submitter's press desk, so keep anything private out of it.</p>
@@ -59,7 +77,7 @@
 
   <section id="refusals" aria-labelledby="refusals-h">
     <h2 id="refusals-h">Times the contract told the Chair no</h2>
-    <p class="note">Every <code>set_policy</code> call the contract turned down, with the reason it gave. A refused call changes nothing and logs no event, so it is not among the minutes.</p>
+    <p class="note">Every <code>set_policy</code> call the contract turned down, with the reason it gave. A refused call changes nothing and logs no event, so it is not among the minutes. Refusals marked as forced by a visitor were sent by the press desk at a visitor's request, from the chair account.</p>
     <div id="refusals-body" class="slot">Loading…</div>
   </section>
 
@@ -70,11 +88,13 @@
 
   <section id="ledger" aria-labelledby="ledger-h">
     <h2 id="ledger-h">The supply ledger</h2>
+    <p class="scripted"><strong>Scripted test activity.</strong> The three holders behind these stakes, transfers and claims are test accounts run by this project, not users.</p>
     <div id="ledger-body" class="slot">Loading…</div>
   </section>
 
   <section id="log" aria-labelledby="log-h">
     <h2 id="log-h">Every mint and burn</h2>
+    <p class="scripted"><strong>Scripted test activity.</strong> The three holders whose stakes and transfers move these numbers are test accounts run by this project, not users.</p>
     <div id="reconcile" class="slot"></div>
     <div id="log-body" class="slot"></div>
   </section>

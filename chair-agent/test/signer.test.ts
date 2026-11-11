@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { KeyPair, SignedTransaction, baseEncode } from "near-api-js";
 import { createHash } from "node:crypto";
-import { RateWindow, DEFAULT_BOUNDS } from "../src/bounds.js";
+import { RateWindow, DEFAULT_BOUNDS, type RefusedRate } from "../src/bounds.js";
 import { MAX_REASONING_CHARS, reasoningHash } from "../src/reasoning.js";
 import { NearRpc } from "../src/rpc.js";
 import { ChairSigner, GAS, KeyError, assertScoped, loadSecretKey } from "../src/signer.js";
@@ -149,4 +149,20 @@ test("a key file readable by group or others draws a warning that never contains
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("both the agent's decision and the desk's overreach read the access key at optimistic finality, so a call sent moments ago by the other is counted in the nonce", async () => {
+  const seen: string[] = [];
+  const stub = {
+    accessKey: (_a: string, _k: string, finality: string) => {
+      seen.push(finality);
+      return Promise.resolve({ nonce: 41n, permission: { receiverId: "token.test", methodNames: ["set_policy"] } });
+    },
+    finalBlock: () => Promise.resolve({ hash: blockHash, height: 1, timestampMs: 0 }),
+    sendTx: () => Promise.resolve({ txHash: "tx", failure: null }),
+  };
+  const signer = new ChairSigner(secret, "chair.test", "token.test", stub as unknown as NearRpc);
+  await signer.submit({ rate, reasoning: "why", reasoningHash: reasoningHash("why") } as never);
+  await signer.submitRefused(500 as RefusedRate, "overreach");
+  assert.deepEqual(seen, ["optimistic", "optimistic"]);
 });

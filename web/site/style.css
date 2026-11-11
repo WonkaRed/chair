@@ -104,6 +104,7 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 .chart { margin: 0; background: var(--panel); border: 1px solid var(--rule); border-radius: 8px; padding: 0.9rem 1rem; position: relative; min-width: 0; }
 .chart-title { margin: 0; font-size: 1.05rem; padding-right: 5.5rem; } .chart > .chip, .chart .chip { position: absolute; top: 0.5rem; min-height: 2rem; padding-block: 0.25rem; right: 1rem; } .chart-sub { margin: 0.45rem 0 0.5rem; color: var(--muted); font-size: 0.88rem; }
 .chart-svg { width: 100%; height: auto; display: block; touch-action: pan-y; }
+.chart-svg .tick { font-size: 13px; }
 .line { fill: none; stroke: var(--c); stroke-width: 2; stroke-linejoin: round; } .line.dim { opacity: 0.2; }
 .dot { fill: var(--c); stroke: var(--panel); stroke-width: 2; } .dot.dim { opacity: 0.2; }
 .plot .gridline, .tickline { stroke: var(--hair); stroke-width: 1; }
@@ -256,3 +257,19 @@ h1 .h1-second { color: var(--ink2); }
   .bar #theme { margin-left: auto; }
 }
 .m-mark .mark { color: inherit; font-size: inherit; }
+
+/* Best of the press desk, the scripted-activity label, and the raw-transaction helpers. */
+.best-of { padding-top: 1.5rem; }
+.quips { list-style: none; margin: 1rem 0 0; padding: 0; display: grid; gap: 0.9rem; grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr)); }
+.quips li { display: flex; flex-direction: column; justify-content: space-between; gap: 0.7rem; background: var(--panel); border: 1px solid var(--rule); border-left: 4px solid var(--accent); border-radius: 6px; padding: 1rem 1.1rem 0.8rem; min-width: 0; }
+.quips blockquote { margin: 0; font: 1.2rem/1.35 var(--serif); quotes: "\201C" "\201D"; }
+.quips blockquote::before { content: open-quote; } .quips blockquote::after { content: close-quote; }
+.quips a { font-size: 0.88rem; color: var(--muted); }
+.scripted { margin: 0.25rem 0 1rem; padding: 0.55rem 0.8rem; max-width: 68ch; border-left: 4px solid var(--warn); background: var(--warn-bg); font-size: 0.92rem; }
+.chip.raw { font-size: 0.78rem; min-height: 1.6rem; padding: 0.05rem 0.6rem; }
+.raw-cmd { display: block; background: var(--ink); color: var(--bg); padding: 0.5rem 0.7rem; border-radius: 6px; font-size: 0.78rem; white-space: normal; overflow-wrap: anywhere; user-select: all; }
+.m-count { margin: 0.25rem 0 0.75rem; }
+@media (max-width: 40rem) {
+  .quips { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 0.75rem; padding-bottom: 0.5rem; margin-inline: -1rem; padding-inline: 1rem; scroll-padding-inline: 1rem; }
+  .quips li { flex: 0 0 82%; scroll-snap-align: start; }
+}

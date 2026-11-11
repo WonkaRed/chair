@@ -16,7 +16,9 @@ const docs = join(root, "..", "docs");
 const site = (f) => import(join(root, "site", "js", f));
 const { decisionsOfTxs, refusalsOfTxs } = await site("decisions.js");
 const { checkReasoning, loadTexts, renderHero, renderMinutes, resolveTexts, sha256Hex, silence, splitMinutes } = await site("minutes.js");
-const { renderRefusals } = await site("refusals.js");
+const { renderRefusals, humanReason, PROJECT_TEST_CALLS } = await site("refusals.js");
+const { rawTxCommand } = await site("views.js");
+const { lineChart } = await site("charts.js");
 const { loadLog } = await site("loadlog.js");
 const { fixtureTransport } = await site("sources.js");
 const fixture = JSON.parse(await readFile(join(root, "fixtures", "sandbox-run.json"), "utf8"));
@@ -267,14 +269,90 @@ test("the latest decision is the hero, earlier ones are cards that show more in 
   assert.match(textOf(hero), /Epoch 100/);
   assert.doesNotMatch(textOf(list), /Epoch 100(?!\d)/, "the hero's decision is not listed again");
   const cards = () => [...walk(list)].filter((n) => n.tag === "article").length;
-  assert.equal(cards(), 20, "cards are added a page at a time, none collapsed behind a control");
+  assert.equal(cards(), 5, "the page opens on the 5 newest earlier decisions, not a wall of them");
+  assert.match(textOf(list), /Showing the 5 newest of 44 earlier decisions \(45 in all, counting the latest at the top of the page\)\./);
   assert.equal([...walk(list)].some((n) => n.attrs?.["aria-controls"]), false);
-  [...walk(list)].find((n) => n.tag === "button" && /^Show 20 more of 24/.test(textOf(n))).listeners.click[0]();
-  assert.equal(cards(), 40);
-  const last = [...walk(list)].find((n) => n.tag === "button" && /^Show 4 more of 4/.test(textOf(n)));
+  const more = () => [...walk(list)].find((n) => n.tag === "button" && /^Show \d+ more$/.test(textOf(n)));
+  assert.equal(textOf(more()), "Show 20 more");
+  more().listeners.click[0]();
+  assert.equal(cards(), 25);
+  assert.match(textOf(list), /Showing the 25 newest of 44/);
+  const last = more();
+  assert.equal(textOf(last), "Show 19 more");
   last.listeners.click[0]();
   assert.equal(cards(), 44);
   assert.equal(last.hidden, true);
+});
+
+test("the refusals are labelled by what they were: every known one is a deliberate project test, with the contract's reason in plain words and its own text beside it", async () => {
+  const deployment = JSON.parse(await readFile(join(docs, "testnet-deployment.json"), "utf8"));
+  const refusedSteps = deployment.transactions.filter((s) => s.outcome === "refused" && s.hash);
+  assert.deepEqual([...PROJECT_TEST_CALLS].sort(), refusedSteps.map((s) => s.hash).sort(), "the labelled hashes are exactly the scripted run's refused transactions");
+  assert.equal(humanReason("only the chair may set policy: caller x"), "The account that signed was not the chair.");
+  assert.match(humanReason("rate_bps out of bounds: must be within -200..=200"), /limit of 2% \(200 bps\)/);
+  assert.match(humanReason("rate step too large: moving from 190 to 100"), /more than 0.5% \(50 bps\) away/);
+  assert.match(humanReason("policy already set this epoch"), /already decided in that epoch/);
+  assert.match(humanReason("reasoning_hash must be 64 lowercase hex characters"), /not a SHA-256 digest/);
+  assert.equal(humanReason("something new"), null, "an unknown reason is shown raw, never guessed at");
+  const [known] = [...PROJECT_TEST_CALLS];
+  const row = (tx, signer, reason) => ({ tx, signer, rateBps: 201, reason, tsMs: 1_700_000_000_000, byVisitor: false });
+  const draw = (refusals) => {
+    const doc = fakeDoc();
+    const hostNode = host(doc);
+    renderRefusals(doc, hostNode, { status: "complete", refusals }, { explorer: "https://example.invalid", indexerUrl: "https://idx.example.invalid" });
+    return hostNode;
+  };
+  const all = draw([row(known, "launch.chair.testnet", "rate_bps out of bounds: must be within -200..=200")]);
+  assert.match(textOf(all), /All 1 were deliberate test calls made by this project to show the bounds hold, signed by launch\.chair\.testnet \(1\)\. In none of them did the AI chair choose a rate the contract refused\./);
+  assert.match(textOf(all), /limit of 2% \(200 bps\) either way/);
+  assert.match(textOf(all), /The contract's own words: rate_bps out of bounds: must be within -200\.\.=200/, "the raw text stays, in small print");
+  assert.ok([...walk(all)].some((n) => n.tag === "td" && n.attrs.title === "The contract's own words: rate_bps out of bounds: must be within -200..=200"), "and on hover");
+  const forced = draw([row(known, "launch.chair.testnet", "x"), { ...row(txId(8), "ai.chair.testnet", "x"), byVisitor: true }]);
+  assert.match(textOf(forced), /1 of the 2 were deliberate test calls.*; 1 was forced by visitors through the press desk\. In none of them/);
+  const stranger = draw([row(known, "launch.chair.testnet", "x"), row(txId(9), "ai.chair.testnet", "x")]);
+  assert.match(textOf(stranger), /1 of the 2 were deliberate test calls/);
+  assert.doesNotMatch(textOf(stranger), /did the AI chair choose/, "a refusal the page cannot account for withdraws the claim about the AI chair");
+  assert.doesNotMatch(textOf(draw([row(txId(9), "ai.chair.testnet", "x")])), /deliberate test/, "nothing known, nothing claimed");
+  assert.ok([...walk(all)].some((n) => n.tag === "button" && textOf(n) === "raw"), "each row has the raw curl chip");
+});
+
+test("rawTxCommand: a real hash gets a curl line against the indexer, anything else gets none, and no chain string reaches a shell", () => {
+  const hash = txId(3);
+  assert.equal(rawTxCommand("https://idx.example.invalid", hash), `curl -s https://idx.example.invalid/v0/transactions -H 'content-type: application/json' -d '{"tx_hashes":["${hash}"]}'`);
+  assert.match(rawTxCommand("https://idx.example.invalid", hash, { reasoning: true }), /\| jq -r '\.transactions\[0\]\.transaction\.actions\[0\]\.FunctionCall\.args \| @base64d \| fromjson \| \.reasoning'$/);
+  assert.equal(rawTxCommand(null, hash), null, "no indexer: no command (the recorded sandbox run)");
+  for (const bad of ["x'; rm -rf ~ #", "", null, hash + "0"]) assert.equal(rawTxCommand("https://idx.example.invalid", bad), null);
+});
+
+test("chart axis labels fit at phone width: the y labels are never clipped and an x tick never touches the axis title", () => {
+  const observers = [];
+  globalThis.ResizeObserver = class { constructor(fn) { observers.push(fn); } observe(el) { this.el = el; observers[observers.length - 1].el = el; } };
+  try {
+    const doc = fakeDoc();
+    const values = Array.from({ length: 61 }, (_, i) => Math.round(-200 + (400 * i) / 60));
+    const chart = lineChart(doc, { title: "Rate in effect", caption: "c", series: [{ id: "a", label: "A", slot: 1, values }], domain: [-200, 200], fmt: (v, axis) => (axis ? `${v > 0 ? "+" : v < 0 ? "\u2212" : ""}${Math.abs(v)}` : `${v} bps`), guides: [] });
+    const frame = (w) => {
+      const [fn] = observers;
+      fn.el.getBoundingClientRect = () => ({ left: 0, top: 0, width: w, height: 220 });
+      fn();
+      const svg = [...walk(chart.element)].find((n) => n.tag === "svg");
+      const texts = [...walk(svg)].filter((n) => n.tag === "text");
+      return { svg, texts };
+    };
+    for (const w of [327, 375, 640, 900]) {
+      const { svg, texts } = frame(w);
+      assert.equal(svg.attrs.viewBox.split(" ")[2], String(w), "drawn at the width it is shown at, so text never scales");
+      const yLabels = texts.filter((n) => n.attrs.class === "tick" && n.attrs["text-anchor"] === "end" && !["Epoch"].includes(textOf(n)));
+      assert.ok(yLabels.length >= 5);
+      for (const l of yLabels) assert.ok(Number(l.attrs.x) - textOf(l).length * 7 >= 0, `${textOf(l)} fits inside the left edge at ${w}px`);
+      const title = texts.find((n) => textOf(n) === "Epoch");
+      const xTicks = texts.filter((n) => n.attrs["text-anchor"] === "middle");
+      assert.ok(xTicks.length >= 2);
+      for (const x of xTicks) assert.ok(Number(x.attrs.x) + (textOf(x).length * 7.4) / 2 < Number(title.attrs.x) - 36, `x tick ${textOf(x)} clear of the axis title at ${w}px`);
+    }
+  } finally {
+    delete globalThis.ResizeObserver;
+  }
 });
 
 test("the two boilerplate header lines are metadata, not the quote; a text without them is all quote", async () => {

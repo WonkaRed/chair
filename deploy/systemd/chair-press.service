@@ -6,6 +6,8 @@ StartLimitIntervalSec=0
 Type=simple
 ExecStart=%h/Desktop/Projects/Survival/chair/chair-agent/scripts/run-press.sh
 Environment=PATH=%h/.local/share/mise/installs/node/26/bin:%h/.local/share/mise/installs/gh/latest/gh_2.103.3_linux_amd64/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# The overreach panel signs with the chair account's own function-call key (the only key it has; no second key can be added, the account holds no full-access key). Remove this line to switch the feature off.
+Environment=CHAIR_OVERREACH_KEY_FILE=%h/.claude/secrets/survival-testnet/chair2/challenger.chair-coin-2.testnet.key
 Restart=always
 RestartSec=5
 

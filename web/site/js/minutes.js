@@ -5,8 +5,9 @@
 import { HASH_RE } from "./decisions.js";
 import { h, svg } from "./dom.js";
 import { isAccountId, isTxHash, safeLines, safeText, showAccount } from "./text.js";
-import { fmtPct, fmtRate, fmtSignedPct, fmtTime, shortHash } from "./views.js";
+import { fmtPct, fmtRate, fmtSignedPct, fmtTime, rawTxCommand, shortHash } from "./views.js";
 
+const FIRST = 5; // the newest earlier decisions shown before anyone asks for more
 const PAGE = 20;
 const isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
@@ -123,9 +124,11 @@ function pill(doc, state, label = MARKS[state].short, extra = {}) {
 
 function proof(doc, d, ctx) {
   const tx = ctx.explorer && isTxHash(d.tx) ? h(doc, "a", { href: `${ctx.explorer}/txns/${d.tx}`, rel: "noopener noreferrer", target: "_blank" }, shortHash(d.tx)) : h(doc, "span", { title: safeText(d.tx, 64) }, isTxHash(d.tx) ? shortHash(d.tx) : safeText(d.tx, 20));
+  const raw = rawTxCommand(ctx.indexerUrl, d.tx, { reasoning: true });
   return h(doc, "dl", { class: "m-proof" },
     h(doc, "div", {}, h(doc, "dt", {}, "reasoning_hash on chain"), h(doc, "dd", { class: "m-hash" }, d.hash)),
     h(doc, "div", {}, h(doc, "dt", {}, "Transaction"), h(doc, "dd", { class: "tx" }, tx)),
+    raw === null ? null : h(doc, "div", {}, h(doc, "dt", {}, "Read it without a browser"), h(doc, "dd", {}, h(doc, "code", { class: "raw-cmd" }, raw))),
   );
 }
 
@@ -144,7 +147,7 @@ function parts(doc, d, ctx) {
     state,
     rec,
     lead: h(doc, "blockquote", { class: "reasoning", lang: "en" }, prose),
-    meta: meta.length === 0 ? null : h(doc, "p", { class: "m-meta" }, meta.map((line) => h(doc, "span", {}, line))),
+    meta: meta.length === 0 && !d.byVisitor ? null : h(doc, "p", { class: "m-meta" }, d.byVisitor ? h(doc, "strong", { class: "visitor-tag" }, "Forced by a visitor through the press desk, not decided by the AI chair: the chair account signed it. ") : null, meta.map((line) => h(doc, "span", {}, line))),
     notes: [
       h(doc, "p", { class: `m-check ${MARKS[state].cls}` }, h(doc, "strong", {}, `${MARKS[state].mark} ${MARKS[state].short}.`), ` ${MARKS[state].long}`),
       shown !== rec.text ? h(doc, "p", { class: "note" }, "Some characters in this text are not printable and are shown as \\u{...} escapes. The check above ran on the exact text.") : null,
@@ -212,23 +215,25 @@ function card(doc, d, ctx) {
   );
 }
 
-/** Persistent nodes, no re-render: the focus stays on the control that was pressed. */
+/** Persistent nodes, no re-render: the focus stays on the control that was pressed. The first batch is `FIRST` cards, then `PAGE` per press. */
 function cards(doc, list, ctx) {
   const rows = h(doc, "div", { class: "m-rows" });
+  const count = h(doc, "p", { class: "note m-count" });
   const more = h(doc, "button", { type: "button", class: "chip more" });
   let shown = 0;
   const showNext = () => {
-    for (const d of list.slice(shown, shown + PAGE)) rows.append(card(doc, d, ctx));
-    shown = Math.min(list.length, shown + PAGE);
+    for (const d of list.slice(shown, shown + (shown === 0 ? FIRST : PAGE))) rows.append(card(doc, d, ctx));
+    shown = Math.min(list.length, shown + (shown === 0 ? FIRST : PAGE));
     more.hidden = shown >= list.length;
-    more.textContent = `Show ${Math.min(PAGE, list.length - shown)} more of ${list.length - shown}`;
+    more.textContent = `Show ${Math.min(PAGE, list.length - shown)} more`;
+    count.textContent = `Showing the ${shown} newest of ${list.length} earlier decisions (${list.length + 1} in all, counting the latest at the top of the page).`;
   };
   more.addEventListener("click", showNext);
   showNext();
-  return [rows, more];
+  return [count, rows, more];
 }
 
-/** The earlier decisions as cards, newest first (the latest is the hero). `ctx` is `{texts, resolved, explorer, repoBase, network}`: `texts` the bundled texts or null, `resolved` from `resolveTexts`. */
+/** The earlier decisions as cards, newest first (the latest is the hero). `ctx` is `{texts, resolved, explorer, indexerUrl, repoBase, network}`: `indexerUrl` the transactions index, null on a recorded run; `texts` the bundled texts or null, `resolved` from `resolveTexts`. */
 export function renderMinutes(doc, host, d, ctx) {
   while (host.firstChild) host.removeChild(host.firstChild);
   const [latest, ...older] = d.decisions;

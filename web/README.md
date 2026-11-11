@@ -11,7 +11,7 @@ Needs Node 22.22.2 or newer and npm (the build compiles `../sim` first).
 ```sh
 make -C web build    # compiles ../sim, writes web/dist (site + config + fixture + the reasoning bundle + a verbatim copy of the compiled simulator + the CSP)
 make -C web serve    # builds, then serves web/dist at http://127.0.0.1:8080/ (`PORT=8081 make -C web serve` to change it; a busy port is reported with that hint)
-make -C web test     # builds, then `node --test "test/*.test.mjs"`: 67 tests, no browser, no network
+make -C web test     # builds, then `node --test "test/*.test.mjs"`: 85 tests, no browser, no network
 ```
 
 Deploying is copying `web/dist` to any static host.

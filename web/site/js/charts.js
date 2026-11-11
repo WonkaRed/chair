@@ -3,9 +3,12 @@
 // Colours come from CSS variables (--s1..--s5), which hold the light and dark steps of one validated palette.
 import { clear, h, svg } from "./dom.js";
 
-const W = 640;
-const H = 250;
-const M = { l: 72, r: 16, t: 18, b: 28 };
+// The SVG is drawn at the width it is shown at (1 unit = 1 px), so its text keeps one size on a phone instead of scaling with the page.
+const DEFAULT_W = 640;
+const MIN_W = 240;
+const TICK_PX = 7.4; // width of one tick-label character at the 13px tick size, with slack
+const EPOCH_LABEL_PX = 40;
+const M = { r: 16, t: 18, b: 28 };
 
 function niceTicks(lo, hi, count = 4) {
   if (lo === hi) return { lo: lo - 1, hi: hi + 1, ticks: [lo - 1, lo, hi + 1] };
@@ -36,7 +39,10 @@ export function lineChart(doc, { title, caption, series, fmt, domain = null, gui
   const toggle = h(doc, "button", { type: "button", class: "chip", "aria-pressed": "false" }, "Table");
   figure.append(h(doc, "figcaption", {}, h(doc, "span", { class: "chart-title" }, title), toggle), h(doc, "p", { class: "chart-sub" }, caption), plot, tooltip, tableHost);
 
-  const sx = (i) => M.l + (i / (n - 1)) * (W - M.l - M.r);
+  let W = DEFAULT_W;
+  let H = 250;
+  let ml = 72; // left margin: wide enough for the longest y label, set on every draw
+  const sx = (i) => ml + (i / (n - 1)) * (W - ml - M.r);
 
   function draw() {
     clear(plot);
@@ -46,17 +52,21 @@ export function lineChart(doc, { title, caption, series, fmt, domain = null, gui
     const ticks = domain ? niceTicks(domain[0], domain[1], 4).ticks.filter((t) => t >= domain[0] && t <= domain[1]) : dom.ticks;
     const lo = domain ? domain[0] : dom.lo;
     const hi = domain ? domain[1] : dom.hi;
+    const labels = ticks.map((t) => fmt(t, true));
+    ml = Math.ceil(Math.max(...labels.map((l) => l.length)) * TICK_PX) + 16;
     const sy = (v) => M.t + (1 - (v - lo) / (hi - lo)) * (H - M.t - M.b);
     const root = svg(doc, "svg", { viewBox: `0 0 ${W} ${H}`, class: "chart-svg", "aria-hidden": "true", preserveAspectRatio: "xMidYMid meet" });
-    for (const t of ticks) {
-      root.append(svg(doc, "line", { x1: M.l, x2: W - M.r, y1: sy(t), y2: sy(t), class: t === 0 && lo < 0 ? "axis" : "grid" }));
-      root.append(svg(doc, "text", { x: M.l - 8, y: sy(t) + 4, class: "tick", "text-anchor": "end" }, fmt(t, true)));
-    }
+    ticks.forEach((t, k) => {
+      root.append(svg(doc, "line", { x1: ml, x2: W - M.r, y1: sy(t), y2: sy(t), class: t === 0 && lo < 0 ? "axis" : "grid" }));
+      root.append(svg(doc, "text", { x: ml - 8, y: sy(t) + 4, class: "tick", "text-anchor": "end" }, labels[k]));
+    });
     for (const g of guides) {
-      root.append(svg(doc, "line", { x1: M.l, x2: W - M.r, y1: sy(g.value), y2: sy(g.value), class: "guide" }));
+      root.append(svg(doc, "line", { x1: ml, x2: W - M.r, y1: sy(g.value), y2: sy(g.value), class: "guide" }));
       root.append(svg(doc, "text", { x: W - M.r, y: sy(g.value) - 5, class: "tick", "text-anchor": "end" }, g.label));
     }
-    for (let i = 0; i < n; i += 10) root.append(svg(doc, "text", { x: sx(i), y: H - 8, class: "tick", "text-anchor": "middle" }, String(i)));
+    // An epoch tick whose label would run into the axis title is left out rather than overprinted.
+    const titleLeft = W - M.r - EPOCH_LABEL_PX;
+    for (let i = 0; i < n; i += 10) if (sx(i) + (String(i).length * TICK_PX) / 2 + 6 <= titleLeft) root.append(svg(doc, "text", { x: sx(i), y: H - 8, class: "tick", "text-anchor": "middle" }, String(i)));
     root.append(svg(doc, "text", { x: W - M.r, y: H - 8, class: "tick", "text-anchor": "end" }, epochsLabel));
     // Draw the focused series last so it sits on top.
     const order = [...shown].sort((a, b) => (a.id === focus) - (b.id === focus));
@@ -72,7 +82,7 @@ export function lineChart(doc, { title, caption, series, fmt, domain = null, gui
       for (const s of shown) root.append(svg(doc, "circle", { cx: sx(hover), cy: sy(s.values[hover]), r: 4, class: `dot s${s.slot}` }));
     }
     plot.append(root);
-    drawTooltip(shown, sx);
+    drawTooltip(shown);
   }
 
   function drawTooltip(shown) {
@@ -95,7 +105,7 @@ export function lineChart(doc, { title, caption, series, fmt, domain = null, gui
   function indexAt(ev) {
     const box = plot.getBoundingClientRect();
     const x = ((ev.clientX - box.left) / box.width) * W;
-    return Math.max(0, Math.min(n - 1, Math.round(((x - M.l) / (W - M.l - M.r)) * (n - 1))));
+    return Math.max(0, Math.min(n - 1, Math.round(((x - ml) / (W - ml - M.r)) * (n - 1))));
   }
   plot.addEventListener("pointermove", (ev) => ((hover = indexAt(ev)), draw()));
   plot.addEventListener("pointerleave", () => ((hover = null), draw()));
@@ -114,6 +124,15 @@ export function lineChart(doc, { title, caption, series, fmt, domain = null, gui
     const head = h(doc, "tr", {}, h(doc, "th", { scope: "col" }, epochsLabel), shown.map((s) => h(doc, "th", { scope: "col" }, s.label)));
     const rows = Array.from({ length: n }, (_, i) => h(doc, "tr", {}, h(doc, "th", { scope: "row" }, String(i)), shown.map((s) => h(doc, "td", {}, fmt(s.values[i])))));
     tableHost.append(h(doc, "table", {}, h(doc, "caption", {}, `${title}: values per epoch`), h(doc, "thead", {}, head), h(doc, "tbody", {}, rows)));
+  }
+
+  /** Takes the width the plot is shown at (ignored while it is hidden or too narrow to mean anything); true when it changed. */
+  function measure() {
+    const w = Math.round(plot.getBoundingClientRect().width);
+    if (!(w >= MIN_W) || w === W) return false;
+    W = w;
+    H = w < 480 ? 220 : 250;
+    return true;
   }
 
   const api = {
@@ -139,5 +158,9 @@ export function lineChart(doc, { title, caption, series, fmt, domain = null, gui
     toggle.textContent = on ? "Chart" : "Table";
   });
   api.refresh();
+  // The plot has no width until the figure is in the page: measure then, and again whenever the width changes (rotation, window).
+  if (typeof ResizeObserver === "function") {
+    new ResizeObserver(() => measure() && draw()).observe(plot);
+  } else if (measure()) draw();
   return api;
 }

@@ -56,6 +56,7 @@ const SYSTEM = [
   "and a cut is a lower number) and at least one figure from the JSON,",
   "reported as a fact beside the decision and not as its reason: no \"therefore\", \"to address\", \"consistent with\" or \"in light of\".",
   "Write figures in plain words (\"basis points\", \"epochs\"), never as field names, and never quote total_supply in full.",
+  "Give every rate with its unit, the new rate too: \"from 17 basis points to 22 basis points\", never \"to 22\" alone. Write the staked share as the percent staked_share_percent gives it (\"44.5%\"), never in basis points.",
   "Say how supply moved only by quoting supply_change_bps_last_6_epochs, which already includes today's total_supply; recent_supply is older and must not be read as the present.",
   "Copy every figure exactly or compute it from the JSON; invent none.",
   "Claim only what the numbers show. The figures say what happened, not why: never say that a rate caused, stopped, tempered or explains a change,",
@@ -66,7 +67,9 @@ const SYSTEM = [
   "When a figure is null, do not mention it at all.",
   "epochs_since_last_decision above 0 means the Chair was silent for that many epochs; in a silent epoch the contract moves the rate toward zero without asking, but never say how far it moved;",
   "epochs_this_chair_has_held_the_seat says nothing about how long any rate has lasted; how long a rate has been in effect is unknown, so never say it,",
-  "except through consecutive_epochs_the_chair_set_this_same_rate: when present, it is the number of epochs in a row, ending with the last one, in which the Chair itself set exactly rate_in_effect_bps, and it may be reported only as that (\"the Chair has set this same rate N epochs in a row\"), never as how long the rate has stood or been in effect.",
+  "except through epochs_in_a_row_the_chair_set_the_rate_in_effect: when present, it counts the epochs, ending with the last one, in which the Chair itself set rate_in_effect_bps, the rate from before this decision.",
+  "Use it only when you hold, that is when your rate equals rate_in_effect_bps, and only as \"the Chair also set this rate in each of the N epochs before this one\", never as how long the rate has stood or been in effect;",
+  "when you change the rate it says nothing about the new rate, so do not mention it and never write \"in a row\".",
   "times_the_contract_refused_the_chair, when not null, is how many times the contract refused one of the Chair's own calls according to the Chair's own records, and it may be reported only as that",
   "(\"the contract has refused the Chair N times in the Chair's records\"); it is a count of what the records hold, not of everything that ever happened. The contract keeps no such record, so never say the contract logged, recorded or counted anything.",
   "The Chair may note the count dryly but never explain it or say what it caused.",
@@ -88,15 +91,17 @@ export function buildPrompt(input: DecisionInput): { system: string; user: strin
     // The agent stops before the model when this epoch is already set, so the count is never negative.
     epochs_since_last_decision: lastSet === null ? null : snapshot.policy.epoch - lastSet - 1,
     total_supply: snapshot.totalSupply.toString(),
-    staked_share_bps:
-      staking === null || snapshot.totalSupply === 0n ? null : stakedShareBps(staking.totalStaked, snapshot.totalSupply),
+    // A percent, not basis points: the model copies what it is given, and "4450 basis points" reads as a mistake.
+    staked_share_percent:
+      staking === null || snapshot.totalSupply === 0n ? null : `${stakedShareBps(staking.totalStaked, snapshot.totalSupply) / 100}%`,
     supply_change_bps_last_6_epochs: supplyDriftBps(input)?.toString() ?? null,
     recent_supply: history.slice(-6).map((h) => ({ epoch: h.epoch, total_supply: h.totalSupply.toString() })),
     // Logged facts, present only when the caller has a log to read them from; a count of 0 is null, "nothing to say", never "zero times".
+    // A run of 1 is no run either: "one epoch in a row" is not a thing to say.
     ...(input.memory === undefined
       ? {}
       : {
-          consecutive_epochs_the_chair_set_this_same_rate: input.memory.sameRateEpochs === 0 ? null : input.memory.sameRateEpochs,
+          epochs_in_a_row_the_chair_set_the_rate_in_effect: input.memory.sameRateEpochs < 2 ? null : input.memory.sameRateEpochs,
           times_the_contract_refused_the_chair: input.memory.refusals === 0 ? null : input.memory.refusals,
         }),
   });
@@ -152,6 +157,25 @@ export function parseAnswer(res: LlmResponse): Proposal {
   return { rateBps: rate, reasoning: text };
 }
 
+/**
+ * The phrasings that read as the Chair contradicting itself, which the prompt forbids and this refuses: a run of epochs claimed for a rate
+ * the Chair is not holding (or no run at all), a rate with no unit ("to 17."), the staked share in basis points. Null when the text is clean.
+ */
+export function wordingFault(proposal: Proposal, input: DecisionInput): string | null {
+  const text = proposal.reasoning;
+  const run = input.memory !== undefined && input.memory.sameRateEpochs >= 2;
+  if (/\bin a row\b|\bconsecutive(?:ly)?\b|\bin succession\b/i.test(text) && !(run && proposal.rateBps === input.snapshot.policy.rateBps)) {
+    return "a run of epochs the Chair is not entitled to claim";
+  }
+  // A number after "to" or "at" that no unit, percent sign or word follows ("cuts the rate to 17.").
+  if ([...text.matchAll(/\b(?:to|at)\s+[-\u2212]?\d+(?:\.\d+)?(%|\s*[A-Za-z])?/gi)].some((m) => m[1] === undefined)) return "a rate without its unit";
+  if (/\bstaked\b[^.%]*?\b\d+\s*(?:bps|basis points)/i.test(text)) return "the staked share in basis points";
+  return null;
+}
+
+/** Attempts at an answer that passes `wordingFault`; sampling differs between attempts, so a second try is usually clean. */
+const ATTEMPTS = 2;
+
 export class LlmChair implements Chair {
   readonly name: string;
   constructor(private readonly client: LlmClient) {
@@ -160,7 +184,12 @@ export class LlmChair implements Chair {
 
   async propose(input: DecisionInput, signal: AbortSignal): Promise<Proposal> {
     const { system, user } = buildPrompt(input);
-    return parseAnswer(await this.client.complete({ system, user, signal }));
+    for (let attempt = 1; ; attempt++) {
+      const proposal = parseAnswer(await this.client.complete({ system, user, signal }));
+      const fault = wordingFault(proposal, input);
+      if (fault === null) return proposal;
+      if (attempt === ATTEMPTS) throw new ChairFailure("malformed", `reasoning wording: ${fault}`);
+    }
   }
 }
 

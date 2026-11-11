@@ -5,12 +5,42 @@ import { clear, h, svg } from "./dom.js";
 import { isTxHash, safeText, showAccount } from "./text.js";
 
 const MINUS = "−";
+/** Rows of the supply log shown at first, and added per press of "Show more". */
+export const LOG_PAGE = 10;
 export const fmtRate = (bps) => `${bps > 0 ? "+" : bps < 0 ? MINUS : ""}${Math.abs(bps)} bps`;
 export const fmtPct = (bps) => `${(Math.abs(bps) / 100).toFixed(2)}%`;
 /** A rate as a percent with its sign: 15 bps is +0.15%, -15 bps is −0.15%. */
 export const fmtSignedPct = (bps) => `${bps > 0 ? "+" : bps < 0 ? MINUS : ""}${fmtPct(bps)}`;
 export const fmtTime = (ms) => `${new Date(Number(ms)).toISOString().replace("T", " ").slice(0, 16)} UTC`;
 export const shortHash = (hash) => `${hash.slice(0, 6)}…${hash.slice(-6)}`;
+
+/**
+ * A command that reads one transaction without a browser or a block explorer (the explorer answers 403 to scripts): the transactions
+ * index returns it as JSON. `reasoning` adds `jq`, which decodes the call's arguments and prints the Chair's text.
+ * Only a real transaction hash gets a command; anything else gets none, so no chain string is ever put into a shell line.
+ */
+export function rawTxCommand(indexerUrl, hash, { reasoning = false } = {}) {
+  if (!indexerUrl || !isTxHash(hash)) return null;
+  const read = `curl -s ${indexerUrl}/v0/transactions -H 'content-type: application/json' -d '{"tx_hashes":["${hash}"]}'`;
+  return reasoning ? `${read} | jq -r '.transactions[0].transaction.actions[0].FunctionCall.args | @base64d | fromjson | .reasoning'` : read;
+}
+
+/** A small "raw" button that copies `rawTxCommand` for a row of a table; nothing when there is no command. */
+export function rawButton(doc, indexerUrl, hash) {
+  const command = rawTxCommand(indexerUrl, hash);
+  if (command === null) return null;
+  const b = h(doc, "button", { type: "button", class: "chip raw", title: "Copy a curl command that reads this transaction without a browser or an explorer" }, "raw");
+  b.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(command);
+      b.textContent = "copied";
+    } catch {
+      b.textContent = "no clipboard";
+    }
+    setTimeout(() => (b.textContent = "raw"), 2000);
+  });
+  return b;
+}
 
 /** The rate each following epoch runs at if the chair does nothing more (SPEC "Rollover" step 2). */
 export function silentPath(policy, maxStep = 50) {
@@ -134,7 +164,7 @@ export function renderReconcile(doc, host, d, { onRetry }) {
   }
 }
 
-export function renderLog(doc, host, d, state, { explorer, rerender }) {
+export function renderLog(doc, host, d, state, { explorer, indexerUrl = null, rerender }) {
   clear(host);
   const all = d.entries;
   const filtered = all.filter((e) => state.filter === "all" || (state.filter === "mint" ? e.kind !== "burn" : e.kind === "burn"));
@@ -145,7 +175,7 @@ export function renderLog(doc, host, d, state, { explorer, rerender }) {
   for (const [key, label] of [["all", "All"], ["mint", "Mints"], ["burn", "Burns"]]) {
     const count = key === "all" ? all.length : all.filter((e) => (key === "mint" ? e.kind !== "burn" : e.kind === "burn")).length;
     const b = h(doc, "button", { type: "button", class: "chip", "aria-pressed": String(state.filter === key) }, `${label} ${count}`);
-    b.addEventListener("click", () => ((state.filter = key), (state.shown = 20), rerender()));
+    b.addEventListener("click", () => ((state.filter = key), (state.shown = LOG_PAGE), rerender()));
     chips.append(b);
   }
   const order = h(doc, "button", { type: "button", class: "chip", "aria-pressed": "false" }, state.newestFirst ? "Newest first" : "Oldest first");
@@ -171,14 +201,14 @@ export function renderLog(doc, host, d, state, { explorer, rerender }) {
         h(doc, "td", { "data-label": "Epoch" }, h(doc, "span", {}, String(e.epoch)), e.epochFrom === "block time" ? h(doc, "span", { class: "sub", title: "No chair event carries the epoch for this change; it is computed from the block time." }, "from block time") : null),
         h(doc, "td", { "data-label": "Change", class: "amt", title: formatExact(e.amount) }, h(doc, "span", { class: `sign ${burn ? "burn" : "mint"}` }, burn ? `${MINUS} Burn` : e.kind === "launch" ? "Launch" : "+ Mint"), h(doc, "span", {}, formatTokens(e.amount))),
         h(doc, "td", { "data-label": "Reason" }, h(doc, "span", {}, e.reason), detail.length ? h(doc, "span", { class: "sub" }, detail.join("; ")) : null),
-        h(doc, "td", { "data-label": "Transaction", class: "tx" }, link, h(doc, "span", { class: "sub" }, fmtTime(e.tsMs))),
+        h(doc, "td", { "data-label": "Transaction", class: "tx" }, link, " ", rawButton(doc, indexerUrl, e.hash), h(doc, "span", { class: "sub" }, fmtTime(e.tsMs))),
       ),
     );
   }
-  host.append(h(doc, "table", { class: "log" }, h(doc, "caption", {}, `${filtered.length} of ${all.length} supply changes`), h(doc, "thead", {}, h(doc, "tr", {}, ["Epoch", "Change", "Reason", "Transaction"].map((t) => h(doc, "th", { scope: "col" }, t)))), body));
+  host.append(h(doc, "table", { class: "log" }, h(doc, "caption", {}, `Showing ${shown.length} of ${filtered.length} ${state.filter === "all" ? "supply changes" : state.filter === "mint" ? "mints" : "burns"}`), h(doc, "thead", {}, h(doc, "tr", {}, ["Epoch", "Change", "Reason", "Transaction"].map((t) => h(doc, "th", { scope: "col" }, t)))), body));
   if (ordered.length > shown.length) {
-    const more = h(doc, "button", { type: "button", class: "chip more" }, `Show ${Math.min(20, ordered.length - shown.length)} more of ${ordered.length - shown.length}`);
-    more.addEventListener("click", () => ((state.shown += 20), rerender()));
+    const more = h(doc, "button", { type: "button", class: "chip more" }, `Show ${Math.min(LOG_PAGE, ordered.length - shown.length)} more`);
+    more.addEventListener("click", () => ((state.shown += LOG_PAGE), rerender()));
     host.append(more);
   }
 }

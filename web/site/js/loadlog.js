@@ -66,7 +66,7 @@ export async function loadLog(transport) {
   const height = lastTokenHeight(txs, transport.token);
   const { decisions, unreadable } = decisionsOfTxs(txs, transport.token);
   if (unreadable > 0) anomalies.push(`${unreadable} policy_set event${unreadable === 1 ? "" : "s"} could not be read and ${unreadable === 1 ? "is" : "are"} not listed in the chair minutes`);
-  const out = { ...base, entries, decisions, refusals: refusalsOfTxs(txs, transport.token), anomalies, txCount: txs.length };
+  const out = { ...base, entries, decisions, refusals: refusalsOfTxs(txs, transport.token, [policy.chair, ...decisions.map((d) => d.chair)]), anomalies, txCount: txs.length };
 
   // Pin the chain's ledger to the block of the last logged transaction, so a mint that is due but not yet applied
   // (views project it, no event exists until the next transaction) is not mistaken for a missing event.

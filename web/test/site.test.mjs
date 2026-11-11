@@ -370,3 +370,22 @@ test("the page opens with the joke: the headline, the latest minutes, then the p
   assert.ok(at('id="source"') > at("<footer"), "the RPC provenance box is in the footer");
   assert.doesNotMatch(html, /\u2014|\u2013/, "no en or em dashes");
 });
+
+test("the best-of strip quotes only lines in the reviewed book, carries no host, and the scripted-activity notice sits beside the ledger and the log", async () => {
+  const html = await readFile(join(dist, "index.html"), "utf8");
+  const book = await readFile(join(root, "..", "chair-agent", "src", "press-book.ts"), "utf8");
+  const strip = html.match(/<section id="best-of"[\s\S]*?<\/section>/)[0];
+  const quips = [...strip.matchAll(/<li data-tx="([^"]+)" data-epoch="(\d+)"><blockquote lang="en">([^<]+)<\/blockquote>/g)];
+  assert.equal(quips.length, 4);
+  assert.ok(html.indexOf('id="best-of"') > html.indexOf('id="hero-minutes"') && html.indexOf('id="best-of"') < html.indexOf('id="press"'));
+  for (const [, tx, epoch, quote] of quips) {
+    assert.ok(book.includes(quote.replaceAll("&#39;", "'")), `the book holds: ${quote}`);
+    assert.match(tx, /^[1-9A-HJ-NP-Za-km-z]{43,44}$/);
+    assert.ok(Number(epoch) > 0);
+  }
+  assert.doesNotMatch(strip, /href=/, "the links are built in the page from the configured explorer");
+  for (const id of ["ledger", "log"]) {
+    const section = html.match(new RegExp(`<section id="${id}"[\\s\\S]*?</section>`))[0];
+    assert.match(section, /<\/h2>\s*<p class="scripted"><strong>Scripted test activity\.<\/strong>[^<]*test accounts run by this project, not users\./, `${id}: the notice follows the heading`);
+  }
+});

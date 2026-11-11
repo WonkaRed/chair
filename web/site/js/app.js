@@ -4,12 +4,13 @@ import { clear, h } from "./dom.js";
 import { renderGuarantees, VERIFY_COMMAND } from "./guarantees.js";
 import { loadLog } from "./loadlog.js";
 import { loadTexts, renderHero, renderMinutes, resolveTexts } from "./minutes.js";
-import { createPress } from "./press.js";
+import { createOverreach } from "./overreach.js";
+import { createPress, pressFromChain } from "./press.js";
 import { renderRefusals } from "./refusals.js";
 import { BEHAVIOURS, simulate } from "./simview.js";
 import { fixtureTransport, rpcTransport } from "./sources.js";
-import { safeText } from "./text.js";
-import { fmtRate, renderFailure, renderLedger, renderLog, renderNow, renderReconcile, renderSource } from "./views.js";
+import { isTxHash, safeText } from "./text.js";
+import { fmtRate, LOG_PAGE, renderFailure, renderLedger, renderLog, renderNow, renderReconcile, renderSource } from "./views.js";
 import { config } from "../config.js";
 
 const doc = document;
@@ -47,7 +48,7 @@ async function makeTransport() {
 }
 
 async function showChain() {
-  const state = { filter: "all", newestFirst: true, shown: 20 };
+  const state = { filter: "all", newestFirst: true, shown: LOG_PAGE };
   let made;
   try {
     made = await makeTransport();
@@ -87,17 +88,29 @@ async function showChain() {
     showSource();
     const bundled = await texts;
     const explorer = made.fixture ? null : config.explorerUrl;
-    const ctx = { texts: bundled, resolved: await resolveTexts(data.decisions, bundled), explorer, repoBase: `${config.repoUrl}/blob/${config.repoRef}`, network: made.fixture ? null : config.network };
+    const indexerUrl = made.fixture ? null : config.indexerUrl;
+    const ctx = { texts: bundled, resolved: await resolveTexts(data.decisions, bundled), explorer, indexerUrl, repoBase: `${config.repoUrl}/blob/${config.repoRef}`, network: made.fixture ? null : config.network };
     renderHero(doc, $("hero-minutes"), data, ctx);
     renderMinutes(doc, $("minutes-body"), data, ctx);
-    renderRefusals(doc, $("refusals-body"), data, { explorer });
+    renderRefusals(doc, $("refusals-body"), data, { explorer, indexerUrl });
+    chainData = data;
+    overreach.refresh();
+    press.setChain(pressFromChain(data.decisions, ctx.resolved));
     renderNow(doc, $("now"), data);
     renderLedger(doc, $("ledger-body"), data);
     renderReconcile(doc, $("reconcile"), data, { onRetry: run });
-    const draw = () => renderLog(doc, $("log-body"), data, state, { explorer, rerender: draw });
+    const draw = () => renderLog(doc, $("log-body"), data, state, { explorer, indexerUrl, rerender: draw });
     draw();
   };
   await run();
+}
+
+/** The best-of strip carries each answer's transaction as data; its link is built from the configured explorer, like every other link on the page. */
+function linkQuips(explorer) {
+  for (const li of doc.querySelectorAll(".quips li[data-tx]")) {
+    const label = `Epoch ${safeText(li.dataset.epoch, 6)}, on chain`;
+    li.append(explorer !== null && isTxHash(li.dataset.tx) ? h(doc, "a", { href: `${explorer}/txns/${li.dataset.tx}`, rel: "noopener noreferrer", target: "_blank" }, label) : h(doc, "span", {}, `Epoch ${safeText(li.dataset.epoch, 6)}`));
+  }
 }
 
 function showSimulation() {
@@ -106,7 +119,7 @@ function showSimulation() {
   const series = (key) => sim.series.map((s) => ({ id: s.id, label: s.label, slot: slots[s.id], values: s[key] }));
   const charts = [
     lineChart(doc, { title: "Total supply", caption: "As a share of the launch supply: 100% is where it started.", series: series("supplyPct"), fmt: (v, axis) => (axis ? `${v}%` : `${v.toFixed(2)}% of launch`), guides: [{ value: 100, label: "launch" }] }),
-    lineChart(doc, { title: "Rate in effect", caption: "Basis points. Above zero mints for stakers, below zero burns a share of each transfer.", series: series("rateBps"), domain: [-200, 200], fmt: (v) => fmtRate(Math.round(v)), guides: [] }),
+    lineChart(doc, { title: "Rate in effect", caption: "Basis points. Above zero mints for stakers, below zero burns a share of each transfer.", series: series("rateBps"), domain: [-200, 200], fmt: (v, axis) => (axis ? fmtRate(Math.round(v)).replace(" bps", "") : fmtRate(Math.round(v))), guides: [] }),
     lineChart(doc, { title: "Staking reward per epoch", caption: "New tokens an epoch's mint pays per staked token, as a percentage of the stake. Zero whenever the rate is not positive.", series: series("rewardPct"), fmt: (v, axis) => (axis ? `${v}%` : `${v.toFixed(3)}% of stake`) }),
   ];
   const host = $("sim-charts");
@@ -170,7 +183,11 @@ function showGuarantees() {
 }
 
 setupTheme();
-createPress(doc, $("press-body"), { discoveryUrl: config.pressDiscoveryUrl, explorer: config.fixture === null ? config.explorerUrl : null });
+const pageExplorer = config.fixture === null ? config.explorerUrl : null;
+linkQuips(pageExplorer);
+const press = createPress(doc, $("press-body"), { discoveryUrl: config.pressDiscoveryUrl, explorer: pageExplorer });
+let chainData = null; // loadLog's latest result, for the overreach panel's hint and its desk-closed list
+const overreach = createOverreach(doc, $("overreach-body"), { request: press.request, explorer: pageExplorer, rpcUrl: config.rpcUrls[0], refusals: () => chainData });
 showGuarantees();
 showSimulation();
 await showChain();

@@ -11,6 +11,10 @@ export const HASH_RE = /^[0-9a-f]{64}$/;
 const isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 
 const PANIC = "Smart contract panicked: ";
+/** The start of the text the press desk's "Make the Chair overreach" puts in the call's `reasoning` argument (chair-agent/src/press-overreach.ts `REASONING`): what tells a refusal a visitor caused from one of the Chair's own calls. */
+export const OVERREACH_MARK = "$CHAIR overreach test.";
+/** The contract's absolute limit on a rate (SPEC, policy.rs). The press desk only sends rates beyond it, so a marked call at or inside it was not sent by the desk. */
+export const ABSOLUTE_LIMIT_BPS = 200;
 const MAX_ARGS_CHARS = 20_000;
 
 /** The transaction's first function call if it is `set_policy`, else null. */
@@ -34,12 +38,13 @@ function readDecision(ev, chainText) {
   const d = ev.data;
   if (!isObj(d) || !isAccountId(d.chair) || !Number.isSafeInteger(d.epoch) || d.epoch < 0) return null;
   if (!Number.isSafeInteger(d.rate_bps) || !Number.isSafeInteger(d.previous_rate_bps) || typeof d.reasoning_hash !== "string" || !HASH_RE.test(d.reasoning_hash)) return null;
-  return { chair: d.chair, epoch: d.epoch, rateBps: d.rate_bps, previousRateBps: d.previous_rate_bps, hash: d.reasoning_hash, chainText, tx: ev.hash, tsMs: ev.tsMs, height: ev.height };
+  return { chair: d.chair, epoch: d.epoch, rateBps: d.rate_bps, previousRateBps: d.previous_rate_bps, hash: d.reasoning_hash, chainText, byVisitor: chainText !== null && chainText.startsWith(OVERREACH_MARK), tx: ev.hash, tsMs: ev.tsMs, height: ev.height };
 }
 
 /**
  * `{decisions, unreadable}`: every decision in these transactions, newest first, and how many `policy_set` events could not be read.
- * `chainText` is the transaction's `reasoning` argument or null: a claim, not yet checked against `hash`.
+ * `chainText` is the transaction's `reasoning` argument or null: a claim, not yet checked against `hash`. `byVisitor` is true for a decision that a visitor's
+ * overreach got accepted (the desk only sends rates the contract must refuse, so this should never happen; if it does it must not read as the AI chair's own).
  */
 export function decisionsOfTxs(txs, token) {
   const events = txs
@@ -59,10 +64,12 @@ export function decisionsOfTxs(txs, token) {
 }
 
 /**
- * Every `set_policy` call the token refused, newest first: `{tx, signer, rateBps, tsMs, height, reason}`. `reason` is the contract's
- * panic text (any other failure text is kept as it is). Only the token's own failed receipts count.
+ * Every `set_policy` call the token refused, newest first: `{tx, signer, rateBps, tsMs, height, reason, byVisitor}`. `reason` is the contract's
+ * panic text (any other failure text is kept as it is). `byVisitor` is true only for a call the press desk could have sent at a visitor's request: signed by
+ * one of `chairs` (the accounts that hold or held the chair, which the desk signs as), asking for a rate beyond the absolute limit, with the desk's text. The text
+ * alone proves nothing (any account can write it), so a stranger's call carrying it is an ordinary refusal. Only the token's own failed receipts count.
  */
-export function refusalsOfTxs(txs, token) {
+export function refusalsOfTxs(txs, token, chairs = []) {
   const refusals = [];
   for (const tx of txs) {
     const call = setPolicyCall(tx);
@@ -77,7 +84,10 @@ export function refusalsOfTxs(txs, token) {
       const cause = failure.ActionError?.kind?.FunctionCallError;
       const message = isObj(cause) ? cause.ExecutionError : undefined;
       const reason = typeof message === "string" ? (message.startsWith(PANIC) ? message.slice(PANIC.length) : message) : "failed without a contract message";
-      refusals.push({ tx: tx.transaction.hash, signer: isAccountId(tx.transaction.signer_id) ? tx.transaction.signer_id : null, rateBps: Number.isSafeInteger(args.rate_bps) ? args.rate_bps : null, tsMs, height, reason });
+      const signer = isAccountId(tx.transaction.signer_id) ? tx.transaction.signer_id : null;
+      const rateBps = Number.isSafeInteger(args.rate_bps) ? args.rate_bps : null;
+      const byVisitor = signer !== null && chairs.includes(signer) && rateBps !== null && Math.abs(rateBps) > ABSOLUTE_LIMIT_BPS && typeof args.reasoning === "string" && args.reasoning.startsWith(OVERREACH_MARK);
+      refusals.push({ tx: tx.transaction.hash, signer, rateBps, tsMs, height, reason, byVisitor });
       break;
     }
   }

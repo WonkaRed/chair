@@ -1,6 +1,6 @@
 import { readFileSync, statSync } from "node:fs";
 import { actions, baseDecode, createTransaction, KeyPairSigner, type SignedTransaction } from "near-api-js";
-import type { Rate } from "./bounds.js";
+import { DEFAULT_BOUNDS, type Rate, type RefusedRate } from "./bounds.js";
 import { NearRpc, type AccessKeyInfo } from "./rpc.js";
 import type { Decision } from "./types.js";
 import { cleanReasoning, MAX_REASONING_CHARS, reasoningHash } from "./reasoning.js";
@@ -86,7 +86,7 @@ export interface Submitter {
  * transaction without touching the hash it stores: anyone can read it from the transaction and hash it. Nothing but the
  * text is added, and the hash is computed here from the text, so the two cannot disagree.
  */
-export function policyArgs(rate: Rate, reasoning: string): { rate_bps: number; reasoning_hash: string; reasoning: string } {
+export function policyArgs(rate: Rate | RefusedRate, reasoning: string): { rate_bps: number; reasoning_hash: string; reasoning: string } {
   if (cleanReasoning(reasoning) !== reasoning) throw new Error(`reasoning must be cleaned text of 1 to ${MAX_REASONING_CHARS} characters`);
   return { rate_bps: rate, reasoning_hash: reasoningHash(reasoning), reasoning };
 }
@@ -117,7 +117,7 @@ export class ChairSigner implements Submitter {
   }
 
   /** Sign one set_policy call. Exposed for tests; `submit` is the normal path. */
-  async build(rate: Rate, reasoning: string, nonce: bigint, blockHash: string): Promise<SignedTransaction> {
+  async build(rate: Rate | RefusedRate, reasoning: string, nonce: bigint, blockHash: string): Promise<SignedTransaction> {
     const args = policyArgs(rate, reasoning);
     const publicKey = await this.keys.getPublicKey();
     const tx = createTransaction(
@@ -133,11 +133,32 @@ export class ChairSigner implements Submitter {
   }
 
   async submit(decision: Decision): Promise<SubmitResult> {
+    return this.send(decision.rate, decision.reasoning);
+  }
+
+  /**
+   * The press desk's overreach: a rate beyond the contract's absolute limit, sent with a fixed text, to show the contract refuses it. Checked
+   * here again, independently of the desk's own `judge`: a rate the contract might accept would set the token's real rate, so it never leaves.
+   * `onBroadcast` runs once, just before the transaction is sent; a throw before it means nothing was sent.
+   */
+  async submitRefused(rate: RefusedRate, reasoning: string, onBroadcast: () => void = () => undefined): Promise<SubmitResult> {
+    if (!Number.isSafeInteger(rate) || Math.abs(rate) <= DEFAULT_BOUNDS.maxRateBps) {
+      throw new RangeError(`refusing to send ${rate} as an overreach: only a rate beyond +-${DEFAULT_BOUNDS.maxRateBps} is certain to be refused`);
+    }
+    return this.send(rate, reasoning, onBroadcast);
+  }
+
+  /**
+   * Both the agent's decision and the desk's overreach go through here, signed by the same key, so the nonce is read at `optimistic` finality: a call
+   * the other one sent moments ago is already counted, where `final` lags it by a block or two and would reuse its nonce.
+   */
+  private async send(rate: Rate | RefusedRate, reasoning: string, onBroadcast: () => void = () => undefined): Promise<SubmitResult> {
     const key = await this.publicKey();
-    const info = await this.rpc.accessKey(this.accountId, key);
+    const info = await this.rpc.accessKey(this.accountId, key, "optimistic");
     assertScoped(info, this.token);
     const block = await this.rpc.finalBlock();
-    const signed = await this.build(decision.rate, decision.reasoning, info.nonce, block.hash);
+    const signed = await this.build(rate, reasoning, info.nonce, block.hash);
+    onBroadcast();
     return this.rpc.sendTx(Buffer.from(signed.encode()).toString("base64"));
   }
 }

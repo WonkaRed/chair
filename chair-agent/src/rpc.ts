@@ -116,10 +116,10 @@ export class NearRpc {
     }
   }
 
-  async accessKey(accountId: string, publicKey: string): Promise<AccessKeyInfo> {
+  async accessKey(accountId: string, publicKey: string, finality: "final" | "optimistic" = "final"): Promise<AccessKeyInfo> {
     const r = await this.call("query", {
       request_type: "view_access_key",
-      finality: "final",
+      finality,
       account_id: accountId,
       public_key: publicKey,
     });

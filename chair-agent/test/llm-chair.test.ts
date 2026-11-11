@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
-import { ANSWER_SCHEMA, AnthropicLlmClient, LLM_MODEL, LlmChair, LocalLlmClient, buildPrompt, llmConfigured, parseAnswer } from "../src/llm-chair.js";
+import { ANSWER_SCHEMA, AnthropicLlmClient, LLM_MODEL, LlmChair, LocalLlmClient, buildPrompt, llmConfigured, parseAnswer, wordingFault } from "../src/llm-chair.js";
+import { ChairFailure } from "../src/decide.js";
+import type { DecisionInput } from "../src/types.js";
 import { snapshot } from "./helpers.js";
 
 test("the prompt is numbers only: no account ids and no free-form chain text", () => {
@@ -11,7 +13,7 @@ test("the prompt is numbers only: no account ids and no free-form chain text", (
   const data = JSON.parse(user) as Record<string, unknown>;
   assert.deepEqual(Object.keys(data).sort(), [
     "epoch", "epochs_since_last_decision", "epochs_this_chair_has_held_the_seat", "rate_in_effect_bps", "rate_window_bps",
-    "recent_supply", "staked_share_bps", "supply_change_bps_last_6_epochs", "total_supply",
+    "recent_supply", "staked_share_percent", "supply_change_bps_last_6_epochs", "total_supply",
   ]);
   assert.ok(!("streak_epochs" in data) && !user.includes("streak"), "the old, misread field name is gone");
   assert.ok(!user.includes("chair.test"));
@@ -28,6 +30,74 @@ test("the system prompt gives the chair its voice and the guard rails that keep 
     assert.match(system, rule);
   }
   assert.doesNotMatch(system, /[\u2013\u2014\p{Extended_Pictographic}]|moon/u, "the prompt itself uses no em or en dash, emoji or hype");
+});
+
+const WINDOW = { lo: -50, hi: 50 };
+
+test("the staked share is handed over as a percent, so the minutes never say \"4450 basis points\"", () => {
+  const share = (staked: bigint | null, supply = 10_000n) => JSON.parse(buildPrompt({ snapshot: snapshot({ supply, staked }), history: [], window: WINDOW }).user)["staked_share_percent"] as unknown;
+  assert.equal(share(4450n), "44.5%");
+  assert.equal(share(4400n), "44%");
+  assert.equal(share(1n, 3n), "33.33%");
+  assert.equal(share(null), null, "no staking figures: nothing to say");
+  assert.equal(share(0n, 0n), null, "no supply: nothing to say");
+  const { system } = buildPrompt({ snapshot: snapshot(), history: [], window: WINDOW });
+  assert.match(system, /staked_share_percent gives it \("44\.5%"\), never in basis points/);
+  assert.match(system, /the new rate too: "from 17 basis points to 22 basis points", never "to 22" alone/);
+});
+
+test("the run of epochs describes the rate before the decision, and a run of one is nothing to say", () => {
+  const run = (sameRateEpochs: number) => JSON.parse(buildPrompt({ snapshot: snapshot({ rate: 22 }), history: [], window: WINDOW, memory: { sameRateEpochs, refusals: 0 } }).user)["epochs_in_a_row_the_chair_set_the_rate_in_effect"] as unknown;
+  assert.equal(run(0), null);
+  assert.equal(run(1), null, "\"one epoch in a row\" is never said");
+  assert.equal(run(2), 2);
+  assert.equal(run(5), 5);
+  const { system } = buildPrompt({ snapshot: snapshot(), history: [], window: WINDOW });
+  assert.match(system, /the rate from before this decision/);
+  assert.match(system, /Use it only when you hold, that is when your rate equals rate_in_effect_bps/);
+  assert.match(system, /when you change the rate it says nothing about the new rate, so do not mention it and never write "in a row"/);
+  assert.ok(!system.includes("this same rate N epochs in a row"), "the phrase that read as a contradiction is gone");
+});
+
+test("wordingFault refuses the phrasings that read as the Chair contradicting itself, and passes the clean ones", () => {
+  const input = (rate: number, sameRateEpochs: number): DecisionInput => ({ snapshot: snapshot({ rate }), history: [], window: WINDOW, memory: { sameRateEpochs, refusals: 0 } });
+  const fault = (reasoning: string, rateBps: number, i = input(17, 5)) => wordingFault({ rateBps, reasoning }, i);
+  // The finding: a raise to 22 that claims the old rate's run.
+  assert.match(fault("The Chair raises the rate by 5 basis points to 22 basis points. The Chair has set this same rate 5 epochs in a row.", 22)!, /run of epochs/);
+  assert.match(fault("The Chair holds. The Chair has set this rate three epochs in a row.", 17, input(17, 1))!, /run of epochs/, "no run of two or more on record");
+  assert.match(fault("The Chair holds. The Chair has set this rate two consecutive times.", 17, { snapshot: snapshot({ rate: 17 }), history: [], window: WINDOW })!, /run of epochs/, "no log, no run");
+  assert.equal(fault("The Chair holds the rate at 17 basis points and also set it in each of the 5 epochs before this one.", 17), null, "holding, with a run, may say it");
+  assert.equal(fault("The Chair holds the rate at 17 basis points, 5 epochs in a row.", 17), null, "a hold with a run of five may say \"in a row\"");
+  // No unit.
+  assert.match(fault("The Chair cuts the rate by 5 basis points to 12.", 12)!, /without its unit/);
+  assert.match(fault("The Chair holds the rate at 17, as the numbers allow.", 17)!, /without its unit/);
+  assert.match(fault("The Chair moves the rate from 22 to \u22125.", -5)!, /without its unit/);
+  assert.equal(fault("The Chair cuts the rate from 22 basis points to 17 basis points.", 17), null);
+  assert.equal(fault("The Chair holds at 17 bps. The staked share is 44.5%. Supply moved over 6 epochs.", 17), null);
+  assert.equal(fault("The staked share stands at 44.5%, and the Chair raises the rate to 22 basis points.", 22), null);
+  // Staked share in basis points.
+  assert.match(fault("The staked share stands at 4450 basis points.", 17)!, /staked share in basis points/);
+  assert.match(fault("Staked tokens are 4450 bps of supply.", 17)!, /staked share in basis points/);
+});
+
+test("the chair tries once more when the first answer reads as a contradiction, and falls back when the second does too", async () => {
+  const input = { snapshot: snapshot({ rate: 17 }), history: [], window: WINDOW };
+  const answers = (...texts: string[]) => {
+    const asked: number[] = [];
+    const chair = new LlmChair({ complete: () => { asked.push(asked.length); return Promise.resolve({ text: JSON.stringify({ rate_bps: 22, reasoning: texts[Math.min(asked.length - 1, texts.length - 1)] }), stopReason: "end_turn" }); } });
+    return { chair, asked };
+  };
+  const bad = "The Chair raises the rate by 5 basis points to 22.";
+  const good = "The Chair raises the rate by 5 basis points, from 17 basis points to 22 basis points.";
+  const retried = answers(bad, good);
+  assert.equal((await retried.chair.propose(input, new AbortController().signal)).reasoning, good);
+  assert.equal(retried.asked.length, 2);
+  const clean = answers(good);
+  await clean.chair.propose(input, new AbortController().signal);
+  assert.equal(clean.asked.length, 1, "a clean answer is not asked for twice");
+  const stubborn = answers(bad);
+  await assert.rejects(stubborn.chair.propose(input, new AbortController().signal), (e: unknown) => e instanceof ChairFailure && e.reason === "malformed" && /without its unit/.test(e.message));
+  assert.equal(stubborn.asked.length, 2, "two attempts, then the rule chair decides");
 });
 
 test("the prompt separates the time in office from the time since the last decision", () => {

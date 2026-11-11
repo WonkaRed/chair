@@ -17,6 +17,14 @@ declare const accepted: unique symbol;
  */
 export type Rate = number & { readonly [accepted]: true };
 
+declare const refused: unique symbol;
+
+/**
+ * An integer beyond the contract's absolute limit, which it refuses whatever the chair's state when the call lands
+ * (press-overreach.ts `judge` is the only place that makes one). The signer's overreach path accepts nothing else and checks the limit again.
+ */
+export type RefusedRate = number & { readonly [refused]: true };
+
 /** The set of rates `set_policy` accepts: `lo..=hi`, both ends included. */
 export class RateWindow {
   private constructor(
