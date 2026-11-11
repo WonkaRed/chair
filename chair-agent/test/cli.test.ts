@@ -9,6 +9,7 @@ import { KeyPair } from "near-api-js";
 import { main, type Io } from "../src/cli.js";
 import { FakeChain } from "../src/fake-chain.js";
 import type { LlmClient } from "../src/llm-chair.js";
+import { BOOK } from "../src/press-book.js";
 import { PressStore } from "../src/press-store.js";
 import { reasoningHash } from "../src/reasoning.js";
 import { FakeNode } from "./fake-node.js";
@@ -370,7 +371,7 @@ test("run --press enters a pending question into the minutes and marks it with t
   const pressFile = join(dir, "press.jsonl");
   const store = new PressStore(pressFile);
   const question = "does the chair dream of basis points";
-  store.add({ id: "q1", question, questionHash: reasoningHash(question), answer: "The Chair does not dream. The Chair deliberates.", source: "model", askedAtMs: 1 });
+  store.add({ id: "q1", question, questionHash: reasoningHash(question), answer: BOOK[0]!, source: "model", askedAtMs: 1 });
   const o = io();
   assert.equal(await main([...base(), "--press", pressFile], env(), o), 0, o.err_.join("\n"));
   const sent = node.sent.at(-1);
@@ -378,7 +379,7 @@ test("run --press enters a pending question into the minutes and marks it with t
   const ev = chain.events.at(-1)!;
   const logged = readFileSync(join(dir, "log.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>).filter((r) => r["kind"] === "decision").at(-1)!;
   const text = logged["reasoning"] as string;
-  assert.ok(text.includes(`(${reasoningHash(question).slice(0, 12)}). The Chair replied: The Chair does not dream. The Chair deliberates.`));
+  assert.ok(text.includes(`(${reasoningHash(question).slice(0, 12)}). The Chair replied: ${BOOK[0]}`));
   assert.ok(!text.includes(question), "the question itself is never in the minutes");
   assert.equal(reasoningHash(text), ev.reasoningHash);
   const [entry] = store.recent(1);

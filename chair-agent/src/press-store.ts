@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { BOOK } from "./press-book.js";
 import { cleanReasoning, reasoningHash } from "./reasoning.js";
 
 /** Longest question, in UTF-16 code units (what a browser's `maxlength` counts), after `cleanQuestion`. */
@@ -88,12 +89,13 @@ export class PressStore {
         const row = JSON.parse(line) as Row;
         if (row.v !== 1) continue;
         if (row.kind === "ask") {
-          // A hand-edited line whose hash does not match its question, or whose text would not survive cleaning, is not an entry.
+          // A hand-edited line whose hash does not match its question, whose text would not survive cleaning, or whose answer is not a line of the book, is not an entry:
+          // so everything shown, stored and signed is a line of the reviewed book.
           const ok =
             typeof row.id === "string" && typeof row.question === "string" && typeof row.answer === "string" &&
             Number.isSafeInteger(row.asked_at_ms) && (row.source === "model" || row.source === "canned") &&
             cleanQuestion(row.question) === row.question && reasoningHash(row.question) === row.question_hash &&
-            oneLine(row.answer) === row.answer && row.answer !== "";
+            BOOK.includes(row.answer);
           if (ok && !byId.has(row.id)) {
             byId.set(row.id, { id: row.id, question: row.question, questionHash: row.question_hash, answer: row.answer, source: row.source, askedAtMs: row.asked_at_ms, epoch: null, txHash: null });
           }

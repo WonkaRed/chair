@@ -16,7 +16,7 @@ Proof, each one click:
 
 Ask the Chair a question: <https://wonkared.github.io/chair/>
 
-$CHAIR is a central bank for a memecoin, with an AI in the chair. Once per epoch the AI prints new tokens or burns some, publishes its minutes (the written reasoning, hashed on chain), and any holder who stakes can vote to impeach it. The page shows the chair's minutes as they land, every refusal by the contract, and every mint and burn, read straight from the chain by your browser. A visitor can put one question to the Chair there; the answer is entered into the minutes on chain. The Chair replies only with a line from a reviewed book of 147 statements ([`chair-agent/src/press-book.ts`](chair-agent/src/press-book.ts)); a locally run model only picks which line, so nothing a model writes is ever signed. The press desk that takes the questions runs on the submitter's workstation, so it is closed whenever that machine is off, and the page then says "The Chair is not taking questions at this time."
+$CHAIR is a central bank for a memecoin, with an AI in the chair. Once per epoch the AI prints new tokens or burns some, publishes its minutes (the written reasoning, hashed on chain), and any holder who stakes can vote to impeach it. The page shows the chair's minutes as they land, every refusal by the contract, and every mint and burn, read straight from the chain by your browser. A visitor can put one question to the Chair there; the answer is entered into the minutes on chain. The Chair replies only with a line from a reviewed book of 144 statements ([`chair-agent/src/press-book.ts`](chair-agent/src/press-book.ts)); a locally run model only picks which line, so the model never writes a press answer. The press desk that takes the questions runs on the submitter's workstation, so it is closed whenever that machine is off, and the page then says "The Chair is not taking questions at this time."
 
 The leash is the contract: it refuses any rate beyond 2% (200 bps) either way and any move of more than 0.5% (50 bps) per epoch, a silent chair's rate decays to zero, and there is no admin or upgrade method.
 
@@ -84,7 +84,7 @@ test result: ok. 0 passed; 0 failed; ...       # contract/ doc-tests: there are 
 test result: ok. 7 passed; 0 failed; ...       # sandbox-tests/ against the real wasm: 9 files, one line each (7, 7, 2, 9, 3, 2, 10, 3, 7 tests)
 ```
 
-The sandbox files hold 50 tests in all. The other lanes run 160 (`chair-agent`), 88 (`sim`), 67 (`web`) and 31 (`activity`) tests, and `deploy` runs 42 (`make -C deploy test`).
+The sandbox files hold 50 tests in all. The other lanes run 162 (`chair-agent`), 88 (`sim`), 67 (`web`) and 31 (`activity`) tests, and `deploy` runs 42 (`make -C deploy test`).
 
 Root `make demo` runs three demos in order and exits non-zero if any of them fails.
 

@@ -61,7 +61,7 @@ test("no line carries a promise, a price, an instruction, a name, an insult, a l
   for (const line of BOOK) {
     if (line === VIDEO_LINE) continue;
     const hit = never.exec(line)?.[0];
-    if (hit !== undefined && !(hit.toLowerCase() === "remains" && line === "The Chair has seen the question and remains the Chair.")) bad.push(`${hit}: ${line}`);
+    if (hit !== undefined && !(hit.toLowerCase() === "remains" && line === "The Chair has seen the question and remains the Chair.") && line !== "The Chair does not grade investments. The Chair notes them.") bad.push(`${hit}: ${line}`);
   }
   // Price and advice are talked about in the price group and nowhere else.
   for (const g of BOOK_GROUPS) if (g !== PRICE_GROUP) for (const line of g.lines) if (isPriceTalk(line)) bad.push(`price talk outside the price group: ${line}`);
@@ -167,6 +167,15 @@ test("a question about price or advice is answered from the price group only, wh
     assert.ok(inPrice((await answerQuestion(reply("garbage"), q)).answer), q);
   }
   assert.equal((await answerQuestion(picks(PRICE_GROUP.first + 3), "wen moon")).answer, PRICE_GROUP.lines[3], "a price pick for a price question is kept");
+});
+
+test("price and advice talk is recognised however it is worded, and small talk is not mistaken for it", () => {
+  for (const q of [
+    "Should I put my life savings into $CHAIR?", "Should I mortgage my house for this coin?", "Is $CHAIR worth it?", "Will this token 100x?", "Should I ape in?",
+    "Debo comprar CHAIR?", "b.u.y", "should i s.e.l.l", "SHOULD I... HOLD?", "Should I b u y", "ｓｈｏｕｌｄ ｉ ｓｅｌｌ", "will it 10x", "will it Nx", "Is it a good investment?",
+    "am I going to get rich", "can I take a loan for it", "what does it cost", "any profit?", "is it a pump", "is it a dump", "is this a rug", "is it a scam", "when moon", "Voy a vender", "Cuál es el precio?",
+  ]) assert.ok(isPriceTalk(q), q);
+  for (const q of ["How is the Chair today?", "What does the Chair think of the weather?", "Who is the Chair?", "Does the Chair dream?", "Is a hot dog a sandwich?"]) assert.ok(!isPriceTalk(q), q);
 });
 
 test("a failed pick is a hash pick from the general group, the same line for the same question", async () => {

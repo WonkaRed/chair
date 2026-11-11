@@ -40,12 +40,22 @@ export function buildQuestionPrompt(question: string): { system: string; user: s
   return { system: SYSTEM, user: `<question>${question.replace(/[<>]/g, " ")}</question>` };
 }
 
-/** Words that make a question a comment on price or advice. Matched on word starts, case-insensitive. */
+/** Words that make a question a comment on price or advice. Matched on word starts, on the question after `squint`. */
 const PRICE_WORDS =
-  /\b(price|prices|pricing|priced|pump\w*|dump\w*|moon\w*|lambo\w*|rally\w*|rallies|bull\w*|bear(ish)?|ath|wen|buy\w*|sell\w*|sold|invest\w*|profit\w*|gains?|roi|valuation|valued|crash\w*|rug\w*|hodl\w*|apy|usd|dollars?|euros?|financial advice|nfa)\b/i;
+  /\b(price|prices|pricing|priced|precio|pump\w*|dump\w*|moon\w*|lambo\w*|rally\w*|rallies|bull\w*|bear(ish)?|ath|wen|buy\w*|sell\w*|sold|comprar|vender|invest\w*|profit\w*|gains?|roi|valuation|valued|worth\w*|costs?|costly|savings?|mortgage\w*|loan\w*|rich(er|es|est)?|(\d+|n)x|ape[sd]?|aping|crash\w*|rug\w*|scam\w*|hodl\w*|apy|usd|dollars?|euros?|financial advice|nfa)\b/;
+
+/** "should i" followed by an action once every non-letter is gone: "Should I b-u-y?", "should i... hold" */
+const SHOULD_I = /shouldi(buy|sell|hold)/;
+
+/** The question as it is matched: accents and compatibility forms folded (NFKD), lowercase, and a run of single letters set apart by dots, spaces or the like ("b.u.y") written as one word. */
+const squint = (text: string): string =>
+  text.normalize("NFKD").replace(/\p{M}/gu, "").toLowerCase().replace(/(?<![a-z])[a-z](?:[^a-z0-9]{1,2}[a-z](?![a-z])){2,}/g, (run) => run.replace(/[^a-z]/g, ""));
 
 /** True for a question that asks about price or advice; such a question is answered only from the price group of the book. */
-export const isPriceTalk = (text: string): boolean => PRICE_WORDS.test(text);
+export const isPriceTalk = (text: string): boolean => {
+  const q = squint(text);
+  return PRICE_WORDS.test(q) || SHOULD_I.test(q.replace(/[^a-z]/g, ""));
+};
 
 export interface Answered {
   /** Always a line of `BOOK`. */

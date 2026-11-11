@@ -8,6 +8,7 @@ import { FakeChain } from "../src/fake-chain.js";
 import { buildPrompt, LlmChair, type LlmRequest } from "../src/llm-chair.js";
 import { DecisionLog } from "../src/log.js";
 import { stayOffTheModel } from "../src/press-answer.js";
+import { BOOK } from "../src/press-book.js";
 import { pressSection } from "../src/press-section.js";
 import { cleanQuestion, DECISION_MARKER_MAX_MS, entryLine, PressStore, toPublic, type PressEntry } from "../src/press-store.js";
 import { cleanReasoning, MAX_REASONING_CHARS, reasoningHash } from "../src/reasoning.js";
@@ -42,9 +43,9 @@ test("cleanQuestion: one clean line of 1 to 140 characters, the form that is has
 test("the store keeps the question for the hash, shows the public only its hash, and survives damaged lines and two writers", () => {
   const { store: s, path, done } = store();
   try {
-    addAll(s, [entry("secret question one", "A1", 1), entry("secret question two", "A2", 2)]);
+    addAll(s, [entry("secret question one", BOOK[0]!, 1), entry("secret question two", BOOK[1]!, 2)]);
     appendFileSync(path, "not json\n");
-    appendFileSync(path, `${JSON.stringify({ v: 1, kind: "ask", id: "forged", question: "q", question_hash: "0".repeat(64), answer: "A", source: "model", asked_at_ms: 3 })}\n`);
+    appendFileSync(path, `${JSON.stringify({ v: 1, kind: "ask", id: "forged", question: "q", question_hash: "0".repeat(64), answer: BOOK[0], source: "model", asked_at_ms: 3 })}\n`);
     const other = new PressStore(path);
     assert.deepEqual(other.recent(10).map((e) => e.id), ["id-2", "id-1"], "newest first; a bad line and a forged hash are skipped");
     for (const e of s.recent(10)) {
@@ -52,8 +53,25 @@ test("the store keeps the question for the hash, shows the public only its hash,
       assert.ok(!shown.includes("secret"), "the question text is never in the public shape");
       assert.deepEqual(Object.keys(toPublic(e)).sort(), ["answer", "asked_at_ms", "epoch", "id", "question_hash", "tx_hash"]);
     }
-    s.add(entry("later", "A3", 3));
+    s.add(entry("later", BOOK[2]!, 3));
     assert.equal(other.pending().length, 3, "a second reader sees a write made through the first, without a restart");
+  } finally {
+    done();
+  }
+});
+
+test("a row whose answer is not a line of the book is not an entry, even with a valid question hash: never pending, never in the record", () => {
+  const { store: s, path, done } = store();
+  try {
+    const row = (id: string, question: string, answer: string, askedAtMs: number): string =>
+      `${JSON.stringify({ v: 1, kind: "ask", id, question, question_hash: reasoningHash(question), answer, source: "model", asked_at_ms: askedAtMs })}\n`;
+    appendFileSync(path, row("old", "an earlier design", "The Chair has noted it.", 1));
+    appendFileSync(path, row("book", "a book answer", BOOK[3]!, 2));
+    appendFileSync(path, row("edit", "a hand edit", `${BOOK[3]!} And more.`, 3));
+    const reread = new PressStore(path);
+    assert.deepEqual(reread.recent(10).map((e) => e.id), ["book"]);
+    assert.deepEqual(reread.pending().map((e) => e.id), ["book"]);
+    assert.equal(s.recent(10).length, 1);
   } finally {
     done();
   }
@@ -62,7 +80,7 @@ test("the store keeps the question for the hash, shows the public only its hash,
 test("markEntered marks exactly the entries whose line is in the minutes that were sent, once", () => {
   const { store: s, done } = store();
   try {
-    const [a, b, c] = [entry("qa", "Answer a.", 1), entry("qb", "Answer b.", 2), entry("qc", "Answer c.", 3)] as [PressEntry, PressEntry, PressEntry];
+    const [a, b, c] = [entry("qa", BOOK[0]!, 1), entry("qb", BOOK[1]!, 2), entry("qc", BOOK[2]!, 3)] as [PressEntry, PressEntry, PressEntry];
     addAll(s, [a, b, c]);
     const minutes = `header\n${entryLine(a)}\n${entryLine(c)}\nfooter`;
     assert.equal(s.markEntered(minutes, 42, "tx1"), 2);
@@ -80,7 +98,7 @@ test("markEntered marks exactly the entries whose line is in the minutes that we
 test("two identical entries with room for one in the minutes: exactly one is marked, the oldest", () => {
   const { store: s, done } = store();
   try {
-    const [a, b] = [entry("same question", "The same answer.", 1), entry("same question", "The same answer.", 2)] as [PressEntry, PressEntry];
+    const [a, b] = [entry("same question", BOOK[0]!, 1), entry("same question", BOOK[0]!, 2)] as [PressEntry, PressEntry];
     addAll(s, [a, b]);
     assert.equal(entryLine(a), entryLine(b));
     assert.equal(s.markEntered(`header\n${entryLine(a)}`, 50, "tx1"), 1);
@@ -157,12 +175,12 @@ const deps = (w: ReturnType<typeof world>) => ({
 test("an epoch's decision enters two pending questions on chain and marks them with its epoch and transaction; the third waits", async () => {
   const w = world();
   try {
-    addAll(w.press, [entry("one", "Answer one.", 1), entry("two", "Answer two.", 2), entry("three", "Answer three.", 3)]);
+    addAll(w.press, [entry("one", BOOK[0]!, 1), entry("two", BOOK[1]!, 2), entry("three", BOOK[2]!, 3)]);
     const res = await tick(deps(w));
     assert.equal(res.status, "executed");
     if (res.status !== "executed") return;
     assert.ok(res.decision.reasoning.includes("The press asked 3 questions since the last meeting."));
-    assert.ok(res.decision.reasoning.includes(`(${reasoningHash("one").slice(0, 12)}). The Chair replied: Answer one.`));
+    assert.ok(res.decision.reasoning.includes(`(${reasoningHash("one").slice(0, 12)}). The Chair replied: ${BOOK[0]}`));
     assert.ok(!res.decision.reasoning.includes("one\n") && !/ask(ed)? .*\bone\b.*\?/.test(res.decision.reasoning), "no question text");
     const byId = new Map(w.press.recent(10).map((e) => [e.id, e]));
     assert.deepEqual([byId.get("id-1")?.epoch, byId.get("id-1")?.txHash], [res.decision.epoch, res.txHash]);
@@ -171,7 +189,7 @@ test("an epoch's decision enters two pending questions on chain and marks them w
     // The next epoch carries the third.
     w.chain.advanceEpochs(1, 1000);
     const next = await tick(deps(w));
-    assert.ok(next.status === "executed" && next.decision.reasoning.includes("Answer three.") && next.decision.reasoning.includes("The press asked 1 question since"));
+    assert.ok(next.status === "executed" && next.decision.reasoning.includes(BOOK[2]!) && next.decision.reasoning.includes("The press asked 1 question since"));
     assert.equal(w.press.pending().length, 0);
     // An epoch with no question has no press section at all.
     w.chain.advanceEpochs(1, 1000);
@@ -185,9 +203,9 @@ test("an epoch's decision enters two pending questions on chain and marks them w
 test("a dry run shows the press section but marks nothing; a failed send marks nothing and the re-send marks once it lands; a refusal marks nothing", async () => {
   const w = world();
   try {
-    addAll(w.press, [entry("one", "Answer one.", 1)]);
+    addAll(w.press, [entry("one", BOOK[0]!, 1)]);
     const dry = await tick({ ...deps(w), submitter: null });
-    assert.ok(dry.status === "dry-run" && dry.decision.reasoning.includes("Answer one."));
+    assert.ok(dry.status === "dry-run" && dry.decision.reasoning.includes(BOOK[0]!));
     assert.equal(w.press.pending().length, 1);
     let calls = 0;
     const flaky = { submit: (d: Parameters<FakeChain["submit"]>[0]) => (calls++ < 1 ? Promise.reject(new Error("blip")) : w.chain.submit(d)) };
@@ -196,7 +214,7 @@ test("a dry run shows the press section but marks nothing; a failed send marks n
     const again = await tick({ ...deps(w), submitter: flaky });
     assert.equal(again.status, "executed");
     assert.equal(w.press.pending().length, 0, "the re-sent text carried the question, so it is entered");
-    w.press.add(entry("two", "Answer two.", 2));
+    w.press.add(entry("two", BOOK[1]!, 2));
     w.chain.advanceEpochs(1, 1000);
     const refusing = { submit: () => Promise.resolve({ txHash: "t", failure: "rate step too large" }) };
     assert.equal((await tick({ ...deps(w), submitter: refusing })).status, "rejected");

@@ -27,7 +27,7 @@ async function desk(o: Partial<PressServerOptions> = {}): Promise<Desk> {
   let available = true;
   const server = createPressServer({
     store,
-    answer: (q) => { asked.push(q); return Promise.resolve({ answer: "The Chair has noted it.", source: "model" as const }); },
+    answer: (q) => { asked.push(q); return Promise.resolve({ answer: BOOK[0]!, source: "model" as const }); },
     available: () => available,
     ...o,
   });
@@ -61,7 +61,7 @@ test("POST /ask answers with the fixed shape; the hash is the SHA-256 of the cle
     const body = (await res.json()) as Record<string, unknown>;
     assert.deepEqual(Object.keys(body).sort(), ["answer", "asked_at_ms", "id", "question_hash", "status"]);
     assert.equal(body["status"], "answered");
-    assert.equal(body["answer"], "The Chair has noted it.");
+    assert.equal(body["answer"], BOOK[0]);
     assert.equal(body["question_hash"], reasoningHash("Who watches the Chair?"));
     assert.deepEqual(d.asked, ["Who watches the Chair?"], "the model is given the cleaned question");
     assert.ok(Number.isSafeInteger(body["asked_at_ms"]));
@@ -73,7 +73,7 @@ test("POST /ask answers with the fixed shape; the hash is the SHA-256 of the cle
     assert.equal(parsed.taking_questions, true);
     assert.deepEqual(parsed.entries, [{ id: body["id"], question_hash: body["question_hash"], answer: body["answer"], asked_at_ms: body["asked_at_ms"], epoch: null, tx_hash: null }]);
 
-    d.store.markEntered(`A member of the press asked a question (${reasoningHash("Who watches the Chair?").slice(0, 12)}). The Chair replied: The Chair has noted it.`, 7, "tx7");
+    d.store.markEntered(`A member of the press asked a question (${reasoningHash("Who watches the Chair?").slice(0, 12)}). The Chair replied: ${BOOK[0]}`, 7, "tx7");
     const after = ((await (await fetch(`${d.base}/record`)).json()) as { entries: { epoch: number; tx_hash: string }[] }).entries[0]!;
     assert.deepEqual([after.epoch, after.tx_hash], [7, "tx7"]);
   } finally {
@@ -166,7 +166,7 @@ test("503 when the Chair is not taking questions, and when the queue is full; on
     answer: () => new Promise((resolve) => {
       running++;
       peak = Math.max(peak, running);
-      release.push(() => { running--; resolve({ answer: "Noted.", source: "model" }); });
+      release.push(() => { running--; resolve({ answer: BOOK[0]!, source: "model" }); });
     }),
   });
   try {
@@ -270,7 +270,7 @@ test("CORS: the page and a local page are allowed, everyone else gets no allow h
 test("GET /record: newest first, default 20, at most 50, a bad limit is a 400; /health; unknown paths and methods", async () => {
   const d = await desk();
   try {
-    for (let i = 0; i < 60; i++) d.store.add({ id: `id-${i}`, question: `q${i}`, questionHash: reasoningHash(`q${i}`), answer: `A${i}`, source: "model", askedAtMs: 1000 + i });
+    for (let i = 0; i < 60; i++) d.store.add({ id: `id-${i}`, question: `q${i}`, questionHash: reasoningHash(`q${i}`), answer: BOOK[i]!, source: "model", askedAtMs: 1000 + i });
     const get = async (qs: string): Promise<{ status: number; entries: { id: string }[] }> => {
       const r = await fetch(`${d.base}/record${qs}`);
       return { status: r.status, entries: ((await r.json()) as { entries?: { id: string }[] }).entries ?? [] };
