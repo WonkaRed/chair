@@ -54,7 +54,7 @@ export async function gatherMinutes(rpcUrl: string, token: string, docsDir: stri
   const texts = new Map<string, Bundled>(Object.entries(bundle.texts as Record<string, Bundled>));
   let raw: RawDecision[];
   try {
-    const transport = rpcTransport({ rpcUrls: [rpcUrl], indexerUrl: webConfig.indexerUrl, account: token, fetchImpl });
+    const transport = rpcTransport({ rpcUrls: [rpcUrl], indexerUrl: webConfig.indexerUrl, account: token, fetchImpl, sleep: undefined }); // undefined: the transport's own pause between rounds
     raw = decisionsOfTxs(await transport.transactions(await transport.txHashes()), token).decisions;
   } catch (e) {
     if (!(e instanceof SourceError)) throw e;
