@@ -28,13 +28,13 @@ export const DEFAULT_OVERREACH_LIMITS = {
   /** Everything a visitor asks of this endpoint (each ask reads the chain), per address. */
   perIpRequests: 8,
   perIpRequestsWindowMs: 10 * 60_000,
-  /** Attempts that go on chain, one per address per hour, then the hour's and the day's totals over all addresses. Each costs the chair account gas: see "Make the Chair overreach" in the README. */
-  perIpSends: 1,
+  /** Attempts that go on chain, a few per address per hour, then the hour's and the day's totals over all addresses. Each costs the chair account gas: see "Make the Chair overreach" in the README. */
+  perIpSends: 5,
   perIpSendsWindowMs: 60 * 60_000,
-  dailyCap: 150,
+  dailyCap: 300,
   dailyWindowMs: 24 * 60 * 60_000,
   /** The day's budget is also spent no faster than this per hour, so no burst can use up the day. */
-  hourlyCap: 10,
+  hourlyCap: 30,
   hourlyWindowMs: 60 * 60_000,
   /** Chain reads for many visitors share one read this old, so a crowd cannot push the shared RPC into rate limits. */
   snapshotCacheMs: 1_000,
