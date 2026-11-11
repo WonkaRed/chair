@@ -7,6 +7,7 @@
 //   status "unverified"  the log was read but the state at its last block could not be, so the sums cannot be pinned
 // RPC views failing is a different failure: nothing can be shown, `loadLog` throws.
 import { parseU128 } from "./amounts.js";
+import { decisionsOfTxs } from "./decisions.js";
 import { buildEntries, identity, reconcile } from "./ledger.js";
 import { lastTokenHeight } from "./events.js";
 import { SourceError } from "./sources.js";
@@ -53,7 +54,7 @@ export async function loadLog(transport) {
   const supply = parseSupply(rawSupply);
   const keys = await transport.accessKeys().then((n) => n, () => null);
 
-  const base = { params, policy, supply, identity: identity(supply), accessKeys: keys, entries: [], anomalies: [], reconcile: null, pending: null, txCount: 0, reasons: [] };
+  const base = { params, policy, supply, identity: identity(supply), accessKeys: keys, entries: [], decisions: [], anomalies: [], reconcile: null, pending: null, txCount: 0, reasons: [] };
   let txs;
   try {
     txs = await transport.transactions(await transport.txHashes());
@@ -63,7 +64,9 @@ export async function loadLog(transport) {
   }
   const { entries, anomalies } = buildEntries(txs, transport.token, params);
   const height = lastTokenHeight(txs, transport.token);
-  const out = { ...base, entries, anomalies, txCount: txs.length };
+  const { decisions, unreadable } = decisionsOfTxs(txs, transport.token);
+  if (unreadable > 0) anomalies.push(`${unreadable} policy_set event${unreadable === 1 ? "" : "s"} could not be read and ${unreadable === 1 ? "is" : "are"} not listed in the chair minutes`);
+  const out = { ...base, entries, decisions, anomalies, txCount: txs.length };
 
   // Pin the chain's ledger to the block of the last logged transaction, so a mint that is due but not yet applied
   // (views project it, no event exists until the next transaction) is not mistaken for a missing event.

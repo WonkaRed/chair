@@ -3,6 +3,7 @@ import { lineChart } from "./charts.js";
 import { clear, h } from "./dom.js";
 import { renderGuarantees, VERIFY_COMMAND } from "./guarantees.js";
 import { loadLog } from "./loadlog.js";
+import { checkDecisions, loadTexts, renderMinutes } from "./minutes.js";
 import { BEHAVIOURS, simulate } from "./simview.js";
 import { fixtureTransport, rpcTransport } from "./sources.js";
 import { fmtPct, fmtRate, renderFailure, renderLedger, renderLog, renderNow, renderReconcile, renderSource } from "./views.js";
@@ -49,9 +50,11 @@ async function showChain() {
     made = await makeTransport();
   } catch (e) {
     renderFailure(doc, $("now"), e);
+    renderFailure(doc, $("minutes-body"), e);
     clear($("ledger-body"));
     return;
   }
+  const texts = loadTexts();
   renderSource(doc, $("source"), { mode: made.fixture ? "fixture" : "live", config, fixture: made.fixture });
   const run = async () => {
     let data;
@@ -59,11 +62,14 @@ async function showChain() {
       data = await loadLog(made.transport);
     } catch (e) {
       renderFailure(doc, $("now"), e);
+      renderFailure(doc, $("minutes-body"), e);
       clear($("ledger-body"));
       clear($("reconcile"));
       clear($("log-body"));
       return;
     }
+    const bundled = await texts;
+    renderMinutes(doc, $("minutes-body"), data, { texts: bundled, checks: await checkDecisions(data.decisions, bundled), explorer: made.fixture ? null : config.explorerUrl, repoBase: `${config.repoUrl}/blob/${config.repoRef}` });
     renderNow(doc, $("now"), data);
     renderLedger(doc, $("ledger-body"), data);
     renderReconcile(doc, $("reconcile"), data, { onRetry: run });

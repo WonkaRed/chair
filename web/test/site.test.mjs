@@ -169,7 +169,7 @@ test("CSP allows only the configured hosts, and the page has no inline script or
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)/);
   assert.doesNotMatch(html, /\sstyle=|\son[a-z]+=/i);
   assert.doesNotMatch(html, /(src|href)="https?:\/\//);
-  for (const f of ["style.css", "js/charts.js", "js/views.js", "js/dom.js", "js/app.js"]) {
+  for (const f of ["style.css", "js/charts.js", "js/views.js", "js/dom.js", "js/app.js", "js/minutes.js", "js/decisions.js"]) {
     const t = (await readFile(join(dist, f), "utf8")).split("\n").filter((l) => !l.trimStart().startsWith("//")).join("\n");
     assert.doesNotMatch(t, /innerHTML|outerHTML|insertAdjacentHTML|eval\(|@import|url\(\s*['"]?https?:/);
   }
@@ -304,4 +304,35 @@ test("generic: renaming each distinct string in the recorded run to a hostile va
     assertClean(renderEverything(d, f), `renaming ${JSON.stringify(value.slice(0, 30))}`);
   }
   assert.ok(failures < distinct.size, "some renamed fixtures still load");
+});
+
+test("the build writes the reasoning bundle, and builds the same page when docs/ or its files are missing", async () => {
+  const bundleOf = async () => JSON.parse(await readFile(join(dist, "minutes.json"), "utf8"));
+  const shipped = await bundleOf();
+  assert.equal(shipped.schema, "chair-minutes/1");
+  assert.ok(Object.keys(shipped.texts).length > 0, "the repo's own run records are bundled");
+  const warn = console.warn;
+  const warned = [];
+  console.warn = (...a) => warned.push(a.join(" "));
+  try {
+    await build({ docs: join(root, "no-such-docs-folder") });
+    assert.deepEqual(await bundleOf(), { schema: "chair-minutes/1", texts: {} });
+    assert.match(await readFile(join(dist, "index.html"), "utf8"), /id="minutes-body"/);
+    assert.equal(warned.length, 1);
+  } finally {
+    console.warn = warn;
+    await build();
+  }
+  assert.deepEqual(await bundleOf(), shipped);
+});
+
+test("the reconciliation table labels every cell, so the narrow layout can stack it instead of clipping its last column", async () => {
+  const d = await loadLog(fixtureTransport(fixture));
+  const doc = fakeDoc();
+  const x = host(doc);
+  renderReconcile(doc, x, d, { onRetry() {} });
+  const cells = [...walk(x)].filter((n) => n.tag === "td");
+  assert.equal(cells.length, 9);
+  assert.ok(cells.every((c) => typeof c.attrs["data-label"] === "string" && c.attrs["data-label"] !== ""));
+  assert.match(await readFile(join(dist, "style.css"), "utf8"), /\.recon td::before \{ content: attr\(data-label\)/);
 });

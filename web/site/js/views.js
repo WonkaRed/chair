@@ -8,7 +8,7 @@ const MINUS = "−";
 export const fmtRate = (bps) => `${bps > 0 ? "+" : bps < 0 ? MINUS : ""}${Math.abs(bps)} bps`;
 export const fmtPct = (bps) => `${bps > 0 ? "+" : bps < 0 ? MINUS : ""}${(Math.abs(bps) / 100).toFixed(2)}%`;
 export const fmtTime = (ms) => `${new Date(Number(ms)).toISOString().replace("T", " ").slice(0, 16)} UTC`;
-const shortHash = (hash) => `${hash.slice(0, 6)}…${hash.slice(-6)}`;
+export const shortHash = (hash) => `${hash.slice(0, 6)}…${hash.slice(-6)}`;
 
 /** The rate each following epoch runs at if the chair does nothing more (SPEC "Rollover" step 2). */
 export function silentPath(policy, maxStep = 50) {
@@ -119,7 +119,7 @@ export function renderReconcile(doc, host, d, { onRetry }) {
   host.append(h(doc, "p", { class: `verdict ${st.cls}`, role: "status" }, h(doc, "span", { class: "mark", "aria-hidden": "true" }, st.mark), ` ${st.text}`));
   for (const r of d.reasons) host.append(h(doc, "p", { class: "note" }, safeText(r, 400)));
   if (d.reconcile !== null) {
-    const rows = d.reconcile.lines.map((l) => h(doc, "tr", {}, h(doc, "th", { scope: "row" }, l.name), h(doc, "td", { title: formatExact(l.logged) }, formatTokens(l.logged)), h(doc, "td", { title: formatExact(l.chain) }, formatTokens(l.chain)), h(doc, "td", { class: l.ok ? "good" : "badtext" }, l.ok ? "equal" : "differs")));
+    const rows = d.reconcile.lines.map((l) => h(doc, "tr", {}, h(doc, "th", { scope: "row" }, l.name), h(doc, "td", { "data-label": "Logged events", title: formatExact(l.logged) }, formatTokens(l.logged)), h(doc, "td", { "data-label": "get_supply", title: formatExact(l.chain) }, formatTokens(l.chain)), h(doc, "td", { "data-label": "Result", class: l.ok ? "good" : "badtext" }, l.ok ? "equal" : "differs")));
     host.append(h(doc, "table", { class: "recon" }, h(doc, "caption", {}, d.pinnedHeight === null ? "Event sums against get_supply" : `Event sums against get_supply at block ${d.pinnedHeight}, the last block with a logged transaction`), h(doc, "thead", {}, h(doc, "tr", {}, h(doc, "th", { scope: "col" }, ""), h(doc, "th", { scope: "col" }, "Sum of logged events"), h(doc, "th", { scope: "col" }, "get_supply"), h(doc, "th", { scope: "col" }, ""))), h(doc, "tbody", {}, rows)));
   }
   if (d.pending !== null) host.append(h(doc, "p", { class: "note" }, `${formatTokens(d.pending.minted)} more is minted in views right now: an epoch boundary has passed and its mint is due. The contract applies it, and logs it, with the next transaction.`));

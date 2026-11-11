@@ -42,7 +42,7 @@ code, .amt, .v, .tx, .acct { font-family: var(--mono); font-size: 0.92em; }
 .chip[aria-pressed="true"], .chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 
 main > section { padding-block: 2.5rem 0.5rem; }
-h1 { font-size: clamp(1.7rem, 4.6vw, 2.9rem); line-height: 1.12; letter-spacing: -0.02em; margin: 2.5rem 0 1rem; max-width: 22ch; font-weight: 800; }
+h1 { font-size: clamp(1.7rem, 4.6vw, 2.9rem); line-height: 1.12; letter-spacing: -0.02em; margin: 1.5rem 0 1rem; max-width: 30ch; font-weight: 800; }
 h2 { font-size: 1.45rem; margin: 0 0 1rem; letter-spacing: -0.01em; border-top: 3px solid var(--ink); padding-top: 0.75rem; }
 .lede { max-width: 68ch; color: var(--ink2); font-size: 1.05rem; }
 .source { display: block; max-width: 68ch; padding: 0.7rem 0.9rem; border-left: 4px solid var(--accent); background: var(--panel); margin: 1.25rem 0 0; font-size: 0.95rem; }
@@ -131,16 +131,59 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 .recon, .charts, #ledger-body, #log-body, #sim-summary { min-width: 0; }
 .recon, #ledger-body, #sim-summary { overflow-x: auto; }
 @media (max-width: 40rem) {
-  table.recon { display: block; }
-  .log thead, .summary thead { display: none; }
-  .log, .log tbody, .summary, .summary tbody { display: block; }
-  .log tr, .summary tr { display: block; border-top: 1px solid var(--rule); padding: 0.5rem 0; }
-  .log td, .summary td { display: block; position: relative; padding: 0.2rem 0.75rem 0.2rem 7.75rem; text-align: left; border: 0; width: auto; }
-  .log td::before, .summary td::before { content: attr(data-label); position: absolute; left: 0.75rem; width: 6.75rem; color: var(--muted); }
-  .summary th[scope="row"] { display: block; text-align: left; }
+  .log thead, .summary thead, .recon thead { display: none; }
+  .log, .log tbody, .summary, .summary tbody, table.recon, .recon tbody { display: block; }
+  .log tr, .summary tr, .recon tr { display: block; border-top: 1px solid var(--rule); padding: 0.5rem 0; }
+  .recon tr:first-child { border-top: 0; }
+  .log td, .summary td, .recon td { display: block; position: relative; padding: 0.2rem 0.75rem 0.2rem 7.75rem; text-align: left; border: 0; width: auto; }
+  .log td::before, .summary td::before, .recon td::before { content: attr(data-label); position: absolute; left: 0.75rem; width: 6.75rem; color: var(--muted); }
+  .summary th[scope="row"], .recon th[scope="row"] { display: block; text-align: left; border: 0; }
+  .recon caption { display: block; }
+  .recon th[scope="row"] { padding-inline: 0; } .recon td { padding-inline: 7.75rem 0; } .recon td::before { left: 0; }
   .log .sub, .summary .sub { display: block; }
 }
 .fact > span, .tv > span { display: block; }
 .fact .s { color: var(--ink2); margin-top: 0.35rem; }
 .fact .v, .tv .v { margin: 0.15rem 0 0; }
 .term { display: flex; align-items: center; gap: 0.75rem; }
+
+/* Chair minutes: the latest decision as a card, older ones as collapsed rows. Same panel, rule and accent language as the rest. */
+#minutes { padding-top: 1.5rem; }
+.m-status { max-width: 68ch; margin: 0 0 1rem; padding: 0.7rem 0.9rem; border-left: 4px solid var(--accent); background: var(--panel); font-size: 0.95rem; }
+.m-status.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+.verdict.none { background: transparent; color: var(--muted); border: 1px solid var(--rule); }
+.minute { background: var(--panel); border: 1px solid var(--rule); border-left: 4px solid var(--muted); border-radius: 8px; min-width: 0; }
+.minute.verified { border-left-color: var(--mint); } .minute.mismatch { border-left-color: var(--burn); } .minute.unchecked { border-left-color: var(--warn); }
+.minute.latest { padding: 1.1rem 1.25rem 1.25rem; }
+.m-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 0.5rem 1rem; margin-bottom: 0.75rem; }
+.m-figure > span { display: block; }
+.m-figure .s { color: var(--ink2); }
+.m-mark { white-space: nowrap; }
+.m-who { margin: 0 0 0.9rem; color: var(--ink2); max-width: 68ch; overflow-wrap: anywhere; }
+.m-who strong { color: var(--ink); }
+.nowrap { white-space: nowrap; }
+.m-check strong { color: var(--ink); } .m-check.ok strong { color: var(--mint); } .m-check.bad strong { color: var(--burn); } .m-check.warn strong { color: var(--warn); }
+.reasoning { max-width: 68ch; padding-left: 1rem; border-left: 3px solid var(--rule); font-size: 1.05rem; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.m-absent { margin: 0 0 0.9rem; padding: 0.6rem 0.8rem; border: 1px dashed var(--rule); border-radius: 6px; color: var(--ink2); max-width: 68ch; }
+.m-check { margin: 0.9rem 0 0.25rem; font-size: 0.92rem; color: var(--ink2); max-width: 68ch; }
+.m-proof { display: grid; gap: 0.35rem; margin: 1rem 0 0; padding-top: 0.75rem; border-top: 1px solid var(--hair); }
+.m-proof > div { display: grid; grid-template-columns: 12.5rem minmax(0, 1fr); gap: 0 0.75rem; }
+.m-proof dd { margin: 0; font-size: 0.88rem; overflow-wrap: anywhere; }
+.m-hash { font-family: var(--mono); }
+.m-older { margin-top: 0.75rem; }
+.m-rows { display: grid; gap: 0.5rem; }
+.minute.row { border-radius: 6px; }
+.minute.row summary { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 1rem; padding: 0.6rem 0.9rem; min-height: 2.75rem; cursor: pointer; }
+.minute.row summary:hover { background: var(--hair); }
+.m-epoch { font-family: var(--mono); min-width: 6rem; }
+.m-rate { flex: 1 1 12rem; } .m-rate .sub { display: inline; margin-left: 0.6rem; }
+.m-body { padding: 0.25rem 1.25rem 1.1rem 1.9rem; }
+.m-older .more { margin-top: 0.75rem; }
+#minutes-body > .chip { margin-top: 1rem; }
+@media (max-width: 40rem) {
+  .minute.latest { padding: 0.9rem 0.9rem 1rem; }
+  .m-proof > div { grid-template-columns: minmax(0, 1fr); }
+  .m-body { padding-inline: 0.9rem; }
+  .m-rate .sub { display: block; margin-left: 0; }
+}
+.m-mark .mark { color: inherit; font-size: inherit; }

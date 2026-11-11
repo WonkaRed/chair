@@ -23,3 +23,6 @@ export const isTxHash = (v) => typeof v === "string" && BASE58_HASH_RE.test(v);
 
 /** Account ids are shown verbatim when valid; otherwise escaped and capped, so a forged id cannot pass for a real one. */
 export const showAccount = (v) => (isAccountId(v) ? v : `invalid id: ${safeText(v, 40)}`);
+
+/** Like `safeText` for a passage: hidden characters are escaped, line breaks are kept, nothing is cut. */
+export const safeLines = (s) => String(s).split("\n").map((line) => safeText(line, Infinity)).join("\n");

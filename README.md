@@ -82,7 +82,7 @@ test result: ok. 61 passed; 0 failed; ...      # contract/ unit tests (policy ma
 test result: ok. 49 passed; 0 failed; ...      # sandbox-tests/ against the real wasm, in 9 files
 ```
 
-The other lanes run 117 (`chair-agent`), 88 (`sim`) and 13 (`web`) tests, and `deploy` runs 32.
+The other lanes run 117 (`chair-agent`), 88 (`sim`) and 27 (`web`) tests, and `deploy` runs 32.
 
 Root `make demo` runs three demos in order and exits non-zero if any of them fails.
 
