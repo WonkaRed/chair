@@ -10,6 +10,7 @@ use near_workspaces::types::{AccessKey, KeyType, NearToken, SecretKey};
 use near_workspaces::{Account, Contract, Worker};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::net::{SocketAddr, TcpStream};
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -85,7 +86,7 @@ pub struct Chair {
     pub alice: Account,
     pub epoch_ms: u64,
     /// The sandbox node. Last, so the worker is dropped before the node is killed.
-    _node: near_sandbox::Sandbox,
+    node: near_sandbox::Sandbox,
 }
 
 /// Build the contract wasm in-process, the way `cargo near build` does (no cargo-near CLI needed),
@@ -201,7 +202,7 @@ pub async fn launch_with_supply(epoch_ms: u64, total_supply: &str) -> Result<Cha
         chair,
         alice,
         epoch_ms,
-        _node: node,
+        node,
     })
 }
 
@@ -293,25 +294,49 @@ impl Chair {
         ))
     }
 
+    /// `e` with its whole cause chain (a bare `?` keeps only the top message) and whether the node still
+    /// accepts connections, so a flaky run says whether the node process went away. Not a retry: a repeated
+    /// `fast_forward` is rejected by a node that got the first.
+    fn node_error(&self, e: impl Into<anyhow::Error>) -> anyhow::Error {
+        let e = e.into();
+        let addr = self.node.rpc_addr.trim_start_matches("http://");
+        let state = match addr.parse::<SocketAddr>() {
+            Ok(a) if TcpStream::connect_timeout(&a, Duration::from_secs(1)).is_ok() => {
+                format!("sandbox node at {addr} is still listening, so the node process is up")
+            }
+            Ok(_) => format!(
+                "sandbox node at {addr} is no longer listening (the process exited or was killed)"
+            ),
+            Err(parse) => format!("cannot probe the sandbox node at {addr}: {parse}"),
+        };
+        anyhow!("{e:#}; {state}")
+    }
+
     pub async fn policy(&self) -> Result<Policy> {
         Ok(self.token.view("get_policy").await?.json()?)
     }
 
     /// Fast-forward the sandbox clock until the token is in epoch `target`, landing within a
-    /// block or two of its start. Each fast-forwarded block advances the clock by 310 ms. A node that loses a
-    /// fast-forward jump (see `SKIP_DELAY_CAP`) waits it out, so the whole wait is bounded by `ADVANCE_TIMEOUT`.
+    /// block or two of its start. Each fast-forwarded block advances the clock by about 300 ms (297 measured on
+    /// nearcore 2.14.0), so dividing the gap by 400 undershoots and a jump never passes the boundary; the loop
+    /// closes the rest. A node that loses a fast-forward jump (see `SKIP_DELAY_CAP`) waits it out, so the whole
+    /// wait is bounded by `ADVANCE_TIMEOUT`.
     pub async fn advance_to_epoch(&self, target: u64) -> Result<Policy> {
         tokio::time::timeout(ADVANCE_TIMEOUT, async {
             loop {
-                let policy = self.policy().await?;
+                let policy = self.policy().await.map_err(|e| self.node_error(e))?;
                 if policy.epoch >= target {
                     return Ok(policy);
                 }
-                let now_ms = self.worker.view_block().await?.timestamp() / 1_000_000;
+                let block = self.worker.view_block().await.map_err(|e| self.node_error(e))?;
+                let now_ms = block.timestamp() / 1_000_000;
                 let start_of_target_ms =
                     policy.epoch_ends_ms + (target - policy.epoch - 1) * self.epoch_ms;
                 let blocks = (start_of_target_ms.saturating_sub(now_ms) / 400).max(1);
-                self.worker.fast_forward(blocks).await?;
+                self.worker
+                    .fast_forward(blocks)
+                    .await
+                    .map_err(|e| self.node_error(e))?;
             }
         })
         .await
