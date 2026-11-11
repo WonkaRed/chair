@@ -1,0 +1,21 @@
+{
+  "name": "chair-sim",
+  "version": "0.1.0",
+  "private": true,
+  "description": "60-epoch supply simulator for $CHAIR, integer arithmetic checked against the SPEC worked vectors (does not execute the contract).",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "rm -rf dist && tsc -p . && node --test \"dist/test/*.test.js\"",
+    "demo": "rm -rf dist && tsc -p . && node dist/src/main.js"
+  }
+}

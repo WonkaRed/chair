@@ -1,0 +1,29 @@
+{
+  "name": "chair-agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The $CHAIR chair: a rule-based chair and an optional LLM chair that call set_policy once per epoch.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.22.2"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "1.8.0",
+    "near-api-js": "7.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2"
+  },
+  "scripts": {
+    "build": "tsc -p .",
+    "typecheck": "tsc --noEmit -p .",
+    "test": "rm -rf dist && tsc -p . && node --test \"dist/test/*.test.js\"",
+    "demo": "rm -rf dist && tsc -p . && node dist/src/demo.js",
+    "start": "node dist/src/main.js"
+  },
+  "bin": {
+    "chair-agent": "dist/src/main.js"
+  }
+}
