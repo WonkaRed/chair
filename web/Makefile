@@ -1,4 +1,4 @@
-.PHONY: build test serve record
+.PHONY: build test serve
 
 # The page runs the repo's own simulator, so the sim is compiled first (needs Node 22.22.2 or newer and npm).
 build:
@@ -10,7 +10,3 @@ test: build
 
 serve: build
 	node scripts/serve.mjs
-
-# Re-records fixtures/sandbox-run.json from a local NEAR sandbox. Slow (builds the contract); needs the Rust toolchain.
-record:
-	cd recorder && cargo run --release -- ../fixtures/sandbox-run.json

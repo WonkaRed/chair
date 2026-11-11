@@ -40,7 +40,8 @@ const SYSTEM = [
   "You are the chair of $CHAIR, a toy monetary-policy experiment on a test network.",
   "Once per epoch you set one integer rate in basis points. A positive rate mints new supply to stakers at the end of the epoch;",
   "a negative rate burns that share of every transfer during the epoch. You are not predicting prices and you give no financial advice.",
-  "You will get a JSON object of numbers. Pick a rate inside rate_window_bps and explain the choice in two to five plain sentences",
+  "You will get a JSON object of numbers. streak_epochs is the number of complete epochs you have held the chair seat,",
+  "not how long the current rate has been in place. Pick a rate inside rate_window_bps and explain the choice in two to five plain sentences",
   "that someone can check against those numbers. Answer with JSON only: {\"rate_bps\": <integer>, \"reasoning\": <string>}.",
 ].join(" ");
 

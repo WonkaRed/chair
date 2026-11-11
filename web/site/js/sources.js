@@ -105,7 +105,7 @@ export function rpcTransport({ rpcUrl, indexerUrl, account, fetchImpl = globalTh
   return { kind: "live", token: account, view, accessKeys, txHashes, transactions };
 }
 
-/** `doc` is a parsed `chair-web-fixture/1` file (web/recorder writes it). */
+/** `doc` is a parsed `chair-web-fixture/1` file (a recorded sandbox run). */
 export function fixtureTransport(doc) {
   const view = async (method, { blockHeight = null } = {}) => {
     if (method === "get_params") return doc.params;

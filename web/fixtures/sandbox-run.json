@@ -20,7 +20,7 @@
     "streak": 14
   },
   "schema": "chair-web-fixture/1",
-  "source": "web/recorder: a scripted run of the real contract wasm in a local NEAR sandbox (near-sandbox, sandbox-tests harness)",
+  "source": "a scripted run of the real contract wasm in a local NEAR sandbox (near-sandbox, sandbox-tests harness)",
   "supplyAtLastTx": {
     "burned": "1690000000000000000000000",
     "epoch": 13,

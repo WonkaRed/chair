@@ -6,13 +6,12 @@ no framework, no backend, no external fonts or scripts. It works from `make serv
 
 ## Build, serve, test
 
-Needs Node 22.22.2 or newer and npm (the build compiles `../sim` first; the Rust toolchain is only needed to re-record the fixture).
+Needs Node 22.22.2 or newer and npm (the build compiles `../sim` first).
 
 ```sh
 make -C web build    # compiles ../sim, writes web/dist (site + config + fixture + a verbatim copy of the compiled simulator + the CSP)
 make -C web serve    # builds, then serves web/dist at http://127.0.0.1:8080/ (PORT=... to change)
 make -C web test     # builds, then `node --test "test/*.test.mjs"`: 13 tests, no browser, no network
-make -C web record   # re-records fixtures/sandbox-run.json from a local NEAR sandbox (slow: builds the contract)
 ```
 
 Deploying is copying `web/dist` to any static host.
@@ -51,8 +50,8 @@ on the page (staked share, three stakers, 20% velocity, scripted chairs, no pric
 It shows what the contract has logged and whether those events add up to the contract's own ledger. It does not prove the chair is wise, says nothing about price,
 liquidity or returns, and the simulation is a model of supply under stated assumptions, written from SPEC.md and read against the contract source; it does not run the contract.
 The event list comes from an index, so it is checked (against the RPC) rather than signed: a difference is shown, never hidden. The fixture is one scripted run of the real
-wasm in a local sandbox (`recorder/`); it is not a deployment and its tokens are not real.
+wasm in a local sandbox, recorded once; it is not a deployment and its tokens are not real.
 
 ## Layout
 
-`config.js`, `site/` (index.html, style.css, theme.js, `js/`), `fixtures/sandbox-run.json`, `recorder/` (Rust, uses `../sandbox-tests`), `scripts/` (build, serve), `test/`.
+`config.js`, `site/` (index.html, style.css, theme.js, `js/`), `fixtures/sandbox-run.json`, `scripts/` (build, serve), `test/`.

@@ -16,6 +16,7 @@ test("the prompt is numbers only: no account ids and no free-form chain text", (
   assert.ok(!user.includes("chair.test"));
   assert.deepEqual(data["rate_window_bps"], [-20, 80]);
   assert.match(system, /no financial advice/);
+  assert.match(system, /streak_epochs is the number of complete epochs you have held the chair seat, not how long the current rate has been in place\./);
 });
 
 test("parseAnswer accepts exactly the schema and cleans the text", () => {
