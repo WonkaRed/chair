@@ -8,6 +8,8 @@ import { fmtTime } from "./views.js";
 
 export const MAX_QUESTION = 140;
 export const OFFLINE = "The Chair is not taking questions at this time.";
+// What the page says when it does not know whether the desk answered: the desk may still answer and enter it, and the record below then shows it.
+const LATE = "The desk did not answer in time. If it does, the answer will appear in the record below.";
 export const DESK_NOTE = "The press desk runs on the submitter's workstation, not on a hosted server, so it is closed whenever that machine is off.";
 export const POLL_MS = 15_000;
 const STALE_MS = 15 * 60_000; // an answer asked longer ago than this stops being polled for
@@ -269,6 +271,7 @@ export function createPress(doc, host, { discoveryUrl = "", explorer = null, fet
     if (status === 429) return "The Chair has taken enough questions for now. Ask again later.";
     if (isFull(status, body)) return "The press room is full. Ask again in a minute.";
     if (status === 400 && isObj(body) && typeof body.error === "string") return `The question was not accepted: ${safeText(body.error, 140)}`;
+    if (status >= 500) return LATE; // a tunnel's 502 or 524 says nothing about whether the desk went on to answer
     return "The press desk did not take the question. Nothing was entered.";
   };
 
@@ -295,11 +298,11 @@ export function createPress(doc, host, { discoveryUrl = "", explorer = null, fet
         message = null;
         schedule();
       } else {
-        message = res.ok ? "The press desk sent a reply this page cannot read. Nothing was entered." : refuse(res.status, body);
+        message = res.ok ? "The press desk sent a reply this page cannot read. If the question was answered, the answer will appear in the record below." : refuse(res.status, body);
         if (res.status === 503 && !isFull(res.status, body)) online = false;
       }
     } catch {
-      message = "The press desk did not answer. Nothing was entered.";
+      message = LATE;
       online = false;
     } finally {
       busy = false;

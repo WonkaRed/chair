@@ -46,7 +46,7 @@ make -C activity test                                   # offline: typecheck and
 export CHAIR_ACTIVITY_KEY_DIR=/path/to/keys             # one <account>.key file per holder; there is no default path
 activity/scripts/run-activity.sh --epochs 3             # a trial: three acting epochs, then it stops
 export CHAIR_ACTIVITY_EVERY=6                           # the default deployment: every 6th epoch
-systemd-run --user --unit=chair-activity --collect --setenv=CHAIR_ACTIVITY_KEY_DIR --setenv=CHAIR_ACTIVITY_EVERY --setenv=PATH "$PWD/activity/scripts/run-activity.sh"
+systemctl --user enable --now chair-activity             # the live unit: deploy/systemd/chair-activity.service (see chair-agent/README.md)
 journalctl --user -u chair-activity -f                  # what it does
 systemctl --user stop chair-activity                    # stop it (SIGTERM; it finishes the call in flight)
 ```

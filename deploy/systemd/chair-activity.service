@@ -1,0 +1,16 @@
+[Unit]
+Description=$CHAIR testnet activity bot: three scripted holders, one action in every 6th epoch
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=%h/Desktop/Projects/Survival/chair/activity/scripts/run-activity.sh
+# Directory of the holders' key files (one <account>.key each); the keys are never in this file.
+Environment=CHAIR_ACTIVITY_KEY_DIR=%h/.claude/secrets/survival-testnet/chair2
+Environment=CHAIR_ACTIVITY_EVERY=6
+Environment=PATH=%h/.local/share/mise/installs/node/26/bin:%h/.local/share/mise/installs/gh/latest/gh_2.103.3_linux_amd64/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target

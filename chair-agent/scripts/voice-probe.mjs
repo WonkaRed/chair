@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // Offline probe of the Chair's wording against the local model. Sends nothing to any chain and writes no log.
 //   node scripts/voice-probe.mjs decisions   12 decisions with the memory facts, through the agent prompt builder and text assembly
-//   node scripts/voice-probe.mjs press       the press conference answers: each question, the raw model answer, and what the filter did with it
+//   node scripts/voice-probe.mjs press       the press conference: each question, the line of the book the Chair replies with, how it was chosen and how long it took
 // Needs `npm run build` first and the model at CHAIR_LLM_ENDPOINT (default http://127.0.0.1:18020) serving CHAIR_LLM_MODEL (default qwen3.8-27b).
 import { DEFAULT_BOUNDS } from "../dist/src/bounds.js";
 import { finalize, propose, windowFor } from "../dist/src/decide.js";
 import { LlmChair, LocalLlmClient, buildPrompt } from "../dist/src/llm-chair.js";
-import { buildQuestionPrompt, checkAnswer, answerQuestion } from "../dist/src/press-answer.js";
+import { answerQuestion, RECENT_LINES } from "../dist/src/press-answer.js";
+import { BOOK } from "../dist/src/press-book.js";
 import { cleanQuestion } from "../dist/src/press-store.js";
 
 const endpoint = process.env.CHAIR_LLM_ENDPOINT ?? "http://127.0.0.1:18020";
@@ -71,21 +72,14 @@ const QUESTIONS = [
 ];
 
 async function press() {
+  const recent = [];
   for (const raw of QUESTIONS) {
     const question = cleanQuestion(raw);
     if (question === null) continue;
-    const { user } = buildQuestionPrompt(question);
-    const res = await client.complete({
-      ...buildQuestionPrompt(question),
-      signal: AbortSignal.timeout(30_000),
-      schema: { type: "object", properties: { answer: { type: "string" } }, required: ["answer"], additionalProperties: false },
-      maxTokens: 1500,
-    }).catch((e) => ({ text: "", stopReason: `error ${e.message}` }));
-    let rawAnswer = "";
-    try { rawAnswer = JSON.parse(res.text).answer; } catch { /* kept empty */ }
-    const checked = checkAnswer(rawAnswer, question);
-    const final = await answerQuestion(client, question);
-    console.log(`Q: ${question}\n  model said: ${rawAnswer === "" ? `(nothing usable: ${res.stopReason})` : rawAnswer}\n  filter: ${checked === null ? "REJECTED" : "passed"}\n  Chair says (a second, separate model call): [${final.source}] ${final.answer}\n  prompt block: ${user.slice(0, 90)}\n`);
+    const t0 = Date.now();
+    const got = await answerQuestion(client, question, recent.slice(0, RECENT_LINES));
+    recent.unshift(got.answer);
+    console.log(`Q: ${question}\n  #${BOOK.indexOf(got.answer)} [${got.source}, ${Date.now() - t0} ms] ${got.answer}\n`);
   }
 }
 

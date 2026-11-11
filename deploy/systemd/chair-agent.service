@@ -1,0 +1,17 @@
+[Unit]
+Description=$CHAIR chair agent: one set_policy per 90 s epoch on testnet (local model, rule-chair fallback)
+# The local model server (127.0.0.1:18020) may come up minutes after boot: the agent falls back to its rule chair
+# meanwhile, and this unit never gives up restarting.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=%h/Desktop/Projects/Survival/chair/chair-agent/scripts/run-chair.sh
+# Path of the chair's function-call key file; the key itself is never in this file.
+Environment=CHAIR_KEY_FILE=%h/.claude/secrets/survival-testnet/chair2/challenger.chair-coin-2.testnet.key
+Environment=PATH=%h/.local/share/mise/installs/node/26/bin:%h/.local/share/mise/installs/gh/latest/gh_2.103.3_linux_amd64/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target

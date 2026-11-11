@@ -218,6 +218,23 @@ test("a 503 that says the press room is full is not a closed desk: the form stay
   assert.ok(text(root).includes(OFFLINE), "a closed desk still closes the form");
 });
 
+test("a desk that does not answer in time, or whose tunnel answers 5xx, is not said to have entered nothing: it may still answer, and the record below then shows it", async () => {
+  const late = /The desk did not answer in time\. If it does, the answer will appear in the record below\./;
+  const cases = [
+    ["a timeout", async () => { throw new DOMException("The operation timed out.", "TimeoutError"); }, late],
+    ["a tunnel's 502", reply(502, { error: "bad gateway" }), late],
+    ["a tunnel's 524", reply(524, null), late],
+    ["a reply that cannot be read", reply(200, { id: "x", answer: 5 }), /If the question was answered, the answer will appear in the record below/],
+    ["a refusal is still a refusal", reply(400, { error: "the question must be 1 to 140 characters" }), /not accepted/],
+  ];
+  for (const [why, next, expected] of cases) {
+    const { root, press } = await make({ discoveryUrl: DISCOVERY, fetchImpl: routed((u, init) => (init?.method === "POST" ? next() : OPEN())) });
+    await press.ask("fine");
+    assert.match(text(root), expected, why);
+    assert.equal(text(root).includes("Nothing was entered"), false, why);
+  }
+});
+
 test("text from the desk and from the visitor is never put in as HTML: answers, hashes and questions reach the page as inert text", async () => {
   const entry = { id: "e1", question_hash: EVIL, answer: EVIL, asked_at_ms: 1_700_000_000_000, epoch: 9, tx_hash: TX };
   const bad = [{ ...entry, id: "e2", tx_hash: EVIL }, { ...entry, id: "e3", answer: 5 }, { ...entry, id: EVIL }, "x", null, { ...entry, id: "e4", asked_at_ms: "now" }];

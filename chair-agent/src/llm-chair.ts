@@ -15,6 +15,8 @@ export interface LlmRequest {
   readonly schema?: Readonly<Record<string, unknown>>;
   /** Cap on the answer's tokens, thinking included; 4000 when absent. */
   readonly maxTokens?: number;
+  /** Sampling temperature; the endpoint's own when absent. */
+  readonly temperature?: number;
 }
 
 export interface LlmResponse {
@@ -180,6 +182,7 @@ export class AnthropicLlmClient implements LlmClient {
       {
         model: this.model,
         max_tokens: req.maxTokens ?? 4000,
+        ...(req.temperature === undefined ? {} : { temperature: req.temperature }),
         system: req.system,
         messages: [{ role: "user", content: req.user }],
         output_config: { effort: "low", format: { type: "json_schema", schema: { ...(req.schema ?? ANSWER_SCHEMA) } } },

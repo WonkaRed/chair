@@ -5,7 +5,7 @@ import { cleanReasoning, reasoningHash } from "./reasoning.js";
 /** Longest question, in UTF-16 code units (what a browser's `maxlength` counts), after `cleanQuestion`. */
 export const MAX_QUESTION_CHARS = 140;
 
-/** Where an answer came from: the model, or one of the fixed in-character lines. */
+/** How the line was chosen: by the model's pick, or (a failed call, a pick that was unusable or used lately) from the question's hash. Either way it is a line of the book. */
 export type AnswerSource = "model" | "canned";
 
 export interface PressEntry {

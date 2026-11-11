@@ -1,0 +1,12 @@
+[Unit]
+Description=$CHAIR demo watch: gas balances last to the end of judging, units active, press tunnel answering (alerts through pixelbot-notify)
+
+[Service]
+Type=oneshot
+# A non-zero exit means a problem was found (and pixelbot-notify was run); it shows under `systemctl --user --failed`.
+ExecStart=%h/Desktop/Projects/Survival/chair/deploy/scripts/balance-watch.mjs
+# pixelbot-notify names the report after the working directory.
+WorkingDirectory=%h/Desktop/Projects/Survival
+Environment=PATH=%h/.local/share/mise/installs/node/26/bin:%h/.local/share/mise/installs/gh/latest/gh_2.103.3_linux_amd64/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# About 100 RPC calls with back-off, plus an ssh in pixelbot-notify per problem.
+TimeoutStartSec=15min

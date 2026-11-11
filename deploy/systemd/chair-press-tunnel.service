@@ -1,0 +1,18 @@
+[Unit]
+Description=$CHAIR press tunnel: Cloudflare quick tunnel, address published to a gist for the page
+# The script exits when the press server is not up yet or the tunnel stops answering; each restart gets a new address.
+After=chair-press.service
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=%h/Desktop/Projects/Survival/chair/chair-agent/scripts/run-press-tunnel.sh
+# The gist that carries the tunnel address (public); `gh` uses its own stored login.
+Environment=PRESS_GIST_ID=03480ab34ee914911577adfd2a8b6a63
+# gh comes from the mise install, ahead of ~/.local/bin: the wrapper ~/.local/bin/gh runs `mise use -g` first and hung here.
+Environment=PATH=%h/.local/share/mise/installs/node/26/bin:%h/.local/share/mise/installs/gh/latest/gh_2.103.3_linux_amd64/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

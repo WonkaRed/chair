@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { isIP } from "node:net";
 import type { Answered } from "./press-answer.js";
-import { cleanQuestion, toPublic, type PressStore } from "./press-store.js";
+import { cleanQuestion, toPublic, type PressEntry, type PressStore } from "./press-store.js";
 import { reasoningHash } from "./reasoning.js";
 
 /** The only host the server binds to: only a tunnel on this machine may face the internet. */
@@ -107,7 +107,7 @@ export function clientKey(req: IncomingMessage): string {
 
 export interface PressServerOptions {
   readonly store: PressStore;
-  /** The Chair's answer to a cleaned question; it never throws a reason to the caller. */
+  /** The Chair's answer to a cleaned question, a line of the book; it never throws a reason to the caller. */
   readonly answer: (question: string) => Promise<Answered>;
   /** Whether the Chair is taking questions (the model is up). */
   readonly available: () => boolean;
@@ -172,15 +172,21 @@ export function createPressServer(opts: PressServerOptions): Server {
     perIp.hit(key, t);
     global.hit("all", t);
 
-    const entry = await queue.run(async () => {
-      const answered = await opts.answer(question);
-      return { id: randomUUID(), question, questionHash: reasoningHash(question), answer: answered.answer, source: answered.source, askedAtMs: t };
-    });
+    const gone = (): boolean => res.destroyed || res.socket === null || res.socket.destroyed;
+    let entry: PressEntry | null;
     try {
-      opts.store.add(entry);
+      // Stored inside the turn, so the next question's answer already sees this one among the Chair's latest.
+      entry = await queue.run(async () => {
+        if (gone()) return null;
+        const answered = await opts.answer(question);
+        const e: PressEntry = { id: randomUUID(), question, questionHash: reasoningHash(question), answer: answered.answer, source: answered.source, askedAtMs: t, epoch: null, txHash: null };
+        opts.store.add(e);
+        return e;
+      });
     } catch {
       return reply(res, 503, { error: "the record cannot be written; the Chair is not taking questions", code: "desk_closed" }, cors);
     }
+    if (entry === null) return;
     opts.log?.(`answered ${entry.id} ${entry.questionHash.slice(0, 12)} ${entry.source}`);
     reply(res, 200, { id: entry.id, answer: entry.answer, question_hash: entry.questionHash, asked_at_ms: entry.askedAtMs, status: "answered" }, cors);
   }

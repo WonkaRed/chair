@@ -1,0 +1,12 @@
+[Unit]
+Description=Run chair-balance-watch every 6 hours
+
+[Timer]
+OnCalendar=*-*-* 00/6:00:00
+# A run missed while the machine was off happens at the next boot.
+Persistent=true
+AccuracySec=1min
+Unit=chair-balance-watch.service
+
+[Install]
+WantedBy=timers.target
