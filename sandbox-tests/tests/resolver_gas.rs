@@ -5,8 +5,11 @@
 
 use near_workspaces::Account;
 use near_workspaces::result::ExecutionFinalResult;
-use sandbox_tests::{Chair, NOMINATE_BOND, TOKEN, ensure_success, events, failure_text, launch};
+use sandbox_tests::{
+    Chair, JUMP_BLOCKS, NOMINATE_BOND, TOKEN, ensure_success, events, failure_text, launch,
+};
 use serde_json::json;
+use std::time::Duration;
 
 /// The resolver's static budget in the contract (`GAS_FOR_RESOLVE_TRANSFER`), in Tgas.
 const RESOLVER_BUDGET_TGAS: u64 = 30;
@@ -168,18 +171,26 @@ async fn block_ms(t: &Chair) -> anyhow::Result<u64> {
     Ok(t.worker.view_block().await?.timestamp() / 1_000_000)
 }
 
-/// Fast-forward until the next boundary is `LEAD_MS` away, within about a block.
+/// Fast-forward until the next boundary is `LEAD_MS` away, within about a block. Jumps while the gap is more
+/// than one jump can close, then waits: chain time follows the wall clock between jumps.
 async fn approach_boundary(t: &Chair) -> anyhow::Result<()> {
-    for _ in 0..200 {
-        let ends = t.policy().await?.epoch_ends_ms;
-        let gap = (ends as i64) - (block_ms(t).await? as i64) - LEAD_MS as i64;
-        if gap.abs() < 400 {
-            return Ok(());
+    tokio::time::timeout(Duration::from_secs(120), async {
+        loop {
+            let ends = t.policy().await?.epoch_ends_ms;
+            let gap = (ends as i64) - (block_ms(t).await? as i64) - LEAD_MS as i64;
+            if gap.abs() < 400 {
+                return anyhow::Ok(());
+            }
+            anyhow::ensure!(gap > 0, "overshot the boundary by {} ms", -gap);
+            if gap > (JUMP_BLOCKS * 400) as i64 {
+                t.jump().await?;
+            } else {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
         }
-        anyhow::ensure!(gap > 0, "overshot the boundary by {} ms", -gap);
-        t.worker.fast_forward(((gap as u64) / 400).max(1)).await?;
-    }
-    anyhow::bail!("never got within a block of the boundary")
+    })
+    .await
+    .map_err(|_| anyhow::anyhow!("never got within a block of the boundary"))?
 }
 
 #[tokio::test]

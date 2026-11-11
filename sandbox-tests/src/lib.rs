@@ -32,9 +32,24 @@ pub const NOMINATE_BOND: u128 = 1_000_000_000_000_000_000_000_000;
 /// The sandbox node's `consensus.max_block_wait_delay` (the cap on its skip-approval timer), as seconds and
 /// nanoseconds. nearcore 2.14's `sandbox_fast_forward` can lose a jump when it crosses one of the node's own
 /// epoch boundaries and applying that block takes longer than the node's 10 ms tick; the node then walks every
-/// height of the lost jump with skip approvals, at up to 6 s each (about 111 s for a 56-block jump). At 240 ms a
-/// lost jump costs about 13 s. A cap above the node's `min_block_production_delay` is all its validation asks.
+/// height of the lost jump with skip approvals, at up to 6 s each. At 240 ms a lost jump costs at most
+/// `JUMP_BLOCKS` x 240 ms, about 12 s. A cap above the node's `min_block_production_delay` is all its
+/// validation asks.
 const SKIP_DELAY_CAP: (u64, u64) = (0, 240_000_000);
+
+/// The node's own epoch length in blocks (its genesis `epoch_length`, unrelated to the token's `epoch_ms`).
+/// nearcore never fast-forwards across its own epoch boundary and clips a jump near one down to a single
+/// block, and it fires the first jump after a boundary on the tick right after the boundary block, which is
+/// where most lost jumps happen. A one-million-block epoch puts no boundary in any test's reach (the longest
+/// run reached about 10,200 heights).
+const NODE_EPOCH_LENGTH: u64 = 1_000_000;
+
+/// Blocks per fast-forward jump: about 15 s of chain time at 310 ms a block. nearcore 2.14's sandbox halts
+/// for good when a jump lands at or below a height its skip timer has already approved, so a halt needs the
+/// timer to run more than this many heights ahead of the head, which takes a pause of the node process of
+/// about 12 s; the worst pause seen under deliberate disk and CPU contention was 3.3 s. A lost jump (see
+/// `SKIP_DELAY_CAP`) costs at most about 12 s.
+pub const JUMP_BLOCKS: u64 = 50;
 
 /// Longest `advance_to_epoch` may wait in wall-clock time before it gives up with an error.
 const ADVANCE_TIMEOUT: Duration = Duration::from_secs(180);
@@ -118,7 +133,7 @@ fn quiet_node_logs() {
     unsafe { std::env::set_var("NEAR_SANDBOX_LOG", "near=error,stats=error,network=error") };
 }
 
-/// Start a sandbox node with the capped skip delay and connect `near-workspaces` to it. The `registrar`
+/// Start a sandbox node with the capped skip delay, long node epochs and connect `near-workspaces` to it. The `registrar`
 /// account is the one `near-workspaces` creates in its own nodes, for its subaccount creation.
 async fn start_node() -> Result<(near_sandbox::Sandbox, Worker<Sandbox>)> {
     let node = near_sandbox::Sandbox::start_sandbox_with_config_and_version(
@@ -126,6 +141,7 @@ async fn start_node() -> Result<(near_sandbox::Sandbox, Worker<Sandbox>)> {
             additional_accounts: vec![near_sandbox::GenesisAccount::default_with_name(
                 "registrar".parse()?,
             )],
+            additional_genesis: Some(json!({ "epoch_length": NODE_EPOCH_LENGTH })),
             additional_config: Some(json!({ "consensus": { "max_block_wait_delay":
                 { "secs": SKIP_DELAY_CAP.0, "nanos": SKIP_DELAY_CAP.1 } } })),
             ..Default::default()
@@ -316,11 +332,42 @@ impl Chair {
         Ok(self.token.view("get_policy").await?.json()?)
     }
 
-    /// Fast-forward the sandbox clock until the token is in epoch `target`, landing within a
-    /// block or two of its start. Each fast-forwarded block advances the clock by about 300 ms (297 measured on
-    /// nearcore 2.14.0), so dividing the gap by 400 undershoots and a jump never passes the boundary; the loop
-    /// closes the rest. A node that loses a fast-forward jump (see `SKIP_DELAY_CAP`) waits it out, so the whole
-    /// wait is bounded by `ADVANCE_TIMEOUT`.
+    /// Fast-forward `JUMP_BLOCKS` blocks, once the node is producing steadily: a head whose last final block is
+    /// two heights below it was built on an endorsement, which nearcore makes only when no skip approval runs ahead.
+    pub async fn jump(&self) -> Result<()> {
+        let seen = self
+            .worker
+            .view_block()
+            .await
+            .map_err(|e| self.node_error(e))?
+            .height();
+        loop {
+            let head = self
+                .worker
+                .view_block()
+                .await
+                .map_err(|e| self.node_error(e))?;
+            let last_final = self
+                .worker
+                .view_block()
+                .block_hash(*head.header().last_final_block())
+                .await
+                .map_err(|e| self.node_error(e))?;
+            if head.height() > seen && last_final.height() + 2 == head.height() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        self.worker
+            .fast_forward(JUMP_BLOCKS)
+            .await
+            .map_err(|e| self.node_error(e))
+    }
+
+    /// Fast-forward the sandbox clock, `JUMP_BLOCKS` blocks at a time, until the token is in epoch `target`.
+    /// It lands within the first ~16 s of epoch `target` (one jump is about 15 s of chain time), so a test
+    /// that must stay in that epoch needs an `epoch_ms` well above that. A node that stops producing blocks
+    /// (see `JUMP_BLOCKS`) is reported when `ADVANCE_TIMEOUT` runs out.
     pub async fn advance_to_epoch(&self, target: u64) -> Result<Policy> {
         tokio::time::timeout(ADVANCE_TIMEOUT, async {
             loop {
@@ -328,21 +375,13 @@ impl Chair {
                 if policy.epoch >= target {
                     return Ok(policy);
                 }
-                let block = self.worker.view_block().await.map_err(|e| self.node_error(e))?;
-                let now_ms = block.timestamp() / 1_000_000;
-                let start_of_target_ms =
-                    policy.epoch_ends_ms + (target - policy.epoch - 1) * self.epoch_ms;
-                let blocks = (start_of_target_ms.saturating_sub(now_ms) / 400).max(1);
-                self.worker
-                    .fast_forward(blocks)
-                    .await
-                    .map_err(|e| self.node_error(e))?;
+                self.jump().await?;
             }
         })
         .await
         .map_err(|_| {
             anyhow!(
-                "the sandbox did not reach epoch {target} within {} s: the node lost a fast-forward jump and is waiting out skip approvals",
+                "the sandbox did not reach epoch {target} within {} s: its node stopped producing blocks after a fast-forward (a nearcore 2.14 sandbox bug; see JUMP_BLOCKS)",
                 ADVANCE_TIMEOUT.as_secs()
             )
         })?
