@@ -19,7 +19,7 @@ Needs Node 22.22.2 or newer and npm. Dependencies are pinned exactly in `package
 `@types/node` 26.6.6.
 
 ```sh
-make test   # typecheck, then 116 tests with node --test; no network except loopback fakes, no key; temp files go under out/test-tmp (override with CHAIR_TEST_TMP)
+make test   # typecheck, then 117 tests with node --test; no network except loopback fakes, no key; temp files go under out/test-tmp (override with CHAIR_TEST_TMP)
 make demo   # 16 epochs against an in-memory model of the token; prints a table, writes out/demo-decisions.jsonl
 ```
 
@@ -58,6 +58,20 @@ in the environment; without it the agent says so and uses the rule chair. The ke
 that variable, never from a file, and never printed. With `--llm-endpoint` and `--llm-model` (or `CHAIR_LLM_ENDPOINT`
 and `CHAIR_LLM_MODEL`) the model is one served on this machine instead, and no Anthropic key is needed (see "A local model" below).
 
+## Keeping a chair running
+
+`run` without `--once` already loops: it decides once per epoch and, when the local model is busy, down, slow or wrong, the rule chair decides instead (the reasoning text says so). `scripts/run-chair.sh` adds what an unattended run needs around it: one dated console log (`chair-YYYY-MM-DD.log`) and the decision log outside the repo, in `$CHAIR_STATE_DIR` (default `~/.local/state/chair-agent`); a restart after a minute if the agent exits (it exits only when it cannot start, for example when the RPC is unreachable); one runner at a time (a lock file); and a clean stop on SIGTERM or SIGINT. It reads the key path from `CHAIR_KEY_FILE` (required) and takes `CHAIR_RPC_URL`, `CHAIR_TOKEN`, `CHAIR_ACCOUNT`, `CHAIR_LLM_ENDPOINT` and `CHAIR_LLM_MODEL` from the environment, defaulting to the live testnet deployment and the local `qwen3.8-27b` server.
+
+```sh
+cd chair-agent && npm ci && npm run build                # once
+export CHAIR_KEY_FILE=/path/to/challenger.chair-coin-2.testnet.key
+systemd-run --user --unit=chair-agent --collect --setenv=CHAIR_KEY_FILE --setenv=PATH "$PWD/scripts/run-chair.sh"
+tail -f ~/.local/state/chair-agent/chair-"$(date +%F)".log   # what it decided
+systemctl --user stop chair-agent                        # stop it (SIGTERM; it finishes the epoch it is in)
+```
+
+`systemd-run` makes a transient unit: nothing is installed and it is gone at reboot. To run it in a terminal instead, run `scripts/run-chair.sh` itself with the same variables set, and stop it with Ctrl-C. Each decision costs about 0.0002 NEAR of gas on testnet (measured), so at 90 s epochs the chair account spends about 0.2 NEAR a day: fund it before a long run.
+
 ## The rule chair (`rule-v1`)
 
 It wants half of the supply staked: it asks for `(5000 - staked share in bps) / 40` bps, so thin staking
@@ -69,7 +83,7 @@ final block; supply history comes from its own decision log.
 
 ## The LLM chair
 
-`LlmChair` sends the model only numbers (rate, bounds, supply, staked share, drift), asks for a JSON object
+`LlmChair` sends the model only numbers (rate, bounds, supply, staked share, drift, epochs in office, epochs since the last decision), asks for a JSON object
 `{rate_bps, reasoning}` through structured output, and uses model `claude-sonnet-5-5` via the official SDK (the chair name `llm:claude-sonnet-5-5` is reported by that client only; any other client is `llm:unlabelled-client` unless it names itself). The
 agent then clamps the rate into the bounds of the window read after the model answered (see below). Any error, timeout (`--llm-timeout-ms`, default 30000), refusal,
 truncated answer, wrong or duplicate keys, non-integer or out-of-range type falls back to the rule chair, and the reasoning
@@ -116,7 +130,7 @@ node dist/src/main.js verify-log decisions.jsonl <hash>     # prints the text th
 
 `src/bounds.ts` (the branded `Rate` type: a rate outside the window cannot be constructed), `rule-chair.ts`,
 `llm-chair.ts`, `decide.ts` (propose, then clamp against the fresh window, hash), `chain.ts` and `rpc.ts` (validated reads), `signer.ts`
-(scoped-key transaction), `log.ts`, `text.ts` (the one sanitizer), `agent.ts` (one epoch, retries), `cli.ts`, plus `fake-chain.ts` and `demo.ts`. Tests are in `test/`.
+(scoped-key transaction), `log.ts`, `text.ts` (the one sanitizer), `agent.ts` (one epoch, retries), `cli.ts`, plus `fake-chain.ts` and `demo.ts`. Tests are in `test/`; `scripts/run-chair.sh` is the unattended runner.
 
 ## What is and is not verified
 
@@ -124,7 +138,7 @@ Verified by `make test`: bounds are never exceeded over randomized inputs; every
 logged text; the signed transaction is a single zero-deposit `set_policy` function call (decoded and checked);
 full-access and wrongly scoped keys are refused; the real RPC, signing and SDK code paths run end to end against
 loopback fake servers. Verified live on NEAR testnet (`docs/testnet-run-agent-rule.txt`): the signer, RPC client and chain reader decided and sent `set_policy` as `challenger.chair-coin-2.testnet`, three epochs in a row
-with the rule chair, and `verify-log` recomputes every hash. The LLM chair ran live on testnet, with a local model, not Claude: `docs/testnet-run-agent-llm.txt` (6 decisions, epochs 18-23, all by `local:qwen3.8-27b`, 0 fall-backs; two transactions re-read by RPC and the on-chain hash equals the SHA-256 of the saved text), and again for epochs 38-43 while the demo video was recorded (that run's text is not saved in `docs/`). NOT verified: the Anthropic path has never answered from the real Anthropic API (the one attempt was refused for lack of credit), and the local model's reasoning was not audited for factual accuracy (it misreads `streak_epochs`, the chair's time in office, as how long the current rate has held in its epoch-23 text; the prompt now defines the field, and the model has not been re-run with that wording).
+with the rule chair, and `verify-log` recomputes every hash. The LLM chair ran live on testnet, with a local model, not Claude, in four runs with saved text: 17 decisions, every one by `local:qwen3.8-27b`, 0 fall-backs. `docs/testnet-run-agent-llm.txt` (epochs 18-23; two transactions re-read by RPC and the on-chain hash equals the SHA-256 of the saved text), `docs/testnet-run-agent-llm-2.txt` (epochs 38-43, run while the demo video was recorded), `docs/testnet-run-agent-llm-3.txt` (epochs 217-218) and `docs/testnet-run-agent-llm-4.txt` (epochs 222-224); for the last two every transaction was re-read from chain as a `set_policy` on the token signed by the chair account, and its on-chain hash equals the SHA-256 of the saved text. Epoch 219 (the model) and epoch 220 (the rule fallback), from a runner test, are on chain too but have no saved text and are not counted. NOT verified: the Anthropic path has never answered from the real Anthropic API (the one attempt was refused for lack of credit), and the local model's reasoning was not audited for factual accuracy. It misread the prompt field for the chair's time in office (then called `streak_epochs`) as how long the current rate had held, in its epoch-23 text, and again in epoch 218 (log 3, "stable at 0 bps for 207 epochs") after a sentence defining the field was added to the system prompt. The prompt now names that field `epochs_this_chair_has_held_the_seat`, carries no definition and adds `epochs_since_last_decision`; the three decisions made with that prompt (log 4) never use either, so whether the change cures the misreading is not shown. One of them (epoch 224) says supply grew "9 bps over 6 epochs" when its history held only epochs 222 to 224: `supply_change_bps_last_6_epochs` is measured from the oldest saved supply inside the last 6 epochs, so on a fresh log it spans fewer.
 
 `reasoning_hash` is a rule of the contract, not a choice of this agent: `set_policy` panics unless it is exactly 64
 lowercase hex characters (`reasoning_hash must be a SHA-256 digest: 64 lowercase hex characters`), and `fake-chain.ts`

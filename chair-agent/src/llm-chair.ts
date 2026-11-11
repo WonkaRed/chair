@@ -40,8 +40,7 @@ const SYSTEM = [
   "You are the chair of $CHAIR, a toy monetary-policy experiment on a test network.",
   "Once per epoch you set one integer rate in basis points. A positive rate mints new supply to stakers at the end of the epoch;",
   "a negative rate burns that share of every transfer during the epoch. You are not predicting prices and you give no financial advice.",
-  "You will get a JSON object of numbers. streak_epochs is the number of complete epochs you have held the chair seat,",
-  "not how long the current rate has been in place. Pick a rate inside rate_window_bps and explain the choice in two to five plain sentences",
+  "You will get a JSON object of numbers. Pick a rate inside rate_window_bps and explain the choice in two to five plain sentences",
   "that someone can check against those numbers. Answer with JSON only: {\"rate_bps\": <integer>, \"reasoning\": <string>}.",
 ].join(" ");
 
@@ -49,11 +48,15 @@ const SYSTEM = [
 export function buildPrompt(input: DecisionInput): { system: string; user: string } {
   const { snapshot, history } = input;
   const staking = snapshot.staking;
+  const lastSet = snapshot.policy.lastSetEpoch;
   const user = JSON.stringify({
     epoch: snapshot.policy.epoch,
     rate_in_effect_bps: snapshot.policy.rateBps,
     rate_window_bps: [input.window.lo, input.window.hi],
-    streak_epochs: snapshot.policy.streak,
+    epochs_this_chair_has_held_the_seat: snapshot.policy.streak,
+    // Epochs the chair stayed silent since it last set a rate (0: it set one last epoch); null: the rate was never set.
+    // The agent stops before the model when this epoch is already set, so the count is never negative.
+    epochs_since_last_decision: lastSet === null ? null : snapshot.policy.epoch - lastSet - 1,
     total_supply: snapshot.totalSupply.toString(),
     staked_share_bps:
       staking === null || snapshot.totalSupply === 0n ? null : stakedShareBps(staking.totalStaked, snapshot.totalSupply),

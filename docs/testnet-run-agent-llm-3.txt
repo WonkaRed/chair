@@ -1,0 +1,21 @@
+LLM chair run (third), 2026-11-11, NEAR testnet: model local:qwen3.8-27b (the id the local endpoint reports), served by vLLM on this machine's own GPUs, no cloud API and no Claude model involved; 2 decisions (epochs 217-218), both the model's own answers, 0 fall-backs to the rule chair; run after the system prompt was changed to define streak_epochs as the number of complete epochs the chair has held the seat; reasoning text below is the model's, the hash and tx are real. Each transaction was re-read from chain: set_policy on token.chair-coin-2.testnet signed by challenger.chair-coin-2.testnet, and its reasoning_hash equals the SHA-256 of the saved text.
+chair-agent on testnet: token token.chair-coin-2.testnet, chair challenger.chair-coin-2.testnet, chair kind local:qwen3.8-27b
+epoch 217 | chair local:qwen3.8-27b (llm) | rate 0 -> 0 bps
+reasoning_hash: accd52c11de4147419f48190066e902a7de07d36598e9fe38a3643e673265034
+--- reasoning (the text behind the hash; each line prefixed, the prefix is not hashed) ---
+  | $CHAIR decision, epoch 217, chair local:qwen3.8-27b.
+  | Rate in effect 0 bps; decision 0 bps.
+  | No recent supply change data is available, so I'm maintaining the current neutral rate of 0 basis points to keep the experiment stable.
+--- transaction ---
+challenger.chair-coin-2.testnet -> token.chair-coin-2.testnet.set_policy({"rate_bps":0,"reasoning_hash":"accd52c11de4147419f48190066e902a7de07d36598e9fe38a3643e673265034"})
+executed, tx AYNu3g9jPzkVXU1UdBfA7i9KvJ3PtHnz8emEWUyoQt5i
+epoch 218 | chair local:qwen3.8-27b (llm) | rate 0 -> 10 bps
+reasoning_hash: 9af96579b7b0bd690759cdbafcff1a937f3765e573b139601c08436e3a2a40d7
+--- reasoning (the text behind the hash; each line prefixed, the prefix is not hashed) ---
+  | $CHAIR decision, epoch 218, chair local:qwen3.8-27b.
+  | Rate in effect 0 bps; decision 10 bps.
+  | The system has been stable at 0 bps for 207 epochs with 3509 bps staked. A small 10 bps mint rewards stakers and adds modest liquidity without risking inflation, staying well within the -50 to 50 bps window.
+--- transaction ---
+challenger.chair-coin-2.testnet -> token.chair-coin-2.testnet.set_policy({"rate_bps":10,"reasoning_hash":"9af96579b7b0bd690759cdbafcff1a937f3765e573b139601c08436e3a2a40d7"})
+executed, tx CyKhE27oVsY7SRTWdacABmuEZMB2nRmfZTqJdSTnLcT
+--- stopped by the operator after epoch 218 (2 decisions)

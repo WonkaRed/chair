@@ -13,7 +13,7 @@ Token: [`token.chair-coin-2.testnet`](https://testnet.nearblocks.io/address/toke
 - The impeachment: stakers backing 400,000 of 400,000 staked tokens seat `challenger.chair-coin-2.testnet`; the contract applies the vote in the first call after the boundary, [`CvqCjCU3...`](https://testnet.nearblocks.io/txns/CvqCjCU3ngrttKnZotBwPzczw6aVHTpkwPEZnYwwZqoD) (its `impeached` event)
 - The chair's key can call `set_policy` and nothing else: the protocol refuses any other method signed with it (`MethodNameMismatch`, no transaction exists to link; the run log shows it).
 
-Two agents from `chair-agent/` have held the seat as the seated challenger. The rule-based chair ran three epochs. Then an AI model chaired six epochs (18 to 23): `qwen3.8-27b`, running on the submitter's own GPUs through a local server, with no cloud API and no Claude model involved. Each epoch it read the on-chain numbers, chose a rate (10, 10, 10, 20, 20, 20 bps) and wrote its reasoning. The SHA-256 of that text is in each transaction, for example [`BnKWCcp3...`](https://testnet.nearblocks.io/txns/BnKWCcp3wG1do9PSw4AVEMvLrfvaL66xVNK2TPMDruzj) (epoch 22), and equals the hash of the text saved in [`docs/testnet-run-agent-llm-decisions.jsonl`](docs/testnet-run-agent-llm-decisions.jsonl) for all six. None fell back to the rule. The contract held the model to the same bounds as anyone else; its reasoning is recorded, not vouched for. The same model chaired six more epochs (38 to 43, rates 0, 0, 0, 0, -10, -10 bps) while the demo video was recorded, for example [`AUmvPMwR...`](https://testnet.nearblocks.io/txns/AUmvPMwRt9HnXDZmcKHzbF2hZejL4j4RyznqPkXNTLte) (epoch 43). No agent is running now, so the contract decays the rate toward zero.
+An AI model has chaired this token live. `qwen3.8-27b`, a locally run model on the submitter's own GPUs (no cloud API, no Claude model), held the seat as `challenger.chair-coin-2.testnet` for 17 recorded decisions in four runs (epochs 18 to 23, 38 to 43, 217 to 218 and 222 to 224). Each epoch it read the on-chain numbers, chose a rate and wrote its reasoning. The SHA-256 of that text is in each transaction, for example [`BnKWCcp3...`](https://testnet.nearblocks.io/txns/BnKWCcp3wG1do9PSw4AVEMvLrfvaL66xVNK2TPMDruzj) (epoch 22) and [`AUmvPMwR...`](https://testnet.nearblocks.io/txns/AUmvPMwRt9HnXDZmcKHzbF2hZejL4j4RyznqPkXNTLte) (epoch 43), and equals the hash of the saved text for all 17. The contract held the model to the same bounds as anyone else. Its reasoning is recorded, not vouched for, and it sometimes misreads its inputs: [`docs/ai-chair-runs.md`](docs/ai-chair-runs.md) has every run, its log and what the model got wrong. The rule-based chair from `chair-agent/` ran three epochs before it. No agent is running now (2026-11-11), so the contract decays the rate toward zero.
 
 The page reads the live token (`make -C web serve`, then open http://127.0.0.1:8080/; needs Node 22.22.2 or newer and npm). It lists every mint and burn and checks the sums against the contract's own `get_supply`.
 
@@ -23,7 +23,7 @@ Re-check the deployment read-only. It needs no key and no Rust build, only `git`
 git clone https://github.com/WonkaRed/chair.git && cd chair && make -C deploy verify
 ```
 
-It ends with (the `now:` line is the live state and moves):
+It prints 11 checks (plus a `now:` line) and ends with the lines below. The supply figures and the `now:` line are the live state at the time of one run and move. With `WASM=<file>` it adds a 12th check that the code on chain equals your local wasm ([`deploy/README.md`](deploy/README.md)); the recorded run in [`docs/testnet-run-verify.txt`](docs/testnet-run-verify.txt) used it and shows 12.
 
 ```
 PASS  hard bounds: rate within +-200 bps, step at most 50 bps, backing over 5% of the supply to seat a chair
@@ -33,13 +33,13 @@ PASS  launch parameters are the recorded ones
 PASS  launch supply is the recorded one
       1000000000000000000000000000000
 PASS  total supply = launch + minted - burned
-      1122690925889010593978413132578 = 1000000000000000000000000000000 + 122700925889010593978413132578 - 10000000000000000000000000
+      1141920726741958846801684456300 = 1000000000000000000000000000000 + 141930726741958846801684456300 - 10000000000000000000000000
 PASS  ft_total_supply equals get_supply.total_supply
-      1122690925889010593978413132578
+      1141920726741958846801684456300
 PASS  recorded accounts' balances and stake never exceed the supply
-      recorded accounts hold 1072513614741684519768000000000, unclaimed rewards 50177311147326074210413132578, supply 1122690925889010593978413132578 (the rest is in accounts not in the record)
+      recorded accounts hold 1072513614741684519768000000000, unclaimed rewards 69407112000274327033684456300, supply 1141920726741958846801684456300 (the rest is in accounts not in the record)
 
-now: epoch 14: rate 35 bps, chair challenger.chair-coin-2.testnet, streak 3; supply 1122690925889010593978413132578 (launch 1000000000000000000000000000000, minted 122700925889010593978413132578, burned 10000000000000000000000000), staked 400000000000000000000000000000
+now: epoch 220: rate 37 bps, chair challenger.chair-coin-2.testnet, streak 209; supply 1141920726741958846801684456300 (launch 1000000000000000000000000000000, minted 141930726741958846801684456300, burned 10000000000000000000000000), staked 400000000000000000000000000000
 
 OK: 11 checks passed
 ```
@@ -52,7 +52,7 @@ $CHAIR is a NEP-141 token on NEAR. Time is cut into epochs of fixed length. Once
 
 - A positive rate **eases**: at the end of the epoch the contract mints `total_supply * rate / 10_000` into a reward pool paid to stakers.
 - A negative rate **tightens**: during that epoch every transfer burns `|rate|` bps of the amount, and nothing is minted.
-- The chair seat is built for an AI agent. The contract does not trust whoever holds it: the rate is bounded, the step is bounded, and a chair that goes silent decays toward zero.
+- The chair seat is built for an AI agent. The contract does not trust whoever holds it: the rate is bounded, the step is bounded, and each epoch the chair misses moves the rate 50 bps toward zero.
 - Stakers can nominate and back a replacement. A candidate whose backing exceeds both the threshold (a share of the staked tokens) and a 5% quorum of the whole supply becomes chair at the next epoch rollover, and the chair's streak resets. Below the quorum nobody can be seated, however little is staked.
 
 Every launch parameter is set once in `new()` and readable by a view method. There is no admin or owner method and no upgrade path.
@@ -75,14 +75,14 @@ Or, with only Docker installed (the build fails unless `make test` passes):
 docker build -t chair . && docker run --rm chair   # runs `make demo`
 ```
 
-The first `make test` compiles the NEAR dependency tree and downloads the sandbox: 5 to 13 minutes (781 s measured cold from a clean copy on a loaded 16-core machine). Later runs skip the compile and the download. The sandbox tests need no network node and no account: each test starts its own local NEAR node, one test file at a time, so that lane is the slow part (`staking` about 15 s, `chair_rules` about 120 s, the others 10 to 57 s on an idle machine). nearcore 2.14's sandbox fast-forward has two upstream bugs: a jump can be lost, and a jump that lands below heights the node has already approved skipping stops block production for good. The harness avoids both: each node gets one-million-block nearcore epochs and a 240 ms skip-approval cap, and the harness only fast-forwards a steadily producing node, 50 blocks at a time (see the doc comments in `sandbox-tests/src/lib.rs`). The contract and sandbox lanes end with:
+The first `make test` compiles the NEAR dependency tree and downloads the sandbox: 5 to 13 minutes (781 s measured cold from a clean copy on a loaded 16-core machine). Later runs skip the compile and the download. The sandbox tests need no network node and no account: each test starts its own local NEAR node, one test file at a time, so that lane is the slow part (the longest file, `chair_rules`, takes about 120 s on an idle machine). Per-file timings and the local-node limits the test harness works around are in [`docs/testing-notes.md`](docs/testing-notes.md). The contract and sandbox lanes end with:
 
 ```
 test result: ok. 61 passed; 0 failed; ...      # contract/ unit tests (policy math, rollover, rewards, launch checks, withdrawal)
 test result: ok. 49 passed; 0 failed; ...      # sandbox-tests/ against the real wasm, in 9 files
 ```
 
-The other lanes run 116 (`chair-agent`), 88 (`sim`) and 13 (`web`) tests, and `deploy` runs 32.
+The other lanes run 117 (`chair-agent`), 88 (`sim`) and 13 (`web`) tests, and `deploy` runs 32.
 
 Root `make demo` runs three demos in order and exits non-zero if any of them fails.
 
@@ -100,7 +100,7 @@ Parameters, all fixed at `new()` and returned by `get_params`:
 
 | Parameter | Value | Meaning |
 | --- | --- | --- |
-| `epoch_ms` | set at launch, 1 second to 1 year | Epoch length. Demos use 30 seconds, production a day |
+| `epoch_ms` | set at launch, 1 second to 1 year | Epoch length. The sandbox demo and tests use 30 seconds; the testnet token uses 90 seconds |
 | `start_ms` | block time at launch | Epoch 0 starts here |
 | `max_rate_bps` | **200**, a constant in the code | The chair's rate must satisfy `-200 <= rate_bps <= 200` |
 | `max_step_bps` | **50**, a constant in the code | `abs(rate_bps - rate_in_effect) <= 50`; a missed epoch moves the rate 50 toward zero |
@@ -111,9 +111,11 @@ Parameters, all fixed at `new()` and returned by `get_params`:
 
 What the contract enforces on every `set_policy`, each with its own panic message (in order): the caller is the chair; the reasoning hash is a SHA-256 digest (64 lowercase hex characters); no decision was made yet this epoch; the rate is within bounds; the step from the rate in effect is at most 50 bps. A rejected call changes nothing and emits no event.
 
-Rollover is integer arithmetic with floor rounding, specified exactly in [`SPEC.md`](SPEC.md) with worked vectors. The whole mechanic is in the contract: epochs, `set_policy` and its bounds, the missed-epoch decay, the epoch mint to stakers, the transfer burn, staking with a two-epoch lock, and nomination, backing and impeachment. Without a chair the rule is still total: the rate decays 50 bps per silent epoch to zero and stays there, where nothing is minted or burned. `get_supply` returns the supply ledger (launch supply, total minted, total burned) and every mint and burn emits an event with its amount and epoch.
+Rollover is integer arithmetic with floor rounding, specified exactly in [`SPEC.md`](SPEC.md) with worked vectors. The whole mechanic is in the contract: epochs, `set_policy` and its bounds, the missed-epoch decay, the epoch mint to stakers, the transfer burn, staking with a two-epoch lock, and nomination, backing and impeachment. If the chair never acts, the rule is still total: the rate moves 50 bps toward zero in each epoch without a decision and stays at zero, where nothing is minted or burned. `get_supply` returns the supply ledger (launch supply, total minted, total burned) and every mint and burn emits an event with its amount and epoch.
 
 ## What the chair can and cannot do
+
+No key can change the launch parameters. The bounds (rate within 200 bps either way, step of at most 50 bps per epoch, 5% quorum) are constants in the code. The epoch length, the impeachment threshold and the nomination bond are set once in `new` and no method writes them afterwards. The token account has no key at all. The only thing the chair's key can move is the rate, once per epoch, inside those fixed bounds.
 
 Can:
 - Choose one rate per epoch within the bounds. That is the entire surface.
@@ -124,7 +126,8 @@ Cannot:
 - Decide twice in one epoch, or decide as anyone but the chair.
 - Change any parameter, mint directly, burn directly, move anyone's tokens, or upgrade the contract. No such method exists.
 - Do anything but `set_policy` through the contract: the contract gives the chair no other method, and the chair is not the owner of anything. The **launch** chair is further confined by account setup: it holds only a function-call access key limited to `set_policy` on the token contract, never a full-access key, so the protocol refuses any other method before the contract runs (`MethodNameMismatch`) and the key cannot attach a deposit. A chair seated later **by vote** is whatever account the stakers chose and may hold any key; it is an ordinary account that can also call the public methods, as anyone can. The sandbox tests perform the launch setup in code (`Chair::scoped_chair`) and prove both halves; the equivalent `near` CLI commands are in [`SPEC.md`](SPEC.md) ("The chair's key"), with flags checked against `near --help` but not run against a live network.
-- Stay in office by silence: a chair that misses epochs sees the rate decay to zero.
+
+Silence does not unseat the chair. Each epoch without a decision moves the rate 50 bps toward zero, and at zero nothing is minted or burned. A silent chair keeps the seat and may decide again in any later epoch. Only a stake vote replaces it: a nominated candidate backed past the threshold and the quorum. This has happened on testnet: after epoch 23 the rate decayed from 20 bps to 0 while `challenger.chair-coin-2.testnet` kept the seat, and it decided again from epoch 38.
 
 ## Technologies used on NEAR
 
@@ -133,7 +136,7 @@ Cannot:
 - `near-sdk` 5.30.1, built with `cargo-near-build` 0.11.5 (the library behind `cargo near build`)
 - Function-call access keys, to confine the chair
 - `near-workspaces` 0.24.0 with `near-sandbox` running nearcore 2.14.0, pinned in `sandbox-tests/src/lib.rs`
-- Rust 1.95.0, pinned in `rust-toolchain.toml`: the minimum supported version of near-sdk 5.30.1 and the version its own CI builds contracts with, verified here to produce wasm the 2.14.0 sandbox accepts (1.98.1 was also verified)
+- Rust 1.95.0, pinned in `rust-toolchain.toml` (why this version: [`docs/testing-notes.md`](docs/testing-notes.md))
 
 ## Sybil and other limits
 
@@ -163,7 +166,7 @@ Under heavy machine load the local sandbox node has occasionally stopped mid-run
 
 All code was written by AI agents (Claude Fable 5.2, Opus 5.5 and Sonnet 5.5, Anthropic), directed by one human.
 
-Two chairs have run on testnet: the rule-based agent (`chair-agent/`, `rule-v1`: no model, no API key) and, for twelve epochs in two runs, the LLM chair driven by `qwen3.8-27b` on the submitter's own hardware (labelled `local:qwen3.8-27b` in every log line). The LLM chair has never been run against the Anthropic API, so no Claude model has chaired a run.
+Two chairs have run on testnet: the rule-based agent (`chair-agent/`, `rule-v1`: no model, no API key) and, in four runs with saved text (17 decisions: epochs 18 to 23 in [log 1](docs/testnet-run-agent-llm.txt), 38 to 43 in [log 2](docs/testnet-run-agent-llm-2.txt), 217 to 218 in [log 3](docs/testnet-run-agent-llm-3.txt), 222 to 224 in [log 4](docs/testnet-run-agent-llm-4.txt)), the LLM chair driven by `qwen3.8-27b` on the submitter's own hardware (labelled `local:qwen3.8-27b` in every log line). Epoch 219 (also the model) and epoch 220 (the rule fallback) are on chain without saved text and are not counted. The LLM chair has never been run against the Anthropic API, so no Claude model has chaired a run.
 
 ## Sister project
 

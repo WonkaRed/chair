@@ -10,13 +10,24 @@ test("the prompt is numbers only: no account ids and no free-form chain text", (
   const { system, user } = buildPrompt({ snapshot: snap, history: [{ epoch: 4, totalSupply: 100n }], window: { lo: -20, hi: 80 } });
   const data = JSON.parse(user) as Record<string, unknown>;
   assert.deepEqual(Object.keys(data).sort(), [
-    "epoch", "rate_in_effect_bps", "rate_window_bps", "recent_supply", "staked_share_bps", "streak_epochs",
-    "supply_change_bps_last_6_epochs", "total_supply",
+    "epoch", "epochs_since_last_decision", "epochs_this_chair_has_held_the_seat", "rate_in_effect_bps", "rate_window_bps",
+    "recent_supply", "staked_share_bps", "supply_change_bps_last_6_epochs", "total_supply",
   ]);
+  assert.ok(!("streak_epochs" in data) && !user.includes("streak"), "the old, misread field name is gone");
   assert.ok(!user.includes("chair.test"));
   assert.deepEqual(data["rate_window_bps"], [-20, 80]);
   assert.match(system, /no financial advice/);
-  assert.match(system, /streak_epochs is the number of complete epochs you have held the chair seat, not how long the current rate has been in place\./);
+  assert.ok(!system.includes("streak"), "the field names carry the meaning; the system prompt defines none");
+});
+
+test("the prompt separates the time in office from the time since the last decision", () => {
+  const at = (lastSet: number | null) => JSON.parse(buildPrompt({
+    snapshot: snapshot({ epoch: 218, lastSet }), history: [], window: { lo: -50, hi: 50 },
+  }).user) as Record<string, unknown>;
+  assert.equal(at(217)["epochs_since_last_decision"], 0, "decided in the previous epoch");
+  assert.equal(at(43)["epochs_since_last_decision"], 174);
+  assert.equal(at(null)["epochs_since_last_decision"], null, "no decision has ever been made");
+  assert.equal(at(43)["epochs_this_chair_has_held_the_seat"], 218, "the seat count is the contract's streak, unchanged by decisions");
 });
 
 test("parseAnswer accepts exactly the schema and cleans the text", () => {

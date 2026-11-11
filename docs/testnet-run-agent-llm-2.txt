@@ -1,0 +1,56 @@
+LLM chair run (second), 2026-11-11, NEAR testnet: model local:qwen3.8-27b (the id the local endpoint reports), served by a local server on the submitter's own GPUs, no cloud API and no Claude model involved; 6 decisions (epochs 38-43), all 6 the model's own answers (kind llm), 0 fall-backs to the rule chair; reasoning text below is the model's, the hash and tx are real. The first run is docs/testnet-run-agent-llm.txt (epochs 18-23).
+chair-agent on testnet: token token.chair-coin-2.testnet, chair challenger.chair-coin-2.testnet, chair kind local:qwen3.8-27b
+epoch 38 | chair local:qwen3.8-27b (llm) | rate 0 -> 0 bps
+reasoning_hash: 0eaa2f09829b24eb403c8db013278c62955794b2e72f4b9a69df2a47fc13731c
+--- reasoning (the text behind the hash; each line prefixed, the prefix is not hashed) ---
+  | $CHAIR decision, epoch 38, chair local:qwen3.8-27b.
+  | Rate in effect 0 bps; decision 0 bps.
+  | The streak is long at 27 epochs with the rate already at 0, and there is no recent supply data to react to. Holding at 0 maintains stability and avoids introducing unnecessary supply changes.
+--- transaction ---
+challenger.chair-coin-2.testnet -> token.chair-coin-2.testnet.set_policy({"rate_bps":0,"reasoning_hash":"0eaa2f09829b24eb403c8db013278c62955794b2e72f4b9a69df2a47fc13731c"})
+executed, tx 2ViuAFCvQ8g3wftMXU3zuqJVb5HVwB1PG6muHaiYkyi2
+epoch 39 | chair local:qwen3.8-27b (llm) | rate 0 -> 0 bps
+reasoning_hash: ac0f33abf0b0d54b3145b29da7b4f63a42d4a801ffe58a9f797ed1a599e73f4d
+--- reasoning (the text behind the hash; each line prefixed, the prefix is not hashed) ---
+  | $CHAIR decision, epoch 39, chair local:qwen3.8-27b.
+  | Rate in effect 0 bps; decision 0 bps.
+  | Supply has been completely stable over the last six epochs with zero change, and the current zero-rate policy has been in effect for 28 epochs. With no inflation or deflation to correct, maintaining the status quo is the most appropriate action. A rate of 0 basis points preserves this equilibrium.
+--- transaction ---
+challenger.chair-coin-2.testnet -> token.chair-coin-2.testnet.set_policy({"rate_bps":0,"reasoning_hash":"ac0f33abf0b0d54b3145b29da7b4f63a42d4a801ffe58a9f797ed1a599e73f4d"})
+executed, tx 6qXBYuheP6b2ghuAPr6SEAvUaFk6SoBSMY8jBavg9gJC
+epoch 40 | chair local:qwen3.8-27b (llm) | rate 0 -> 0 bps
+reasoning_hash: 92ebf1284106a5ef0833a7418d7e37577a7d590967bb2a660812f67713f6bf7d
+--- reasoning (the text behind the hash; each line prefixed, the prefix is not hashed) ---
+  | $CHAIR decision, epoch 40, chair local:qwen3.8-27b.
+  | Rate in effect 0 bps; decision 0 bps.
+  | Supply has been flat for six epochs at 0 bps rate, showing stability. The 29-epoch streak at zero rate has produced no drift, so maintaining 0 bps preserves that equilibrium. No burn or mint pressure is evident from the data.
+--- transaction ---
+challenger.chair-coin-2.testnet -> token.chair-coin-2.testnet.set_policy({"rate_bps":0,"reasoning_hash":"92ebf1284106a5ef0833a7418d7e37577a7d590967bb2a660812f67713f6bf7d"})
+executed, tx BRKDKxosZ7SUskwQGW4UoxghUxZaMVG5Nh6UjZHbThPa
+epoch 41 | chair local:qwen3.8-27b (llm) | rate 0 -> 0 bps
+reasoning_hash: bff2ce482b60286447847fd88959795429c6e7359d882af3f380b0c1f134f43e
+--- reasoning (the text behind the hash; each line prefixed, the prefix is not hashed) ---
+  | $CHAIR decision, epoch 41, chair local:qwen3.8-27b.
+  | Rate in effect 0 bps; decision 0 bps.
+  | Supply has been unchanged for the last six epochs and the current rate is already zero, so there is no pressure to mint or burn. Keeping the rate at 0 maintains the steady state.
+--- transaction ---
+challenger.chair-coin-2.testnet -> token.chair-coin-2.testnet.set_policy({"rate_bps":0,"reasoning_hash":"bff2ce482b60286447847fd88959795429c6e7359d882af3f380b0c1f134f43e"})
+executed, tx 9CjHpbMxSnQPtr4mBAcnDcKmV7YFweEUkVyVeYo3bjMy
+epoch 42 | chair local:qwen3.8-27b (llm) | rate 0 -> -10 bps
+reasoning_hash: 1d6e6b967f266d58a9d6ed387a37ac04247453e09afe1e3f4babcd38caff3a8f
+--- reasoning (the text behind the hash; each line prefixed, the prefix is not hashed) ---
+  | $CHAIR decision, epoch 42, chair local:qwen3.8-27b.
+  | Rate in effect 0 bps; decision -10 bps.
+  | Supply has been flat for six epochs at a 0 bps rate. I'll set a mild -10 bps burn to test whether a small contraction is felt without over-tightening.
+--- transaction ---
+challenger.chair-coin-2.testnet -> token.chair-coin-2.testnet.set_policy({"rate_bps":-10,"reasoning_hash":"1d6e6b967f266d58a9d6ed387a37ac04247453e09afe1e3f4babcd38caff3a8f"})
+executed, tx 2DnUCixvvRzfmjZii3hh58pABetbohuirQ97Tfks32Wh
+epoch 43 | chair local:qwen3.8-27b (llm) | rate -10 -> -10 bps
+reasoning_hash: 0a88a3e3331e54b389885f6f26b4361dd5c1ea0e7d34844254e1e7a31be26539
+--- reasoning (the text behind the hash; each line prefixed, the prefix is not hashed) ---
+  | $CHAIR decision, epoch 43, chair local:qwen3.8-27b.
+  | Rate in effect -10 bps; decision -10 bps.
+  | Supply has been flat for six epochs, so I'm keeping the rate at -10 bps to maintain the current steady state within the allowed window.
+--- transaction ---
+challenger.chair-coin-2.testnet -> token.chair-coin-2.testnet.set_policy({"rate_bps":-10,"reasoning_hash":"0a88a3e3331e54b389885f6f26b4361dd5c1ea0e7d34844254e1e7a31be26539"})
+executed, tx AUmvPMwRt9HnXDZmcKHzbF2hZejL4j4RyznqPkXNTLte
