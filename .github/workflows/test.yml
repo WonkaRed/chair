@@ -1,0 +1,32 @@
+# Runs `make test` on every push and pull request: builds the token contract, runs every sandbox test against the real
+# wasm, then typechecks and tests the chair agent, the simulator, the web page and the activity bot. The deploy lane's
+# offline tests run after it; `make -C deploy verify` reads live testnet and is left to the reader.
+name: test
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Ubuntu 24.04 has glibc 2.39, which the NEAR sandbox binary needs.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+      # With no argument rustup installs what rust-toolchain.toml pins: the channel, and the wasm32 target.
+      - name: Install the pinned Rust toolchain
+        run: |
+          rustup toolchain install --no-self-update
+          rustup show active-toolchain
+          rustup target list --installed | grep -x wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      # The package.json "engines" fields require this version or newer.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22.22.2
+      - run: make test
+      - run: make -C deploy test
