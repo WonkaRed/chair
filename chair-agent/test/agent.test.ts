@@ -141,7 +141,7 @@ test("a slow model answer that crosses the rollover is clamped against the new e
     assert.equal(res.decision.epoch, 4);
     assert.equal(res.decision.previousRateBps, 50);
     assert.match(res.decision.reasoning, /epoch 4,/);
-    assert.match(res.decision.reasoning, /rolled over while the chair was answering/);
+    assert.match(res.decision.reasoning, /rolled over while the Chair was deliberating/);
     const rec = JSON.parse(readFileSync(path, "utf8").split("\n")[0]!) as { epoch: number; previous_rate_bps: number };
     assert.deepEqual([rec.epoch, rec.previous_rate_bps], [4, 50]);
   } finally {

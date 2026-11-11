@@ -84,7 +84,7 @@ for (const [name, chair, reason] of failures) {
     const d = await decide(snap, [], opts(chair, reason === "timeout" ? IMPATIENT_MS : PATIENT_MS));
     assert.equal(d.kind, "rule-fallback");
     assert.equal(d.rate, expected.rate);
-    assert.match(d.reasoning, new RegExp(`failed \\(${reason}\\); the rule chair decided instead`));
+    assert.match(d.reasoning, new RegExp(`failed \\(${reason}\\)\\. The rule chair decided instead\\. The Chair has no comment`));
     assert.equal(d.reasoningHash, reasoningHash(d.reasoning));
   });
 }
@@ -116,7 +116,7 @@ test("an LLM client that returns after the timeout cannot override the fallback"
   assert.equal(d.kind, "rule-fallback");
   assert.equal(d.rate, (await decide(snap, [], opts(ruleChair))).rate, "the rule chair's rate, not the late -30");
   await new Promise((r) => setImmediate(r)); // let the late answer land
-  assert.match(d.reasoning, /failed \(timeout\); the rule chair decided instead/);
+  assert.match(d.reasoning, /failed \(timeout\)\. The rule chair decided instead\. The Chair has no comment/);
 });
 
 test("a chair only ever sees history strictly before the epoch being decided", async () => {

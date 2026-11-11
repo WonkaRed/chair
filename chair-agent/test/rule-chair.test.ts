@@ -44,6 +44,47 @@ test("no staking figures: walks the rate back to 0 and says so", () => {
   assert.match(p.reasoning, /No staking figures/);
 });
 
+test("the voice: each situation gets its own sentences, with every figure the numbers give", () => {
+  const raise = ruleDecision(input(snapshot({ rate: 0, supply: 1_000_000n, staked: 480_000n })));
+  assert.equal(raise.rateBps, 5); // wants 5, gap 5 is not under the dead band, one step reaches it
+  assert.match(raise.reasoning, /^The Committee of One has met\. Staked share of supply is 48\.00%, below the 50\.00% target, which asks for 5 bps\./);
+  assert.match(raise.reasoning, /The Chair raises the rate by 5 bps, from 0 bps to 5 bps\. The Chair thanks itself for its service\.$/);
+  const cut = ruleDecision(input(snapshot({ rate: 20, supply: 1_000_000n, staked: 520_000n })));
+  assert.match(cut.reasoning, /The Chair cuts the rate by 25 bps, from 20 bps to -5 bps\. The Committee of One was unanimous\.$/);
+  const hold = ruleDecision(input(snapshot({ rate: 3, supply: 1_000_000n, staked: 490_000n })));
+  assert.match(hold.reasoning, /The wanted rate 2 bps is within 5 bps of the current 3 bps\. The Chair holds at 3 bps and calls this leadership\.$/);
+  const stepped = ruleDecision(input(snapshot({ rate: 0, supply: 1_000_000n, staked: 100_000n })));
+  assert.match(stepped.reasoning, /The Chair wants 100 bps, but the contract allows a move of at most 50 bps per epoch\. The Chair raises the rate by 50 bps, from 0 bps to 50 bps, and files no objection\.$/);
+  const empty = ruleDecision(input(snapshot({ rate: 0, supply: 1_000_000n, staked: 0n })));
+  assert.match(empty.reasoning, /Nothing is staked, so an easing rate mints nothing until someone stakes\. The Chair notes the empty room\./);
+  const none = ruleDecision(input(snapshot({ rate: 40, staked: null })));
+  assert.match(none.reasoning, /^The Committee of One has met\. No staking figures are available, so there is nothing to steer by and the wanted rate is 0 bps\./);
+});
+
+test("the voice: brakes keep their figures, and a silent stretch is named without claiming how far the rate moved", () => {
+  const s = snapshot({ epoch: 10, rate: 20, supply: 1_040_000n, staked: 100_000n });
+  const grown = ruleDecision(input(s, [{ epoch: 8, totalSupply: 1_000_000n }]));
+  assert.match(grown.reasoning, /Supply grew 4\.00% over the last 6 epochs, past the 3\.00% brake\. The Chair declines to ease and holds the wanted rate at 0 bps\./);
+  const calm = ruleDecision(input(snapshot({ epoch: 10, rate: 0, supply: 1_010_000n, staked: 500_000n }), [{ epoch: 8, totalSupply: 1_000_000n }]));
+  assert.match(calm.reasoning, /Supply moved 1\.00% over the last 6 epochs, inside the \+-3\.00% brake\. The Chair keeps its hand off the brake\./);
+  const silent = (lastSet: number | null) => ruleDecision(input(snapshot({ epoch: 12, rate: 0, supply: 1_000_000n, staked: 500_000n, lastSet }))).reasoning;
+  assert.match(silent(8), /^The Chair was silent for 3 epochs\. In a silent epoch the contract moves the rate toward zero without asking\. The Chair notes its place\.\n/);
+  assert.match(silent(10), /^The Chair was silent for 1 epoch\. /);
+  assert.doesNotMatch(silent(11), /silent/, "it set a rate last epoch");
+  assert.doesNotMatch(silent(null), /silent/, "a rate never set is not a silence");
+});
+
+test("the voice: no dashes other than the hyphen, no emoji, no price talk, in any situation the rule chair meets", () => {
+  for (const staked of [null, 0n, 100_000n, 480_000n, 500_000n, 520_000n, 900_000n]) {
+    for (const rate of [-200, -50, -3, 0, 3, 50, 200]) {
+      for (const lastSet of [null, 5, 10]) {
+        const text = ruleDecision(input(snapshot({ epoch: 11, rate, supply: 1_000_000n, staked, lastSet }), [{ epoch: 6, totalSupply: 1_050_000n }])).reasoning;
+        assert.doesNotMatch(text, /[\u2013\u2014\p{Extended_Pictographic}!]|price|moon/u, text);
+      }
+    }
+  }
+});
+
 test("same input, same output (the log can be audited by rerunning it)", () => {
   const i = input(snapshot({ rate: 10, supply: 7_777_777n, staked: 1_234_567n }), [{ epoch: 4, totalSupply: 7_000_000n }]);
   assert.deepEqual(ruleDecision(i), ruleDecision(i));

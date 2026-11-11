@@ -87,7 +87,7 @@ export async function propose(snapshot: Snapshot, history: readonly HistoryPoint
       return { used: opts.chair, kind: "llm", proposal, fallbackNote: "", basedOnEpoch };
     } catch (err) {
       const reason: FallbackReason = err instanceof ChairFailure ? err.reason : "error";
-      const fallbackNote = `Chair ${opts.chair.name} failed (${reason}); the rule chair decided instead.\n`;
+      const fallbackNote = `Chair ${opts.chair.name} failed (${reason}). The rule chair decided instead. The Chair has no comment.\n`;
       const proposal = await ruleChair.propose(input, new AbortController().signal);
       return { used: ruleChair, kind: "rule-fallback", proposal, fallbackNote, basedOnEpoch };
     }
@@ -111,11 +111,11 @@ export function finalize(fresh: Snapshot, history: readonly HistoryPoint[], prop
     proposal = ruleDecision({ snapshot: fresh, history: before(history, policy.epoch), window: { lo: window.lo, hi: window.hi } });
   }
   const rate: Rate = window.pick(proposal.rateBps);
-  const rolloverNote = rolled && proposed.used !== ruleChair ? "\nThe epoch rolled over while the chair was answering." : "";
+  const rolloverNote = rolled && proposed.used !== ruleChair ? "\nThe epoch rolled over while the Chair was deliberating. Time does not wait for the Committee of One." : "";
   const clampNote =
     rate === proposal.rateBps
       ? ""
-      : `\nThe chair asked for ${proposal.rateBps} bps; the contract accepts ${window.lo}..${window.hi} bps here, so ${rate} bps is set.`;
+      : `\nThe Chair asked for ${proposal.rateBps} bps; the contract accepts ${window.lo}..${window.hi} bps here, so ${rate} bps is set. The Chair defers.`;
   const body = cleanReasoning(proposal.reasoning, BODY_CHARS) ?? "";
   const text = cleanReasoning(
     `$CHAIR decision, epoch ${policy.epoch}, chair ${proposed.used.name}.\n${proposed.fallbackNote}` +

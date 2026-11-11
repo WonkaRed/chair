@@ -42,7 +42,7 @@ Chain strings are text only (`textContent`, never markup). Control, bidi and inv
 ## Chair minutes
 
 The first section of the page lists the chair's decisions, newest first: the latest in full, older ones collapsed behind "Show all". Each shows the epoch, the rate and its move from the
-previous rate, who decided, the reasoning text, the transaction, and a mark. When the chair has been silent the section says for how many epochs and what the rate has decayed to.
+previous rate, who decided, the reasoning text, the transaction, and a mark. From the voice change on, the reasoning is written in character ("The Chair", a deadpan parody of a central banker); older decisions keep their plain text, and the page shows either exactly as hashed. When the chair has been silent the section says for how many epochs and what the rate has decayed to.
 
 - **From the chain:** every `policy_set` event (`epoch`, `rate_bps`, `previous_rate_bps`, `reasoning_hash`, the chair account) in the same transactions the log reads (`js/decisions.js`), so the feed is live and shares the log's trust rules.
 - **From the build:** the reasoning text is not on chain. `scripts/minutes.mjs` reads `../docs/testnet-run-agent-*decisions.jsonl` (the text exactly, as JSON) and `../docs/testnet-run-agent-*.txt` (the same text behind a `  | ` prefix on each line)

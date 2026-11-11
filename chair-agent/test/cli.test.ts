@@ -90,7 +90,7 @@ test("a failing LLM falls back to the rule chair end to end", async () => {
   const code = await main([...base(), "--chair", "llm"], env({ ANTHROPIC_API_KEY: "present" }), o, { llmClient: broken });
   assert.equal(code, 0, o.err_.join("\n"));
   assert.match(o.out_.join("\n"), /\(rule-fallback\)/);
-  assert.match(o.out_.join("\n"), /failed \(error\); the rule chair decided instead/);
+  assert.match(o.out_.join("\n"), /failed \(error\)\. The rule chair decided instead\. The Chair has no comment/);
   assert.equal(chain.refusals.length, 0);
 });
 

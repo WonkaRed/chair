@@ -20,6 +20,16 @@ test("the prompt is numbers only: no account ids and no free-form chain text", (
   assert.ok(!system.includes("streak"), "the field names carry the meaning; the system prompt defines none");
 });
 
+test("the system prompt gives the chair its voice and the guard rails that keep every sentence true to the numbers", () => {
+  const { system } = buildPrompt({ snapshot: snapshot(), history: [], window: { lo: -50, hi: 50 } });
+  assert.match(system, /"The Chair", a deadpan parody of a central banker/);
+  assert.match(system, /Committee of One/);
+  for (const rule of [/Claim only what the numbers show/, /never forecast or promise/, /nothing about price, value/, /When a figure is null, do not mention it/, /Name no real person, institution, currency, central bank or place/, /No em or en dashes, no emoji/]) {
+    assert.match(system, rule);
+  }
+  assert.doesNotMatch(system, /[\u2013\u2014\p{Extended_Pictographic}]|moon/u, "the prompt itself uses no em or en dash, emoji or hype");
+});
+
 test("the prompt separates the time in office from the time since the last decision", () => {
   const at = (lastSet: number | null) => JSON.parse(buildPrompt({
     snapshot: snapshot({ epoch: 218, lastSet }), history: [], window: { lo: -50, hi: 50 },

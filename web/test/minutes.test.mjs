@@ -103,6 +103,21 @@ test("the bundle skips what it cannot vouch for and says so, and never fails on 
   }
 });
 
+test("a decision text in the chair's voice bundles and verifies like any other: header, figures line and sentences, byte for byte", async () => {
+  const voiced = "$CHAIR decision, epoch 310, chair local:qwen3.8-27b.\nRate in effect 190 bps; decision 190 bps.\nThe Committee of One has met. The Chair asks that this be recorded.";
+  const dir = await mkdtemp(join(tmpdir(), "chair-voice-"));
+  try {
+    await writeFile(join(dir, "testnet-run-agent-voice-decisions.jsonl"), JSON.stringify({ kind: "decision", reasoning: voiced, reasoning_hash: sha(voiced), chair: "local:qwen3.8-27b", chair_kind: "llm" }) + "\n");
+    const out = await bundleMinutes(dir);
+    assert.deepEqual(out.warnings, []);
+    assert.equal(out.bundle.texts[sha(voiced)].text, voiced);
+    assert.equal(await checkReasoning(voiced, sha(voiced)), "verified");
+    assert.equal(await checkReasoning(voiced.replace("190 bps; decision", "180 bps; decision"), sha(voiced)), "mismatch");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 // ---- decisions from chain events ----
 
 test("policy_set events become decisions, newest first, and a malformed or foreign one is never listed", async () => {
