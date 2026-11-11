@@ -182,7 +182,7 @@ test("a contract without staking views still gets a decision (no staking figures
   try {
     const o = io();
     assert.equal(await main([...base(), "--dry-run"], {}, o), 0, o.err_.join("\n"));
-    assert.match(o.out_.join("\n"), /No staking figures/);
+    assert.match(o.out_.join("\n"), /cannot see how many coins are staked/);
   } finally {
     chain.hasStaking = true;
   }

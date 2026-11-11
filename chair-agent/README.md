@@ -8,9 +8,12 @@ or more than 50 bps from the rate in effect, and decays the rate when the chair 
 additionally never proposes a call the contract would reject.
 
 The chair writes in a voice: "The Chair", a deadpan parody of a central banker, solemn and self-important about tiny moves.
+The minutes are for a reader who has never seen a blockchain: the decision comes first and says what the rate does in plain words, every
+rate and change is a percent with two decimals (5 bps is 0.05%), and "meetings" or "every 90 seconds" stand for epochs. Basis points stay
+in the code, the contract and the first lines of the on-chain text (`Rate in effect 5 bps; decision 5 bps.`), where the web page reads them.
 The voice changes only the wording of the reasoning text; the rate rules and the contract's bounds are untouched, and every
 sentence must stay true to the numbers the chair was given (it names no real person, institution or currency and says nothing about price).
-For example, from the rule chair: "The Chair raises the rate by 5 bps, from 0 bps to 5 bps. The Chair thanks itself for its service."
+For example, from the rule chair: "The Committee of One has met. The Chair moves the rate from zero to a printing rate of 0.05%: 0.05% more coins are printed every 90 seconds for holders who staked. 48.00% of all coins are staked, and the Chair would like 50.00%. The Chair thanks itself for its service."
 Decisions recorded before the voice keep their old text, because their hashes are on chain.
 
 This is a toy monetary experiment. Nothing here predicts or promises a price, a return, or any effect on
@@ -89,20 +92,21 @@ step at a time, ignores gaps under 5 bps unless the wanted rate is 0, and with n
 walks the rate back to 0. It reads `get_params`, `get_policy`, `ft_total_supply` and `get_reward_pool` at one
 final block; supply history comes from its own decision log.
 
-Its text is in the chair's voice, from a small set of fixed sentences chosen by the situation (a raise, a cut, a hold,
-a move held back by the contract's step limit, an easing or tightening held back by the 3% brake, nothing staked, no staking figures,
-and after silent epochs a line saying the Chair was silent for that many epochs and the contract moves the rate toward zero without asking).
+Its text is in the chair's voice, from a small set of fixed sentences chosen by the situation (a hold, a move, a move held back by the contract's
+step limit, an easing or tightening held back by the 3% brake, nothing staked, no staking figures, and after silent meetings a line saying
+the Chair was silent for that many meetings and the contract moves the rate toward zero without asking). Each says what the rate does
+(prints new coins for the holders who staked, burns a slice of every transfer, or neither), in percent, and the epoch length is the chain's own.
 Every figure in a sentence is an input or the computed rate, so the same inputs give the same text. When the model fails, the decision
 opens with `Chair <name> failed (<reason>). The rule chair decided instead. The Chair has no comment.` and then the rule chair's text.
 
 ## The LLM chair
 
-`LlmChair` sends the model only numbers (rate, bounds, supply, staked share, drift, epochs in office, epochs since the last decision and, when the agent has its decision log, how many epochs in a row the Chair itself set the rate now in effect and how many times the contract refused one of the Chair's own calls, as that log records them), asks for a JSON object
+`LlmChair` sends the model only numbers (the rate in effect, the bounds, the meeting length, the supply change and the staked share each as a finished sentence in percent, the meetings missed since the last decision and, when the agent has its decision log, how many meetings before this one the Chair itself set the rate now in effect and how many times the contract refused one of the Chair's own calls, as that log records them), asks for a JSON object
 `{rate_bps, reasoning}` through structured output, and uses model `claude-sonnet-5-5` via the official SDK (the chair name `llm:claude-sonnet-5-5` is reported by that client only; any other client is `llm:unlabelled-client` unless it names itself). The
 agent then clamps the rate into the bounds of the window read after the model answered (see below). Any error, timeout (`--llm-timeout-ms`, default 30000), refusal,
 truncated answer, wrong or duplicate keys, non-integer or out-of-range type falls back to the rule chair, and the reasoning
 text says so. The system prompt asks the model for the voice and fences it in: it may state the decision and the figures it was given and nothing the numbers do
-not show (no cause, purpose, forecast, price talk or real names), and it is told how to read the silence and seat fields. [`docs/chair-voice-probe.txt`](../docs/chair-voice-probe.txt) holds
+not show (no cause, purpose, forecast, price talk or real names), and it is told how to read the silence and run fields. Every figure reaches it already converted to percent, so it copies; its text is refused, once asked again and then replaced by the rule chair's, when it says "basis points", "bps" or "epoch", writes a percent the numbers do not give (the rate it decided, the rate in effect, the staked share and the supply change are the only ones), writes a printing rate as a burn or the reverse, claims a run of meetings the Chair may not, or leaves a rate without its unit. [`docs/chair-voice-probe.txt`](../docs/chair-voice-probe.txt) holds
 every answer of the probe runs against the local model, each checked sentence by sentence against its prompt, with the prompt rounds that tightened it. Model text is never used for anything but the logged reasoning: it does not reach a shell, a path,
 or a transaction field other than through the SHA-256 hash.
 

@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ChairFailure } from "./decide.js";
 import { cleanReasoning } from "./reasoning.js";
-import { stakedShareBps, supplyDriftBps } from "./rule-chair.js";
+import { meetingLength, percent, rateEffect, stakedShareBps, supplyMoved } from "./rule-chair.js";
 import type { Chair, DecisionInput, Proposal } from "./types.js";
 
 export const LLM_MODEL = "claude-sonnet-5-5";
@@ -44,31 +44,29 @@ export const ANSWER_SCHEMA = {
 
 const SYSTEM = [
   "You are the chair of $CHAIR, a toy monetary-policy experiment on a test network.",
-  "Once per epoch you set one integer rate in basis points. A positive rate mints new supply to stakers at the end of the epoch;",
-  "a negative rate burns that share of every transfer during the epoch. You are not predicting prices and you give no financial advice.",
-  "You will get a JSON object of numbers. Pick a rate inside rate_window_bps and answer with JSON only: {\"rate_bps\": <integer>, \"reasoning\": <string>}.",
-  "Write the reasoning as \"The Chair\", a deadpan parody of a central banker: solemn, dry and short, in the third person, two to four sentences.",
-  "The joke is that the Chair treats its own act, even a hold or a move of a few bps, with great ceremony; the facts stay plain.",
-  "Ceremony you may use, or invent in the same spirit: \"The Committee of One has met.\" \"The Chair thanks itself for its service.\"",
-  "\"The Chair notes its place.\" \"The motion carries unanimously.\" \"The Chair has no further comment.\"",
-  "\"The Chair asks that this be recorded.\" \"The Chair will not be taking questions.\" \"The Chair has seen the numbers and remains the Chair.\"",
-  "State the decision (raise, cut or hold, and by how many bps, measured from rate_in_effect_bps: a raise is a higher number than rate_in_effect_bps, so -40 to -35 is a raise,",
-  "and a cut is a lower number) and at least one figure from the JSON,",
-  "reported as a fact beside the decision and not as its reason: no \"therefore\", \"to address\", \"consistent with\" or \"in light of\".",
-  "Write figures in plain words (\"basis points\", \"epochs\"), never as field names, and never quote total_supply in full.",
-  "Give every rate with its unit, the new rate too: \"from 17 basis points to 22 basis points\", never \"to 22\" alone. Write the staked share as the percent staked_share_percent gives it (\"44.5%\"), never in basis points.",
-  "Say how supply moved only by quoting supply_change_bps_last_6_epochs, which already includes today's total_supply; recent_supply is older and must not be read as the present.",
-  "Copy every figure exactly or compute it from the JSON; invent none.",
-  "Claim only what the numbers show. The figures say what happened, not why: never say that a rate caused, stopped, tempered or explains a change,",
-  "never give the purpose or expected effect of your move, never say what was minted or burned, never forecast or promise,",
-  "never say what the contract or any rate will do next, give no opinion of the figures (adequate, excessive, healthy, worrying),",
-  "and say nothing about price, value, or what holders or stakers feel or do. The ceremony is about the Chair, never about the numbers.",
-  "The Chair gives no reason for its decision and no judgment of it: never write \"sees no reason\", \"finds it fitting\" or the like.",
-  "When a figure is null, do not mention it at all.",
-  "epochs_since_last_decision above 0 means the Chair was silent for that many epochs; in a silent epoch the contract moves the rate toward zero without asking, but never say how far it moved;",
-  "epochs_this_chair_has_held_the_seat says nothing about how long any rate has lasted; how long a rate has been in effect is unknown, so never say it,",
-  "except through epochs_in_a_row_the_chair_set_the_rate_in_effect: when present, it counts the epochs, ending with the last one, in which the Chair itself set rate_in_effect_bps, the rate from before this decision.",
-  "Use it only when you hold, that is when your rate equals rate_in_effect_bps, and only as \"the Chair also set this rate in each of the N epochs before this one\", never as how long the rate has stood or been in effect;",
+  "Once per meeting (every meeting_length) you set one integer rate_bps and write the minutes. Anyone must understand the minutes in one read, with no knowledge of blockchains.",
+  "What a rate does, while it stands: a positive rate prints new coins, that percent of all coins, for the holders who staked, at every meeting; a negative rate burns that percent of every transfer;",
+  "zero does neither. You are not predicting prices and you give no financial advice.",
+  "You will get a JSON object. Pick rate_bps inside rate_window_bps and answer with JSON only: {\"rate_bps\": <integer>, \"reasoning\": <string>}.",
+  "Write the reasoning as \"The Chair\", a deadpan parody of a central banker: solemn, dry and short, in the third person, two to five short sentences, one paragraph.",
+  "The joke is that the Chair treats its own act, even a hold or a tiny move, with great ceremony; the facts stay plain.",
+  "Shape: open with \"The Committee of One has met.\" Then, as the first sentence after it, the decision in plain words, then the supply and staked sentences when the JSON gives them, then one ceremonial line to close,",
+  "such as \"The Chair asks that this be recorded.\" \"The Chair thanks itself for its service.\" \"The motion carries unanimously.\" \"The Chair has no further comment.\" \"The Chair will not be taking questions.\" Invent others in the same spirit.",
+  "Figures are percent with two decimals, and nothing else: never \"basis points\", \"bps\", \"epoch\", a field name or a ratio.",
+  "The percent of a rate is rate_bps without its sign divided by 100, with two decimals: 5 is 0.05%, 12 is 0.12%, -10 is 0.10%, 200 is 2.00%, 0 is 0.00%. rate_in_effect_percent is that figure for rate_in_effect_bps.",
+  "Say what the rate does, in the same plain words every time: when rate_bps is above 0, \"printing 0.05% more coins every 90 seconds for holders who staked\" (use meeting_length for the 90 seconds);",
+  "below 0, \"burning 0.10% of every transfer\"; at 0, \"neither printing nor burning\". Never call a rate positive, negative, higher, lower, a raise or a cut: say what it does.",
+  "Hold (rate_bps equals rate_in_effect_bps): \"The Chair keeps printing 0.05% more coins every 90 seconds for holders who staked.\" Change: \"The Chair changes the rate from printing 0.05% to printing 0.12%.\"",
+  "followed by what the new rate does. When the rate in effect did the other thing or nothing, say so in the same words: \"from burning 0.10% of every transfer to printing 0.05%\", \"from neither printing nor burning to printing 0.05%\".",
+  "rate_in_effect_does is a clause to read, never to paste into a \"from ... to ...\". When staked_share_in_words gives 0.00%, nothing is printed whatever the rate: write \"no coins are printed while nobody has staked\" in place of the printing words. Never say how many coins were or will be printed or burned in total and never say what the next rate will be.",
+  "staked_share_in_words and supply_change_in_words are finished sentences: copy them, or reword them without changing a figure, a direction or the span. Never write a percent the JSON does not give or that you did not compute as above.",
+  "Claim only what the numbers show. The figures say what happened, not why: never say that a rate caused, stopped, tempered or explains a change, never give the purpose of your move,",
+  "never forecast or promise, give no opinion of the figures (adequate, excessive, healthy, worrying), and say nothing about price, value, or what holders or stakers feel or do.",
+  "The Chair gives no reason for its decision and no judgment of it: never write \"sees no reason\", \"finds it fitting\" or the like, and no \"therefore\", \"to address\", \"consistent with\" or \"in light of\".",
+  "When a field is null or absent, do not mention it at all.",
+  "meetings_missed_since_the_last_decision above 0 means the Chair was silent for that many meetings; in a silent meeting the contract moves the rate toward zero without asking, but never say how far it moved.",
+  "meetings_before_this_one_the_chair_set_the_rate_in_effect, when present, counts the meetings, ending with the last one, in which the Chair itself set rate_in_effect_bps, the rate from before this decision.",
+  "Use it only when you hold, that is when rate_bps equals rate_in_effect_bps, and only as \"as it has for the last N meetings\", never as how long the rate has stood or been in effect;",
   "when you change the rate it says nothing about the new rate, so do not mention it and never write \"in a row\".",
   "times_the_contract_refused_the_chair, when not null, is how many times the contract refused one of the Chair's own calls according to the Chair's own records, and it may be reported only as that",
   "(\"the contract has refused the Chair N times in the Chair's records\"); it is a count of what the records hold, not of everything that ever happened. The contract keeps no such record, so never say the contract logged, recorded or counted anything.",
@@ -77,31 +75,31 @@ const SYSTEM = [
   "No em or en dashes, no emoji, no exclamation marks.",
 ].join(" ");
 
-/** Numbers only: no free-form chain text, so nothing a stranger controls reaches the prompt. */
+/** Numbers only: no free-form chain text, so nothing a stranger controls reaches the prompt. Every figure the minutes quote arrives already as percent, to be copied. */
 export function buildPrompt(input: DecisionInput): { system: string; user: string } {
-  const { snapshot, history } = input;
-  const staking = snapshot.staking;
+  const { snapshot } = input;
+  const { staking } = snapshot;
   const lastSet = snapshot.policy.lastSetEpoch;
+  const every = meetingLength(snapshot.params.epochMs);
+  const drift = supplyMoved(input);
   const user = JSON.stringify({
-    epoch: snapshot.policy.epoch,
+    meeting_length: every,
     rate_in_effect_bps: snapshot.policy.rateBps,
+    rate_in_effect_percent: percent(snapshot.policy.rateBps),
+    rate_in_effect_does: rateEffect(snapshot.policy.rateBps, every, staking !== null && staking.totalStaked === 0n),
     rate_window_bps: [input.window.lo, input.window.hi],
-    epochs_this_chair_has_held_the_seat: snapshot.policy.streak,
-    // Epochs the chair stayed silent since it last set a rate (0: it set one last epoch); null: the rate was never set.
+    // Meetings the chair stayed silent since it last set a rate (0: it set one last meeting); null: the rate was never set.
     // The agent stops before the model when this epoch is already set, so the count is never negative.
-    epochs_since_last_decision: lastSet === null ? null : snapshot.policy.epoch - lastSet - 1,
-    total_supply: snapshot.totalSupply.toString(),
-    // A percent, not basis points: the model copies what it is given, and "4450 basis points" reads as a mistake.
-    staked_share_percent:
-      staking === null || snapshot.totalSupply === 0n ? null : `${stakedShareBps(staking.totalStaked, snapshot.totalSupply) / 100}%`,
-    supply_change_bps_last_6_epochs: supplyDriftBps(input)?.toString() ?? null,
-    recent_supply: history.slice(-6).map((h) => ({ epoch: h.epoch, total_supply: h.totalSupply.toString() })),
+    meetings_missed_since_the_last_decision: lastSet === null ? null : snapshot.policy.epoch - lastSet - 1,
+    staked_share_in_words:
+      staking === null || snapshot.totalSupply === 0n ? null : `${percent(stakedShareBps(staking.totalStaked, snapshot.totalSupply))} of all coins are staked.`,
+    supply_change_in_words: drift?.sentence ?? null,
     // Logged facts, present only when the caller has a log to read them from; a count of 0 is null, "nothing to say", never "zero times".
-    // A run of 1 is no run either: "one epoch in a row" is not a thing to say.
+    // A run of 1 is no run either: "one meeting" in a run is not a thing to say.
     ...(input.memory === undefined
       ? {}
       : {
-          epochs_in_a_row_the_chair_set_the_rate_in_effect: input.memory.sameRateEpochs < 2 ? null : input.memory.sameRateEpochs,
+          meetings_before_this_one_the_chair_set_the_rate_in_effect: input.memory.sameRateEpochs < 2 ? null : input.memory.sameRateEpochs,
           times_the_contract_refused_the_chair: input.memory.refusals === 0 ? null : input.memory.refusals,
         }),
   });
@@ -158,18 +156,39 @@ export function parseAnswer(res: LlmResponse): Proposal {
 }
 
 /**
- * The phrasings that read as the Chair contradicting itself, which the prompt forbids and this refuses: a run of epochs claimed for a rate
- * the Chair is not holding (or no run at all), a rate with no unit ("to 17."), the staked share in basis points. Null when the text is clean.
+ * The phrasings that read as the Chair contradicting itself or leaving the reader a number they cannot trust, which the prompt forbids and this
+ * refuses: jargon (basis points, epochs), a percent the numbers do not give, a rate that prints written as a burn or the
+ * reverse, a run of meetings claimed for a rate the Chair is not holding (or no run at all), a rate with no unit ("to 17."). Null when the text is clean.
  */
 export function wordingFault(proposal: Proposal, input: DecisionInput): string | null {
   const text = proposal.reasoning;
-  const run = input.memory !== undefined && input.memory.sameRateEpochs >= 2;
-  if (/\bin a row\b|\bconsecutive(?:ly)?\b|\bin succession\b/i.test(text) && !(run && proposal.rateBps === input.snapshot.policy.rateBps)) {
-    return "a run of epochs the Chair is not entitled to claim";
+  const { rateBps } = proposal;
+  const current = input.snapshot.policy.rateBps;
+  const run = input.memory !== undefined && input.memory.sameRateEpochs >= 2 ? input.memory.sameRateEpochs : null;
+  const held = rateBps === current;
+  const claimed = text.match(/\bfor the (?:last|past|previous) (\d+) (?:meetings|epochs)\b/i);
+  if (/\bin a row\b|\bconsecutive(?:ly)?\b|\bin succession\b/i.test(text) && !(run !== null && held)) {
+    return "a run of meetings the Chair is not entitled to claim";
   }
+  if (claimed !== null && !(run !== null && held && Number(claimed[1]) === run)) return "a run of meetings the Chair is not entitled to claim";
+  if (/\bbasis points?\b|\bbps\b/i.test(text)) return "basis points instead of percent";
+  if (/\bepochs?\b/i.test(text)) return "the word epoch";
   // A number after "to" or "at" that no unit, percent sign or word follows ("cuts the rate to 17.").
   if ([...text.matchAll(/\b(?:to|at)\s+[-\u2212]?\d+(?:\.\d+)?(%|\s*[A-Za-z])?/gi)].some((m) => m[1] === undefined)) return "a rate without its unit";
-  if (/\bstaked\b[^.%]*?\b\d+\s*(?:bps|basis points)/i.test(text)) return "the staked share in basis points";
+  // Every percent is one the prompt gave or the decided rate in percent.
+  const { staking, totalSupply } = input.snapshot;
+  const drift = supplyMoved(input);
+  const given = new Set([percent(rateBps), percent(current)]);
+  if (staking !== null && totalSupply !== 0n) given.add(percent(stakedShareBps(staking.totalStaked, totalSupply)));
+  if (drift !== null) given.add(drift.bps === 0n ? "0.01%" : percent(drift.bps));
+  const stray = [...text.matchAll(/\d[\d,]*(?:\.\d+)?\s*%/g)].find((m) => !given.has(m[0]));
+  if (stray !== undefined) return `a percent the numbers do not give (${stray[0]})`;
+  if (rateBps !== 0) {
+    const figure = percent(rateBps).replace(".", "\\.");
+    // The verb nearest before the figure: "from neither printing nor burning to printing 0.05%" prints, and is not a burn.
+    const wrongVerb = new RegExp(`\\b${rateBps > 0 ? "burn" : "(?:print|mint)"}\\w*(?:(?!\\b(?:print|mint|burn|to)\\w*\\b)[^.]){0,40}?${figure}`, "i");
+    if (wrongVerb.test(text)) return rateBps > 0 ? "a rate that prints written as a burn" : "a rate that burns written as a print";
+  }
   return null;
 }
 

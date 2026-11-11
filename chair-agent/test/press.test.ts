@@ -264,15 +264,15 @@ test("memory counts epochs in a row the chair itself set the rate now in effect,
 test("the decision prompt carries the memory as the log's numbers, only when it has them, and the system prompt says how far they may be read", () => {
   const snap = snapshot({ epoch: 20, rate: -5, lastSet: 19, staked: 10n });
   const input = { snapshot: snap, history: [], window: { lo: -50, hi: 50 } };
-  assert.ok(!("epochs_in_a_row_the_chair_set_the_rate_in_effect" in (JSON.parse(buildPrompt(input).user) as object)));
+  assert.ok(!("meetings_before_this_one_the_chair_set_the_rate_in_effect" in (JSON.parse(buildPrompt(input).user) as object)));
   const withMemory = JSON.parse(buildPrompt({ ...input, memory: { sameRateEpochs: 4, refusals: 0 } }).user) as Record<string, unknown>;
-  assert.equal(withMemory["epochs_in_a_row_the_chair_set_the_rate_in_effect"], 4);
+  assert.equal(withMemory["meetings_before_this_one_the_chair_set_the_rate_in_effect"], 4);
   assert.equal(withMemory["times_the_contract_refused_the_chair"], null, "no refusal on record is null: the Chair never says zero times");
   const none = JSON.parse(buildPrompt({ ...input, memory: { sameRateEpochs: 0, refusals: 2 } }).user) as Record<string, unknown>;
-  assert.equal(none["epochs_in_a_row_the_chair_set_the_rate_in_effect"], null, "no run is null, which the prompt says never to mention");
+  assert.equal(none["meetings_before_this_one_the_chair_set_the_rate_in_effect"], null, "no run is null, which the prompt says never to mention");
   assert.equal(none["times_the_contract_refused_the_chair"], 2);
   const { system } = buildPrompt(input);
-  assert.match(system, /epochs_in_a_row_the_chair_set_the_rate_in_effect: when present/);
+  assert.match(system, /meetings_before_this_one_the_chair_set_the_rate_in_effect, when present/);
   assert.match(system, /times_the_contract_refused_the_chair, when not null/);
   assert.doesNotMatch(system, /[\u2013\u2014\p{Extended_Pictographic}]|moon/u);
 });
@@ -288,7 +288,7 @@ test("the agent hands the log's memory to the model through the chair", async ()
     assert.equal((await tick({ ...deps(w), decideOptions: opts })).status, "executed");
     w.chain.advanceEpochs(1, 1000);
     assert.equal((await tick({ ...deps(w), decideOptions: opts })).status, "executed");
-    const run = (i: number) => (JSON.parse(seen[i]!) as Record<string, unknown>)["epochs_in_a_row_the_chair_set_the_rate_in_effect"];
+    const run = (i: number) => (JSON.parse(seen[i]!) as Record<string, unknown>)["meetings_before_this_one_the_chair_set_the_rate_in_effect"];
     assert.equal(run(0), null);
     assert.equal(run(1), null, "one epoch is not a run");
     assert.equal(run(2), 2);
