@@ -4,6 +4,7 @@
 import { createHash } from "node:crypto";
 import { baseEncode } from "near-api-js";
 import type { DeploymentRecord, Role } from "./record.ts";
+import { gatherMinutes, type Minutes } from "./minutes.ts";
 import type { AccessKey, Rpc } from "./rpc.ts";
 import { TokenViews, type Params, type Policy, type Supply } from "./views.ts";
 
@@ -18,6 +19,8 @@ export interface Snapshot {
   readonly policy: Policy;
   /** `ft_balance_of` plus stake for every recorded account. */
   readonly recordedHoldings: bigint;
+  /** The chair's decisions from the chain's events, with the recorded reasoning text matched to each hash. */
+  readonly minutes: Minutes;
 }
 
 export interface Check {
@@ -26,7 +29,8 @@ export interface Check {
   readonly detail: string;
 }
 
-export async function gather(rpc: Rpc, record: DeploymentRecord): Promise<Snapshot> {
+/** `docsDir`: the folder whose `testnet-run-agent-*` files record the chair's reasoning texts. */
+export async function gather(rpc: Rpc, record: DeploymentRecord, docsDir: string): Promise<Snapshot> {
   const token = record.accounts.token;
   const views = new TokenViews(rpc, token);
   const info = await rpc.account(token);
@@ -46,6 +50,7 @@ export async function gather(rpc: Rpc, record: DeploymentRecord): Promise<Snapsh
     totalSupplyView: await views.totalSupply(),
     policy: await views.policy(),
     recordedHoldings: held,
+    minutes: await gatherMinutes(rpc.url, token, docsDir),
   };
 }
 
@@ -109,6 +114,22 @@ export function evaluate(record: DeploymentRecord, s: Snapshot, wasmSha256?: str
     s.recordedHoldings + u.rewardPool <= u.total,
     `recorded accounts hold ${s.recordedHoldings}, unclaimed rewards ${u.rewardPool}, supply ${u.total} (the rest is in accounts not in the record)`,
   );
+
+  // An unreadable transaction index (a third party, unlike the RPC) skips this check and `describeMinutes` says so; it never fails the
+  // deployment. A recorded text that does not hash to its own hash is wrong whether or not the index is up, so that still fails.
+  const m = s.minutes;
+  if (m.error === null || m.warnings.length > 0) {
+    const recorded = m.decisions.filter((d) => d.verdict !== null).length;
+    const verified = m.decisions.filter((d) => d.verdict === "verified").length;
+    const docsProblems = m.warnings.length > 0 ? `docs/ problems: ${m.warnings.join("; ")}` : "";
+    check(
+      "each recorded reasoning text hashes (SHA-256) to the reasoning_hash the chain holds",
+      m.warnings.length === 0 && verified === recorded,
+      m.error === null
+        ? `${recorded} of ${m.decisions.length} decisions on chain have a text recorded in docs/, ${verified} of them match${docsProblems === "" ? "" : `; ${docsProblems}`}`
+        : `${docsProblems}; the decisions on chain could not be read, so no text was compared with the chain`,
+    );
+  }
 
   return checks;
 }

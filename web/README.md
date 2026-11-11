@@ -51,6 +51,8 @@ previous rate, who decided, the reasoning text, the transaction, and a mark. Whe
 - **In the browser:** `crypto.subtle.digest("SHA-256", ...)` over the exact UTF-8 bytes of the text, compared with the on-chain hash: verified, mismatch, or not checked (a browser without `crypto.subtle`, which needs https or localhost). A decision with no bundled text shows its hash and
   "reasoning text not published for this decision". The text is shown through `textContent`, with control and bidi characters escaped and said so; the check still runs on the exact text.
 
+Decisions made by the live agent show "reasoning text not published for this decision" until their text is added under `docs/` in the file naming above and the page is rebuilt.
+
 A match shows the text is the one the chair committed to in that transaction. It does not show the chair was right or that the text caused the rate.
 
 ## Simulation

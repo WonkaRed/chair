@@ -6,6 +6,8 @@
     "moduleResolution": "NodeNext",
     "types": ["node"],
     "noEmit": true,
+    "allowJs": true,
+    "checkJs": false,
     "allowImportingTsExtensions": true,
     "erasableSyntaxOnly": true,
     "strict": true,

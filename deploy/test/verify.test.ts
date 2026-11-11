@@ -3,6 +3,7 @@ import { test } from "node:test";
 import { baseEncode } from "near-api-js";
 import { accountsOf, codeHashOf, sha256Hex } from "../src/deploy.ts";
 import { testnetAccount } from "../src/guard.ts";
+import type { Decision, Minutes } from "../src/minutes.ts";
 import type { DeploymentRecord } from "../src/record.ts";
 import type { AccessKey } from "../src/rpc.ts";
 import { describeState, evaluate, type Snapshot } from "../src/verify.ts";
@@ -21,6 +22,7 @@ const record: DeploymentRecord = {
   scenarioBaseEpoch: 1,
   transactions: [],
 };
+const decision = (epoch: number, verdict: Decision["verdict"]): Decision => ({ epoch, rateBps: 10, hash: "a".repeat(64), tx: "T", text: verdict === null ? null : "reasoning", verdict });
 const scoped = (publicKey: string): AccessKey => ({ publicKey, permission: { receiverId: accounts.token, methodNames: ["set_policy"], allowance: null } });
 const full = (publicKey: string): AccessKey => ({ publicKey, permission: "FullAccess" });
 
@@ -34,6 +36,7 @@ function good(): Snapshot {
     totalSupplyView: 1075n,
     policy: { epoch: 12, rateBps: 20, chair: accounts.challenger, streak: 2, lastSetEpoch: 12, epochEndsMs: 9 },
     recordedHoldings: 1000n,
+    minutes: { decisions: [decision(12, "verified"), decision(11, null)], warnings: [], error: null },
   };
 }
 const failing = (s: Snapshot, wasmSha?: string): string[] => evaluate(record, s, wasmSha).filter((c) => !c.ok).map((c) => c.name);
@@ -87,6 +90,25 @@ test("the supply identity must hold on the chain's own numbers", () => {
 
 test("recorded accounts can never hold more than the supply", () => {
   assert.deepEqual(failing({ ...good(), recordedHoldings: 1100n }), ["recorded accounts' balances and stake never exceed the supply"]);
+});
+
+test("the recorded reasoning texts must hash to the chain's hashes", () => {
+  const s = good();
+  const name = "each recorded reasoning text hashes (SHA-256) to the reasoning_hash the chain holds";
+  const withMinutes = (m: Minutes) => failing({ ...s, minutes: m });
+  assert.deepEqual(withMinutes({ decisions: [decision(12, "mismatch")], warnings: [], error: null }), [name]);
+  assert.deepEqual(withMinutes({ decisions: [decision(12, "verified"), decision(11, "unchecked")], warnings: [], error: null }), [name]);
+  assert.deepEqual(withMinutes({ decisions: [decision(12, "verified")], warnings: ["x.jsonl:1: the text does not hash to its reasoning_hash, skipped"], error: null }), [name]);
+  assert.deepEqual(withMinutes({ decisions: [], warnings: ["x.jsonl:1: the text does not hash to its reasoning_hash, skipped"], error: "indexer: HTTP 500" }), [name]);
+  assert.deepEqual(withMinutes({ decisions: [decision(11, null)], warnings: [], error: null }), []);
+});
+
+test("an unreadable transaction index skips the reasoning check instead of failing it, and the count says so", () => {
+  const down: Minutes = { decisions: [], warnings: [], error: "indexer: HTTP 500" };
+  const names = (m: Minutes) => evaluate(record, { ...good(), minutes: m }).map((c) => c.name);
+  assert.equal(names(good().minutes).length, 12);
+  assert.equal(names(down).length, 11);
+  assert.deepEqual(failing({ ...good(), minutes: down }), []);
 });
 
 test("the state line names the epoch, rate, chair and supply", () => {

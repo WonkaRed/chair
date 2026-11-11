@@ -1,31 +1,52 @@
 # $CHAIR
 
-A NEP-141 memecoin on NEAR whose mint and burn rate is set once per epoch by a chair account, built for an AI agent, inside limits the contract enforces. The contract has no admin or upgrade method, and stakers can replace the chair by a vote weighted by stake.
+A NEP-141 memecoin on NEAR whose money policy is a decision, not a schedule: once per epoch a chair account, built for an AI agent, sets the mint or burn rate, and the contract refuses any rate beyond 2% (200 bps) either way or any move of more than 0.5% (50 bps) from the rate in effect. Every decision carries the SHA-256 of the chair's written reasoning, so anyone can check that the reasoning shown is the reasoning the chair committed to; stakers can replace the chair by a vote weighted by stake, and the contract has no admin or upgrade method.
 
 Built for the NEAR HACKATHON, track **Memecoins With Mechanics**. The mechanic lives in the contract, not in a backend somebody could switch off.
 
-## It runs on NEAR testnet
+## Check it in under a minute
 
-Token: [`token.chair-coin-2.testnet`](https://testnet.nearblocks.io/address/token.chair-coin-2.testnet), epochs of 90 s, launch supply 1,000,000. The token account was created, given its code and initialised in one transaction that adds no key, so it has no access key and nobody can upgrade it or move its NEAR.
+A chair agent (`chair-agent/scripts/run-chair.sh`: the `qwen3.8-27b` model run locally on the submitter's own GPUs, with the rule chair deciding whenever the model is unavailable) has been running since 2026-11-11 and sets the rate once per epoch; if it stops, the contract decays the rate toward zero. Token: [`token.chair-coin-2.testnet`](https://testnet.nearblocks.io/address/token.chair-coin-2.testnet), epochs of 90 s.
 
 - Accepted `set_policy` by the chair, +40 bps: [`BCzfFZzx...`](https://testnet.nearblocks.io/txns/BCzfFZzxc4E7rnAhTBXTmGSZetmYhPt9uFG4PDYqAyQB)
 - The same chair asking for +201 bps, refused by the contract ("rate_bps out of bounds"): [`Efagw855...`](https://testnet.nearblocks.io/txns/Efagw855yoDeJXjNyui9Bt9d4JXfhisMoTm9JCPkHWjf)
+- **Chair minutes**, the first section of the page: every decision the chair has put on chain, newest first, with its rate, the reasoning text and a mark. Your browser computes the SHA-256 of each text and compares it with the `reasoning_hash` in the chain's event; a decision whose text is not published shows its hash only. Open it with `make -C web serve`, then http://127.0.0.1:8080/ (needs Node 22.22.2 or newer and npm).
+- No browser: `git clone https://github.com/WonkaRed/chair.git && cd chair && make -C deploy verify` runs 12 read-only checks (11 if the transaction index cannot be reached), then lists the latest decisions from the chain with the start of the recorded reasoning and whether its SHA-256 equals the hash on chain ([below](#re-check-the-deployment)).
+
+## It runs on NEAR testnet
+
+Launch supply 1,000,000. The token account was created, given its code and initialised in one transaction that adds no key, so it has no access key and nobody can upgrade it or move its NEAR.
+
 - The impeachment: stakers backing 400,000 of 400,000 staked tokens seat `challenger.chair-coin-2.testnet`; the contract applies the vote in the first call after the boundary, [`CvqCjCU3...`](https://testnet.nearblocks.io/txns/CvqCjCU3ngrttKnZotBwPzczw6aVHTpkwPEZnYwwZqoD) (its `impeached` event)
 - The chair's key can call `set_policy` and nothing else: the protocol refuses any other method signed with it (`MethodNameMismatch`, no transaction exists to link; the run log shows it).
 
-An AI model has chaired this token live. `qwen3.8-27b`, a locally run model on the submitter's own GPUs (no cloud API, no Claude model), held the seat as `challenger.chair-coin-2.testnet` for 17 recorded decisions in four runs (epochs 18 to 23, 38 to 43, 217 to 218 and 222 to 224). Each epoch it read the on-chain numbers, chose a rate and wrote its reasoning. The SHA-256 of that text is in each transaction, for example [`BnKWCcp3...`](https://testnet.nearblocks.io/txns/BnKWCcp3wG1do9PSw4AVEMvLrfvaL66xVNK2TPMDruzj) (epoch 22) and [`AUmvPMwR...`](https://testnet.nearblocks.io/txns/AUmvPMwRt9HnXDZmcKHzbF2hZejL4j4RyznqPkXNTLte) (epoch 43), and equals the hash of the saved text for all 17. The contract held the model to the same bounds as anyone else. Its reasoning is recorded, not vouched for, and it sometimes misreads its inputs: [`docs/ai-chair-runs.md`](docs/ai-chair-runs.md) has every run, its log and what the model got wrong. The rule-based chair from `chair-agent/` ran three epochs before it. No agent is running now (2026-11-11), so the contract decays the rate toward zero.
+An AI model has chaired this token live. `qwen3.8-27b`, a locally run model on the submitter's own GPUs (no cloud API, no Claude model), held the seat as `challenger.chair-coin-2.testnet` for 17 recorded decisions in four runs (epochs 18 to 23, 38 to 43, 217 to 218 and 222 to 224). Each epoch it read the on-chain numbers, chose a rate and wrote its reasoning. The SHA-256 of that text is in each transaction, for example [`BnKWCcp3...`](https://testnet.nearblocks.io/txns/BnKWCcp3wG1do9PSw4AVEMvLrfvaL66xVNK2TPMDruzj) (epoch 22) and [`AUmvPMwR...`](https://testnet.nearblocks.io/txns/AUmvPMwRt9HnXDZmcKHzbF2hZejL4j4RyznqPkXNTLte) (epoch 43), and equals the hash of the saved text for all 17. The contract held the model to the same bounds as anyone else. Its reasoning is recorded, not vouched for, and it sometimes misreads its inputs: [`docs/ai-chair-runs.md`](docs/ai-chair-runs.md) has every run, its log and what the model got wrong. The rule-based chair from `chair-agent/` ran three epochs before it. The decisions of the agent now running are on chain too; their texts are in its decision log on the submitter's machine, not in `docs/`, so they are not among the 17 and the checks below show them as having no recorded text.
 
-The page reads the live token (`make -C web serve`, then open http://127.0.0.1:8080/; needs Node 22.22.2 or newer and npm). It lists every mint and burn and checks the sums against the contract's own `get_supply`.
+Below the chair minutes the same page lists every mint and burn and checks the sums against the contract's own `get_supply`.
 
-Re-check the deployment read-only. It needs no key and no Rust build, only `git`, `make`, npm, Node 22.22.2 or newer and network access, and took 5 to 8 s here (it installs the 72 packages of `deploy/` first):
+## Re-check the deployment
+
+Read-only. It needs no key and no Rust build, only `git`, `make`, npm, Node 22.22.2 or newer and network access, and took 5.8 s here with the packages installed (the first run installs the 72 packages of `deploy/` first):
 
 ```sh
 git clone https://github.com/WonkaRed/chair.git && cd chair && make -C deploy verify
 ```
 
-It prints 11 checks (plus a `now:` line) and ends with the lines below. The supply figures and the `now:` line are the live state at the time of one run and move. With `WASM=<file>` it adds a 12th check that the code on chain equals your local wasm ([`deploy/README.md`](deploy/README.md)); the recorded run in [`docs/testnet-run-verify.txt`](docs/testnet-run-verify.txt) used it and shows 12.
+It prints 12 checks, then a `now:` line and the latest decisions, and exits 0 only if every check passes. The last check recomputes the SHA-256 of every reasoning text recorded in `docs/` and compares it with the `reasoning_hash` the chain holds for that decision; a text that does not match fails the command. It reads those decisions from a third-party transaction index (FastNEAR, the one the page uses): if the index cannot be read, verify prints one `NOTE:` line instead of the decisions, skips that check and does not count it (11 checks; the others read the RPC only), and exits by the remaining checks. With `WASM=<file>` it adds a 13th check that the code on chain equals your local wasm ([`deploy/README.md`](deploy/README.md)); the recorded run in [`docs/testnet-run-verify.txt`](docs/testnet-run-verify.txt) used it, predates the last check, and shows 12.
+
+Below is one live run, from the first check to the last line. Epochs, rates, hashes, supply figures and the decision counts move on with the chain: a decision lands every epoch (90 s), so the newest ones listed here are later than these. The newest decisions are the running agent's, whose texts are not in `docs/`, so they read "no text recorded", which is not an error; the decisions with a recorded text are listed after them and are the ones compared.
 
 ```
+PASS  code hash on chain equals the recorded wasm
+      chain Ap9Us7NuZwcJrk79A9b43yvGoXBkbAKDdsaS3tCEgRAa (sha256 91cd11b6ecb44b1169fce018b9b2db42bbade12a3a5dd8cb6fee838e18abc013); record Ap9Us7NuZwcJrk79A9b43yvGoXBkbAKDdsaS3tCEgRAa (sha256 91cd11b6ecb44b1169fce018b9b2db42bbade12a3a5dd8cb6fee838e18abc013)
+PASS  the reported code hash is the hash of the code the node serves
+      view_account code_hash (base58) against sha256 of view_code
+PASS  the token account holds no access key at all
+      0 keys
+PASS  chair holds only a function-call key limited to set_policy on the token
+      ed25519:5NRzm27oSnjtf3G8yV4gnVwFZuNZraBhuyb8pGEYxoaJ token.chair-coin-2.testnet.[set_policy]
+PASS  challenger holds only a function-call key limited to set_policy on the token
+      ed25519:A31gFMtexyu6BkLLcUDtC6K7L29pR4jQ4pmyoNJPK8i4 token.chair-coin-2.testnet.[set_policy]
 PASS  hard bounds: rate within +-200 bps, step at most 50 bps, backing over 5% of the supply to seat a chair
       max_rate_bps 200, max_step_bps 50, quorum_bps 500
 PASS  launch parameters are the recorded ones
@@ -33,15 +54,42 @@ PASS  launch parameters are the recorded ones
 PASS  launch supply is the recorded one
       1000000000000000000000000000000
 PASS  total supply = launch + minted - burned
-      1141920726741958846801684456300 = 1000000000000000000000000000000 + 141930726741958846801684456300 - 10000000000000000000000000
+      1153841473215871988613763809426 = 1000000000000000000000000000000 + 153851473215871988613763809426 - 10000000000000000000000000
 PASS  ft_total_supply equals get_supply.total_supply
-      1141920726741958846801684456300
+      1153841473215871988613763809426
 PASS  recorded accounts' balances and stake never exceed the supply
-      recorded accounts hold 1072513614741684519768000000000, unclaimed rewards 69407112000274327033684456300, supply 1141920726741958846801684456300 (the rest is in accounts not in the record)
+      recorded accounts hold 1072513614741684519768000000000, unclaimed rewards 81327858474187468845763809426, supply 1153841473215871988613763809426 (the rest is in accounts not in the record)
+PASS  each recorded reasoning text hashes (SHA-256) to the reasoning_hash the chain holds
+      20 of 37 decisions on chain have a text recorded in docs/, 20 of them match
 
-now: epoch 220: rate 37 bps, chair challenger.chair-coin-2.testnet, streak 209; supply 1141920726741958846801684456300 (launch 1000000000000000000000000000000, minted 141930726741958846801684456300, burned 10000000000000000000000000), staked 400000000000000000000000000000
+now: epoch 312: rate -40 bps, chair challenger.chair-coin-2.testnet, streak 301; supply 1153841473215871988613763809426 (launch 1000000000000000000000000000000, minted 153851473215871988613763809426, burned 10000000000000000000000000), staked 400000000000000000000000000000
 
-OK: 11 checks passed
+latest decisions on chain (5 of 37, newest first):
+  epoch 312, rate -40 bps, reasoning_hash d655b9e79fb483987a1461ab7a190e31c7796e5eb2e05b0f969b821e516f8aba
+      no text recorded in docs/ for this hash, so nothing to compare (not an error)
+  epoch 311, rate -20 bps, reasoning_hash 22dc0b3f0b464290d5c37af20099349c0ad665fbd203cd3277717ead4a6028ef
+      no text recorded in docs/ for this hash, so nothing to compare (not an error)
+  epoch 310, rate +10 bps, reasoning_hash 17ac04d2ced8f1eac81c033826efb939e010497dd937474b2ae7d846251d42b9
+      no text recorded in docs/ for this hash, so nothing to compare (not an error)
+  epoch 224, rate +5 bps, reasoning_hash c0903133b53ee6690661908b81c2bbdc70181c1969e251967310ffb9944ceddc
+      "$CHAIR decision, epoch 224, chair local:qwen3.8-27b. Rate in effect 10 bps; decision 5 bps. Supply h..."
+      SHA-256 of the recorded text equals the hash on chain
+  epoch 223, rate +10 bps, reasoning_hash 9b4b0ae8d098fd6087e8e91f8f212a49a645a7cdc7602265aa4a78f6570b5476
+      "$CHAIR decision, epoch 223, chair local:qwen3.8-27b. Rate in effect 0 bps; decision 10 bps. Staked s..."
+      SHA-256 of the recorded text equals the hash on chain
+
+latest decisions with a text recorded in docs/ (3 more):
+  epoch 222, rate 0 bps, reasoning_hash 13a98a1f5ae27f74c966f64295476e2c0ef5fcfdd5bc4325ace2663fba6d9e8f
+      "$CHAIR decision, epoch 222, chair local:qwen3.8-27b. Rate in effect 0 bps; decision 0 bps. With no r..."
+      SHA-256 of the recorded text equals the hash on chain
+  epoch 218, rate +10 bps, reasoning_hash 9af96579b7b0bd690759cdbafcff1a937f3765e573b139601c08436e3a2a40d7
+      "$CHAIR decision, epoch 218, chair local:qwen3.8-27b. Rate in effect 0 bps; decision 10 bps. The syst..."
+      SHA-256 of the recorded text equals the hash on chain
+  epoch 217, rate 0 bps, reasoning_hash accd52c11de4147419f48190066e902a7de07d36598e9fe38a3643e673265034
+      "$CHAIR decision, epoch 217, chair local:qwen3.8-27b. Rate in effect 0 bps; decision 0 bps. No recent..."
+      SHA-256 of the recorded text equals the hash on chain
+
+OK: 12 checks passed
 ```
 
 Every transaction of the scripted run, with its hash, is in [`docs/testnet-deployment.json`](docs/testnet-deployment.json); the run logs are `docs/testnet-run-*.txt`. How it was deployed and how to redeploy: [`deploy/README.md`](deploy/README.md).

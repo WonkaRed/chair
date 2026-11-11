@@ -4,10 +4,10 @@ Everything here is **testnet only**. Every command connects first and refuses un
 every account id must end in `.testnet` (`src/guard.ts`: a `TestnetAccount` cannot be built from anything else, and `Rpc.connect`
 is the only way to get an `Rpc`). Testnet NEAR is free; nothing here touches mainnet or real funds.
 
-Needs Node 22.22.2 or newer (it runs the `.ts` files directly). One dependency, `near-api-js`.
+Needs Node 22.22.2 or newer (it runs the `.ts` files directly). One dependency, `near-api-js`; `verify` also reads the transaction index with the page's own modules in `web/` (a clone of the whole repo has them, no install needed).
 
 ```sh
-make -C deploy test      # offline: typecheck and 32 unit tests, no key, no network
+make -C deploy test      # offline: typecheck and 38 unit tests, no key, no network
 make -C deploy verify    # read-only: re-checks the live deployment from public view calls; needs no key
 ```
 
@@ -65,9 +65,17 @@ run rather than reshaping the story; start a new deployment then.
    no allowance cap, the recorded public key;
 4. the bounds the contract reports (`get_params`: `max_rate_bps` 200, `max_step_bps` 50, `quorum_bps` 500) and the recorded launch parameters;
 5. the supply identity `total_supply = launch + minted - burned`, `ft_total_supply` equal to it, and recorded accounts' balances plus
-   stake plus the reward pool not exceeding the supply.
+   stake plus the reward pool not exceeding the supply;
+6. every reasoning text recorded in `docs/testnet-run-agent-*` (the page's own bundler, `web/scripts/minutes.mjs`) hashes with SHA-256 to
+   the `reasoning_hash` of the `policy_set` event the chain holds for that decision. The events come from the transaction index the page uses
+   (`web/config.js`, FastNEAR), read with the page's own code (`web/site/js`), so this check needs that index as well as the RPC. If the index
+   cannot be read, `verify` prints one `NOTE:` line, skips this check and does not count it (11 checks; the others read the RPC only), and exits
+   by the rest. A decision with no recorded text is listed as such and is not a failure; a text that does not match, or a record in `docs/` that
+   does not hash to its own hash (also when the index is down), is.
 
-It prints PASS/FAIL per check, the current state (it moves, since the chair keeps deciding), and exits non-zero on any FAIL.
+It prints PASS/FAIL per check, the current state (it moves, since the chair keeps deciding), the five newest decisions on chain (epoch, rate,
+`reasoning_hash`, and for those with a recorded text its first 100 characters and whether its SHA-256 equals the hash), then up to three more
+recent decisions that have a recorded text; it exits non-zero on any FAIL.
 
 ## Reproduce the wasm hash
 

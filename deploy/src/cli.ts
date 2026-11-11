@@ -7,13 +7,15 @@ import { parseArgs } from "node:util";
 import { createParent, deployAll, newRecord, sha256Hex } from "./deploy.ts";
 import { testnetAccount } from "./guard.ts";
 import { KeyStore } from "./keys.ts";
+import { describeMinutes } from "./minutes.ts";
 import { loadRecord, saveRecord } from "./record.ts";
 import { Run } from "./run.ts";
 import { DEFAULT_RPC, Rpc } from "./rpc.ts";
 import { runScenario } from "./scenario.ts";
 import { describeState, evaluate, gather } from "./verify.ts";
 
-const DEFAULT_RECORD = resolve(import.meta.dirname, "..", "..", "docs", "testnet-deployment.json");
+const DOCS = resolve(import.meta.dirname, "..", "..", "docs");
+const DEFAULT_RECORD = resolve(DOCS, "testnet-deployment.json");
 
 const USAGE = `usage: node src/cli.ts <command> [options]
   bootstrap --parent <name.testnet>                 the faucet creates the parent account (10 NEAR); its key goes in the key directory
@@ -75,10 +77,10 @@ async function main(argv: string[]): Promise<number> {
 
 async function verifyAndPrint(rpc: Rpc, recordPath: string, wasm: Buffer | null): Promise<number> {
   const record = loadRecord(recordPath);
-  const snapshot = await gather(rpc, record);
+  const snapshot = await gather(rpc, record, DOCS);
   const checks = evaluate(record, snapshot, wasm === null ? undefined : sha256Hex(wasm));
   for (const c of checks) console.log(`${c.ok ? "PASS" : "FAIL"}  ${c.name}\n      ${c.detail}`);
-  console.log(`\nnow: ${describeState(snapshot)}`);
+  console.log(`\nnow: ${describeState(snapshot)}\n\n${describeMinutes(snapshot.minutes).join("\n")}`);
   const failed = checks.filter((c) => !c.ok).length;
   console.log(failed === 0 ? `\nOK: ${checks.length} checks passed` : `\nFAILED: ${failed} of ${checks.length} checks`);
   return failed === 0 ? 0 : 1;
