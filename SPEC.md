@@ -14,6 +14,7 @@ contract lane owns is implemented.
 | `chair-agent/` | agent | TypeScript. A deterministic rule-based chair (needs no API key) and an LLM chair; both only ever call `set_policy` | Signs with a function-call key scoped to `set_policy` |
 | `sim/` | sim | 60-epoch simulator, supply under several scenarios | Implements "Rollover" below exactly, integer arithmetic, same rounding |
 | `web/` | web | Static page: streak, current rate, decision log, mints and burns | Reads views and NEP-297 events only |
+| `deploy/` | deploy | TypeScript. Launches the token on NEAR testnet exactly as "Deploying" below, runs a scripted scenario on it and re-checks the deployment from public views | Testnet only; keys stay outside the repository |
 | root | scaffold | `Makefile`, `Dockerfile`, `rust-toolchain.toml`, `README.md`, this file | Lanes edit `LANES` in the Makefile only to register themselves |
 
 Each lane directory has its own `Makefile` with `build`, `test` and `demo`. The root Makefile runs them
@@ -138,9 +139,12 @@ only a key that can sign a deposit. *(Change from the earlier draft, where they 
 `nominate`: attach at least `max(nominate_bond, storage cost of the nomination)` yoctoNEAR. That amount is
 escrowed as the bond (`get_candidates.bond`); the excess is refunded. The nomination lives in contract
 state, so its storage is paid by the bond, and the bond is returned in full whenever the nomination ends (withdrawal,
-eviction, or the end of an impeachment whoever wins), so an honest nominator loses only gas. Decisions:
+eviction, or the end of an impeachment whoever wins). It can be held for a long time: any staker, even with 1
+yocto, can keep a nomination from being withdrawn (`withdraw_nomination` below), and its bond then returns only at an
+impeachment or an eviction. Decisions:
 the sitting chair cannot be nominated; a candidate has at most one live nomination; the candidate account
-need not exist or hold tokens; the nominator need not stake; at most `MAX_CANDIDATES = 10` are live. The
+need not exist or hold tokens, and `persona_hash` is not checked against anything, so a nominator can occupy a candidate
+account with a nomination whose hash is wrong and nobody else can nominate that account while it stands; the nominator need not stake; at most `MAX_CANDIDATES = 10` are live. The
 nominator's whole stake backs the new nomination at once, exactly as if it had called `back` (moving that stake
 off whichever candidate it backed; a nominator with no stake adds no backing). When the list is full the
 newcomer takes the slot of the least-backed nomination (the earliest nominated on a tie) if, and only if, the
@@ -161,7 +165,8 @@ account backs it: it ends the nomination and returns the bond. "No other account
 candidate's `backing` equals the nominator's own `staked` when the nominator's stake backs this very nomination
 (and 0 otherwise), because `backing` is the sum of the backers' stakes. Otherwise a nominator could wipe every
 backer in the last block before a boundary and re-nominate the same account under a new id. Backers who leave
-(`unback`, or `unstake`) free it; if it ends by impeachment or eviction the bond is refunded as usual. Panics:
+(`unback`, or `unstake`) free it, and while one stays, even with 1 yocto, the nomination cannot be withdrawn; if it ends by
+impeachment or eviction the bond is refunded as usual. Panics:
 `no such candidate`; `only the nominator may withdraw a nomination`; `other accounts back this candidate: it
 can be withdrawn once their backing is gone`. A withdrawal after a vote was already won finds nothing to withdraw,
 because `roll()` applies the impeachment first.
@@ -317,9 +322,11 @@ impeachment with up to ten bond refunds must fit in the resolver's gas or the se
 The contract reserves `GAS_FOR_RESOLVE_TRANSFER = 30 Tgas` for it (`near-contract-standards` reserves 5, which is
 not enough: a resolver that rolled a boundary with an impeachment burnt 6.3 Tgas in `resolver_gas.rs`). The
 heaviest rollover possible (five mints, four decays, an impeachment refunding ten bonds, 64-character account
-ids, 128-byte persona hashes) burns 5.3 Tgas and the resolver itself 2.2 (sandbox measurement, `gas_burnt`).
-A caller must therefore attach at least 35 Tgas plus whatever `ft_on_transfer` needs; less fails the whole call
-before anything moves. In `ft_resolve_transfer` the standard's refund event is logged before the rollover's
+ids, 128-byte persona hashes) burns 5.3 Tgas and the resolver itself 2.2 (sandbox measurement, `gas_burnt`; the figures exclude about 0.22 Tgas of
+prepaid execution fees per refund). A caller must therefore attach at least 35 Tgas, about 45 Tgas if the call may be
+the first after an epoch boundary (its own receipt then pays for the roll), plus whatever `ft_on_transfer` needs. If the
+gas cannot cover the resolver's 30 Tgas the call fails and nothing moves; a receiver left without enough gas fails, and
+the sender is refunded. In `ft_resolve_transfer` the standard's refund event is logged before the rollover's
 events: the library emits it inside the call that settles the refund, and the rollover's events are held until
 no panic is left.
 
@@ -438,4 +445,4 @@ signed by a parent account, and is never given a key:
 
 The result has no access key at all, so nobody can redeploy it, add a key or move its NEAR: the no-admin,
 no-upgrade guarantee. The sandbox harness (`launch_with_supply`) deploys exactly this way, and
-`no_admin.rs` shows the account has no key and that no key can sign for it.
+`no_admin.rs` shows the account has no key and that no key can sign for it. `deploy/` does the same on testnet (`deploy/README.md`).

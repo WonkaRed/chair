@@ -3,7 +3,7 @@
 export const config = {
   network: "testnet",
   // The deployed token: docs/testnet-deployment.json records it, `make -C deploy verify` re-checks it.
-  account: "token.chair-coin.testnet",
+  account: "token.chair-coin-2.testnet",
   // NEAR JSON-RPC: the source of truth for every total on the page.
   rpcUrl: "https://rpc.testnet.fastnear.com",
   // FastNEAR transactions API: which transactions touched the token, with their logs. An index, checked against the RPC.

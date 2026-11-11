@@ -19,7 +19,7 @@ Needs Node 22.22.2 or newer and npm. Dependencies are pinned exactly in `package
 `@types/node` 26.6.6.
 
 ```sh
-make test   # typecheck, then 108 tests with node --test; no network except loopback fakes, no key; temp files go under out/test-tmp (override with CHAIR_TEST_TMP)
+make test   # typecheck, then 112 tests with node --test; no network except loopback fakes, no key; temp files go under out/test-tmp (override with CHAIR_TEST_TMP)
 make demo   # 16 epochs against an in-memory model of the token; prints a table, writes out/demo-decisions.jsonl
 ```
 
@@ -113,9 +113,8 @@ node dist/src/main.js verify-log decisions.jsonl <hash>     # prints the text th
 Verified by `make test`: bounds are never exceeded over randomized inputs; every LLM failure mode falls back; hashes match
 logged text; the signed transaction is a single zero-deposit `set_policy` function call (decoded and checked);
 full-access and wrongly scoped keys are refused; the real RPC, signing and SDK code paths run end to end against
-loopback fake servers. Verified live on NEAR testnet (`docs/testnet-run-agent-rule.txt`): the signer, RPC client and chain reader decided and sent `set_policy` as `challenger.chair-coin.testnet`, three epochs in a row
-with the rule chair, and `verify-log` recomputes every hash. NOT verified: the LLM chair against the real Anthropic API (the one
-attempt, `docs/testnet-run-agent-llm.txt`, was refused with "credit balance is too low" and fell back to the rule chair, as designed).
+loopback fake servers. Verified live on NEAR testnet (`docs/testnet-run-agent-rule.txt`): the signer, RPC client and chain reader decided and sent `set_policy` as `challenger.chair-coin-2.testnet`, three epochs in a row
+with the rule chair, and `verify-log` recomputes every hash. NOT verified: the LLM chair has never answered from the real Anthropic API (the one attempt was refused for lack of credit) and has not run on testnet; it is tested against a scripted stand-in.
 
 `reasoning_hash` is a rule of the contract, not a choice of this agent: `set_policy` panics unless it is exactly 64
 lowercase hex characters (`reasoning_hash must be a SHA-256 digest: 64 lowercase hex characters`), and `fake-chain.ts`

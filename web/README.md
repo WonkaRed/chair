@@ -11,7 +11,7 @@ Needs Node 22.22.2 or newer and npm (the build compiles `../sim` first; the Rust
 ```sh
 make -C web build    # compiles ../sim, writes web/dist (site + config + fixture + a verbatim copy of the compiled simulator + the CSP)
 make -C web serve    # builds, then serves web/dist at http://127.0.0.1:8080/ (PORT=... to change)
-make -C web test     # builds, then `node --test "test/*.test.mjs"`: 12 tests, no browser, no network
+make -C web test     # builds, then `node --test "test/*.test.mjs"`: 13 tests, no browser, no network
 make -C web record   # re-records fixtures/sandbox-run.json from a local NEAR sandbox (slow: builds the contract)
 ```
 
@@ -19,7 +19,7 @@ Deploying is copying `web/dist` to any static host.
 
 ## Config: `config.js`
 
-The one file to edit after deployment: `account` (the token account; shipped pointing at the live testnet token `token.chair-coin.testnet`, see `docs/testnet-deployment.json`),
+The one file to edit after deployment: `account` (the token account; shipped pointing at the live testnet token `token.chair-coin-2.testnet`, see `docs/testnet-deployment.json`),
 `rpcUrl` (NEAR JSON-RPC, the source of truth for every total), `indexerUrl` (FastNEAR transactions API, the source of the event list),
 `explorerUrl`, `repoUrl`/`repoRef` (spec and test links), and `fixture`. `fixture: null` (as shipped) reads the live chain; setting it to a path, as the tests do, shows
 `fixtures/sandbox-run.json` instead and says, in a banner, "recorded sandbox run, not a live chain". The build writes the page's

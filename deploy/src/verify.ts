@@ -89,7 +89,11 @@ export function evaluate(record: DeploymentRecord, s: Snapshot, wasmSha256?: str
   }
 
   const p = s.params;
-  check("hard bounds: rate within +-200 bps, step at most 50 bps", p.maxRateBps === 200 && p.maxStepBps === 50, `max_rate_bps ${p.maxRateBps}, max_step_bps ${p.maxStepBps}`);
+  check(
+    "hard bounds: rate within +-200 bps, step at most 50 bps, backing over 5% of the supply to seat a chair",
+    p.maxRateBps === 200 && p.maxStepBps === 50 && p.quorumBps === 500,
+    `max_rate_bps ${p.maxRateBps}, max_step_bps ${p.maxStepBps}, quorum_bps ${p.quorumBps}`,
+  );
   check(
     "launch parameters are the recorded ones",
     p.epochMs === record.launch.epochMs && p.impeachThresholdBps === record.launch.impeachThresholdBps && p.nominateBond.toString() === record.launch.nominateBond,

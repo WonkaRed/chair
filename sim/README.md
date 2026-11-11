@@ -23,7 +23,7 @@ Needs Node 22 or newer (`engines.node` in `package.json` is `>=22`; `chair-agent
 No network is used after `npm ci`, no keys.
 
 ```sh
-make test     # typecheck, then 81 tests (node --test)
+make test     # typecheck, then 88 tests (node --test)
 make demo     # the twelve scenario tables on stdout, and out/scenarios.json
 node dist/src/main.js --all --out /some/where.json   # after a build: every epoch, custom JSON path
 ```

@@ -1,0 +1,30 @@
+# make -C deploy verify WASM=../.scratch/deployed/chair_token.wasm  (2026-11-11T08:01:21Z)
+PASS  code hash on chain equals the recorded wasm
+      chain Ap9Us7NuZwcJrk79A9b43yvGoXBkbAKDdsaS3tCEgRAa (sha256 91cd11b6ecb44b1169fce018b9b2db42bbade12a3a5dd8cb6fee838e18abc013); record Ap9Us7NuZwcJrk79A9b43yvGoXBkbAKDdsaS3tCEgRAa (sha256 91cd11b6ecb44b1169fce018b9b2db42bbade12a3a5dd8cb6fee838e18abc013)
+PASS  the reported code hash is the hash of the code the node serves
+      view_account code_hash (base58) against sha256 of view_code
+PASS  code hash on chain equals the local wasm
+      local 91cd11b6ecb44b1169fce018b9b2db42bbade12a3a5dd8cb6fee838e18abc013; chain 91cd11b6ecb44b1169fce018b9b2db42bbade12a3a5dd8cb6fee838e18abc013
+PASS  the token account holds no access key at all
+      0 keys
+PASS  chair holds only a function-call key limited to set_policy on the token
+      ed25519:5NRzm27oSnjtf3G8yV4gnVwFZuNZraBhuyb8pGEYxoaJ token.chair-coin-2.testnet.[set_policy]
+PASS  challenger holds only a function-call key limited to set_policy on the token
+      ed25519:A31gFMtexyu6BkLLcUDtC6K7L29pR4jQ4pmyoNJPK8i4 token.chair-coin-2.testnet.[set_policy]
+PASS  hard bounds: rate within +-200 bps, step at most 50 bps, backing over 5% of the supply to seat a chair
+      max_rate_bps 200, max_step_bps 50, quorum_bps 500
+PASS  launch parameters are the recorded ones
+      epoch_ms 90000, impeach_threshold_bps 3000, nominate_bond 100000000000000000000000
+PASS  launch supply is the recorded one
+      1000000000000000000000000000000
+PASS  total supply = launch + minted - burned
+      1126620344129622131057337578542 = 1000000000000000000000000000000 + 126630344129622131057337578542 - 10000000000000000000000000
+PASS  ft_total_supply equals get_supply.total_supply
+      1126620344129622131057337578542
+PASS  recorded accounts' balances and stake never exceed the supply
+      recorded accounts hold 1072513614741684519768000000000, unclaimed rewards 54106729387937611289337578542, supply 1126620344129622131057337578542 (the rest is in accounts not in the record)
+
+now: epoch 15: rate 0 bps, chair challenger.chair-coin-2.testnet, streak 4; supply 1126620344129622131057337578542 (launch 1000000000000000000000000000000, minted 126630344129622131057337578542, burned 10000000000000000000000000), staked 400000000000000000000000000000
+
+OK: 12 checks passed
+exit 0

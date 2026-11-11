@@ -1,0 +1,34 @@
+chair-agent on testnet: token token.chair-coin-2.testnet, chair challenger.chair-coin-2.testnet, chair kind rule-v1
+epoch 11 | chair rule-v1 (rule) | rate -10 -> 35 bps
+reasoning_hash: 72281ec1b0bf20ca47f94172f75f85bcaf0e4745cb9f79d004f133ca561403c3
+--- reasoning (the text behind the hash; each line prefixed, the prefix is not hashed) ---
+  | $CHAIR decision, epoch 11, chair rule-v1.
+  | Rate in effect -10 bps; decision 35 bps.
+  | Staked share of supply is 36.00%, below the 50.00% target, which asks for 35 bps.
+  | Moving from -10 bps toward 35 bps by at most 50 bps: 35 bps.
+--- transaction ---
+challenger.chair-coin-2.testnet -> token.chair-coin-2.testnet.set_policy({"rate_bps":35,"reasoning_hash":"72281ec1b0bf20ca47f94172f75f85bcaf0e4745cb9f79d004f133ca561403c3"})
+executed, tx CvqCjCU3ngrttKnZotBwPzczw6aVHTpkwPEZnYwwZqoD
+epoch 12 | chair rule-v1 (rule) | rate 35 -> 35 bps
+reasoning_hash: 0356ec0c5426fccf7566a567c30de76e482f7220ec4104b4d122040a9db39e3c
+--- reasoning (the text behind the hash; each line prefixed, the prefix is not hashed) ---
+  | $CHAIR decision, epoch 12, chair rule-v1.
+  | Rate in effect 35 bps; decision 35 bps.
+  | Staked share of supply is 35.87%, below the 50.00% target, which asks for 35 bps.
+  | Supply moved 0.35% over the last 6 epochs, inside the +-3.00% brake.
+  | The wanted rate 35 bps is within 5 bps of the current 35 bps: holding.
+--- transaction ---
+challenger.chair-coin-2.testnet -> token.chair-coin-2.testnet.set_policy({"rate_bps":35,"reasoning_hash":"0356ec0c5426fccf7566a567c30de76e482f7220ec4104b4d122040a9db39e3c"})
+executed, tx 234RMj1FSnwm77gstaqaubNV7Cv55ScoYCrt8CASuLAu
+epoch 13 | chair rule-v1 (rule) | rate 35 -> 35 bps
+reasoning_hash: 3bd32b6d76503cb9664e39ed9601a211881584b63418079a4c258775515a5dcb
+--- reasoning (the text behind the hash; each line prefixed, the prefix is not hashed) ---
+  | $CHAIR decision, epoch 13, chair rule-v1.
+  | Rate in effect 35 bps; decision 35 bps.
+  | Staked share of supply is 35.75%, below the 50.00% target, which asks for 35 bps.
+  | Supply moved 0.70% over the last 6 epochs, inside the +-3.00% brake.
+  | The wanted rate 35 bps is within 5 bps of the current 35 bps: holding.
+--- transaction ---
+challenger.chair-coin-2.testnet -> token.chair-coin-2.testnet.set_policy({"rate_bps":35,"reasoning_hash":"3bd32b6d76503cb9664e39ed9601a211881584b63418079a4c258775515a5dcb"})
+executed, tx GzVcG6mGNygQk3rTHWYvXHH3pEiGw3uYGFM6P4BaWtpJ
+--- stopped by the operator after epoch 13 (3 decisions)

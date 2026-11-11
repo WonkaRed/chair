@@ -71,9 +71,11 @@ test("a chair account must hold exactly one set_policy-only key with no allowanc
   assert.deepEqual(bad([{ publicKey: "ed25519:CHAIRKEY", permission: { receiverId: accounts.token, methodNames: ["set_policy"], allowance: "1000" } }]), [name]);
 });
 
-test("bounds other than 200 and 50, or other launch parameters, fail", () => {
+test("bounds other than 200, 50 and a 500 bps quorum, or other launch parameters, fail", () => {
   const s = good();
-  assert.deepEqual(failing({ ...s, params: { ...s.params, maxRateBps: 300 } }), ["hard bounds: rate within +-200 bps, step at most 50 bps"]);
+  const bounds = "hard bounds: rate within +-200 bps, step at most 50 bps, backing over 5% of the supply to seat a chair";
+  assert.deepEqual(failing({ ...s, params: { ...s.params, maxRateBps: 300 } }), [bounds]);
+  assert.deepEqual(failing({ ...s, params: { ...s.params, quorumBps: 1 } }), [bounds]);
   assert.deepEqual(failing({ ...s, params: { ...s.params, epochMs: 1000 } }), ["launch parameters are the recorded ones"]);
 });
 

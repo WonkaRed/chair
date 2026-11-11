@@ -1,21 +1,50 @@
 # $CHAIR
 
-A memecoin whose monetary policy is set by an AI chair that the contract keeps on a short leash, and that holders can fire.
+A NEP-141 memecoin on NEAR whose mint and burn rate is set once per epoch by a chair account, built for an AI agent, inside limits the contract enforces. The contract has no admin or upgrade method, and stakers can replace the chair by a vote weighted by stake.
 
 Built for the NEAR HACKATHON, track **Memecoins With Mechanics**. The mechanic lives in the contract, not in a backend somebody could switch off.
 
-**Status: the contract is complete and tested; the web page is not built yet.** What runs today is marked in the table below. [`SPEC.md`](SPEC.md) is the interface every part is held to, and this README states only what the code does.
+## It runs on NEAR testnet
 
-| Piece | Status |
-| --- | --- |
-| NEP-141 token, launch parameters, views, epochs | works, tested |
-| `set_policy` with hard bounds, a SHA-256 reasoning hash and missed-epoch decay | works, tested in a real NEAR sandbox |
-| Function-call-key-only chair | works, tested |
-| Staking and rewards (epoch mint into a reward pool, locked stake), transfer burn, nomination, backing and impeachment by stake vote | works, tested in a real NEAR sandbox |
-| No admin: the deployer and the owner have no power after `new` | works, tested against the deployed wasm |
-| Supply ledger view and a mint/burn event for every supply change | works, tested |
-| Chair agent (rule-based and LLM) in `chair-agent/`, supply simulator in `sim/` | built, with their own tests |
-| Web page | not built yet |
+Token: [`token.chair-coin-2.testnet`](https://testnet.nearblocks.io/address/token.chair-coin-2.testnet), epochs of 90 s, launch supply 1,000,000. The token account was created, given its code and initialised in one transaction that adds no key, so it has no access key and nobody can upgrade it or move its NEAR.
+
+- Accepted `set_policy` by the chair, +40 bps: [`BCzfFZzx...`](https://testnet.nearblocks.io/txns/BCzfFZzxc4E7rnAhTBXTmGSZetmYhPt9uFG4PDYqAyQB)
+- The same chair asking for +201 bps, refused by the contract ("rate_bps out of bounds"): [`Efagw855...`](https://testnet.nearblocks.io/txns/Efagw855yoDeJXjNyui9Bt9d4JXfhisMoTm9JCPkHWjf)
+- The impeachment: stakers backing 400,000 of 400,000 staked tokens seat `challenger.chair-coin-2.testnet`; the contract applies the vote in the first call after the boundary, [`CvqCjCU3...`](https://testnet.nearblocks.io/txns/CvqCjCU3ngrttKnZotBwPzczw6aVHTpkwPEZnYwwZqoD) (its `impeached` event)
+- The chair's key can call `set_policy` and nothing else: the protocol refuses any other method signed with it (`MethodNameMismatch`, no transaction exists to link; the run log shows it).
+
+The live chair is the rule-based agent in `chair-agent/`. It ran as the seated challenger for three epochs and was stopped, so no agent is running now and the contract decays the rate toward zero. The LLM chair is implemented and tested against a scripted stand-in; it has not run live.
+
+The page reads the live token (`make -C web serve`, then open http://127.0.0.1:8080/; needs Node 22.22.2 or newer and npm). It lists every mint and burn and checks the sums against the contract's own `get_supply`.
+
+Re-check the deployment read-only. It needs no key and no Rust build, only `git`, `make`, npm, Node 22.22.2 or newer and network access, and took 5 to 8 s here (it installs the 72 packages of `deploy/` first):
+
+```sh
+git clone https://github.com/WonkaRed/chair.git && cd chair && make -C deploy verify
+```
+
+It ends with (the `now:` line is the live state and moves):
+
+```
+PASS  hard bounds: rate within +-200 bps, step at most 50 bps, backing over 5% of the supply to seat a chair
+      max_rate_bps 200, max_step_bps 50, quorum_bps 500
+PASS  launch parameters are the recorded ones
+      epoch_ms 90000, impeach_threshold_bps 3000, nominate_bond 100000000000000000000000
+PASS  launch supply is the recorded one
+      1000000000000000000000000000000
+PASS  total supply = launch + minted - burned
+      1122690925889010593978413132578 = 1000000000000000000000000000000 + 122700925889010593978413132578 - 10000000000000000000000000
+PASS  ft_total_supply equals get_supply.total_supply
+      1122690925889010593978413132578
+PASS  recorded accounts' balances and stake never exceed the supply
+      recorded accounts hold 1072513614741684519768000000000, unclaimed rewards 50177311147326074210413132578, supply 1122690925889010593978413132578 (the rest is in accounts not in the record)
+
+now: epoch 14: rate 35 bps, chair challenger.chair-coin-2.testnet, streak 3; supply 1122690925889010593978413132578 (launch 1000000000000000000000000000000, minted 122700925889010593978413132578, burned 10000000000000000000000000), staked 400000000000000000000000000000
+
+OK: 11 checks passed
+```
+
+Every transaction of the scripted run, with its hash, is in [`docs/testnet-deployment.json`](docs/testnet-deployment.json); the run logs are `docs/testnet-run-*.txt`. How it was deployed and how to redeploy: [`deploy/README.md`](deploy/README.md).
 
 ## What it is
 
@@ -23,19 +52,20 @@ $CHAIR is a NEP-141 token on NEAR. Time is cut into epochs of fixed length. Once
 
 - A positive rate **eases**: at the end of the epoch the contract mints `total_supply * rate / 10_000` into a reward pool paid to stakers.
 - A negative rate **tightens**: during that epoch every transfer burns `|rate|` bps of the amount, and nothing is minted.
-- The chair is an AI. The contract does not trust it: the rate is bounded, the step is bounded, and a chair that goes silent decays toward zero.
+- The chair seat is built for an AI agent. The contract does not trust whoever holds it: the rate is bounded, the step is bounded, and a chair that goes silent decays toward zero.
 - Stakers can nominate and back a replacement. A candidate whose backing exceeds both the threshold (a share of the staked tokens) and a 5% quorum of the whole supply becomes chair at the next epoch rollover, and the chair's streak resets. Below the quorum nobody can be seated, however little is staked.
 
 Every launch parameter is set once in `new()` and readable by a view method. There is no admin or owner method and no upgrade path.
 
-## Quick start
+## Run the tests and the demos
 
-Needs `git`, `make`, `curl`, a C/C++ compiler, [rustup](https://rustup.rs), and network access (crates, and the NEAR sandbox binary, which the first test run downloads into the build directory). Linux needs glibc 2.39 or newer (Ubuntu 24.04, Debian 13, Fedora 40 or later), because that is what the NEAR sandbox binary is linked against; macOS needs Apple silicon. No API keys, no wallet, no account.
+Needs a Linux x86-64 machine (the only platform tried) with glibc 2.39 or newer, because that is what the NEAR sandbox binary is linked against (Ubuntu 24.04, Debian 13, Fedora 40 or later); `git`, `make`, `curl`, a C/C++ compiler; [rustup](https://rustup.rs) (the compiler, 1.95.0, is pinned by `rust-toolchain.toml`); Node 22.22.2 or newer with npm (the highest `engines` floor of `deploy/` and `chair-agent/`; `sim/` asks for 22); and network access (crates, npm packages, and the sandbox binary, which the first test run downloads into the build directory). No API keys, no wallet, no account.
 
 ```sh
-git clone TODO-REPO-URL chair && cd chair
+git clone https://github.com/WonkaRed/chair.git chair && cd chair
 rustup toolchain install     # installs the toolchain pinned in rust-toolchain.toml
-make test                    # unit tests, the sandbox tests against the real wasm, then the agent and simulator tests
+make test                    # unit tests, the sandbox tests against the real wasm, then the agent, simulator and web tests
+make -C deploy test          # the testnet tooling's own tests: offline, no key
 make demo                    # the chair's leash, narrated, against a local NEAR sandbox
 ```
 
@@ -45,12 +75,14 @@ Or, with only Docker installed (the build fails unless `make test` passes):
 docker build -t chair . && docker run --rm chair   # runs `make demo`
 ```
 
-The first `make test` compiles the NEAR dependency tree and downloads the sandbox: 5 to 13 minutes (781 s measured cold from a clean copy on a loaded 16-core machine). Later runs skip the compile and the download; each sandbox test boots its own chain, so the sandbox lane is the slow part (one file at a time: `staking` about 20 s, `chair_rules` about 130 s, the others 12 to 62 s). The harness starts the sandbox node itself with a lowered skip-approval cap, because nearcore 2.14's fast-forward can lose a jump under CPU load and the default cap made each lost jump cost about 111 s; with it, a loss costs about 13 s. Measured with 40 busy loops running: `staking` 23 to 37 s in 5 of 5 runs, `chair_rules` 182 to 196 s in 4 of 6 runs. The other two `chair_rules` runs failed with `Sandbox failed to fast forward: error sending request`, a transport error whose cause is not known: rerun it. The contract and sandbox lanes end with:
+The first `make test` compiles the NEAR dependency tree and downloads the sandbox: 5 to 13 minutes (781 s measured cold from a clean copy on a loaded 16-core machine). Later runs skip the compile and the download. The sandbox tests need no network node and no account: each test starts its own local NEAR node, one test file at a time, so that lane is the slow part (`staking` about 20 s, `chair_rules` about 130 s, the others 12 to 62 s). nearcore's sandbox fast-forward can lose a jump when it crosses an epoch boundary of the node; the harness starts the node with a lowered skip-approval cap, which bounds a lost jump at about 13 s instead of about 111 s (see the doc comment in `sandbox-tests/src/lib.rs`). The contract and sandbox lanes end with:
 
 ```
 test result: ok. 61 passed; 0 failed; ...      # contract/ unit tests (policy math, rollover, rewards, launch checks, withdrawal)
 test result: ok. 49 passed; 0 failed; ...      # sandbox-tests/ against the real wasm, in 9 files
 ```
+
+The other lanes run 112 (`chair-agent`), 88 (`sim`) and 13 (`web`) tests, and `deploy` runs 32.
 
 Root `make demo` runs three demos in order and exits non-zero if any of them fails.
 
@@ -112,23 +144,30 @@ Stated plainly:
 - **A coordinated bloc beats a larger, scattered majority.** The sitting chair cannot be nominated, so it can never be backed against a challenger. A bloc holding more than the threshold (30% in the demo and tests) of the staked tokens can seat its candidate even if the other 70% would have kept the chair, unless those 70% back a rival; backing is one candidate per staker.
 - **Mints go only to stakers, so people who never stake are diluted.** At the maximum rate, +200 bps (reached four epochs after the first easing decision, in +50 steps), supply grows about 1.76 times in 30 daily epochs and about 1337 times in 365. The supply cap `u128::MAX / 10_000` would be reached after about 878 epochs from a launch supply of 10^27 yocto. A holder who neither stakes nor claims keeps the same token count and a shrinking share. The opposite lever, -200 bps, burns 2% of every transfer.
 - **Staking just in time earns every boundary.** Stake in the last block of an epoch, unstake when the two-epoch lock ends, stake again in the last block before the next boundary, and repeat: that account is liquid for about half of each cycle and still earns at every boundary. It dilutes no one beyond a continuous staker of the same size, but the lock does not force holders to stay.
-- **A nomination cannot be withdrawn out from under its backers.** `withdraw_nomination` is refused while any account other than the nominator backs the candidate (the candidate's backing is more than the nominator's own stake on it), so a nominator cannot wipe the backing in the last block and re-nominate. The bond still comes back when the nomination ends by impeachment or eviction.
+- **A nomination cannot be withdrawn out from under its backers.** `withdraw_nomination` is refused while any account other than the nominator backs the candidate (the candidate's backing is more than the nominator's own stake on it), so a nominator cannot wipe the backing in the last block and re-nominate. The same rule lets any staker, even with 1 yocto, keep a nomination from being withdrawn: its bond then returns only at an impeachment or an eviction.
+- **A nomination can squat on a candidate account.** `persona_hash` is not checked against anything, so a nominator can occupy a candidate account with a nomination whose hash is wrong, and nobody else can nominate that account while it stands.
 - **Nominations are spam-limited by a bond and by stake.** A bond in NEAR makes spam cost money. A full list of ten gives a slot only to a nominator whose own stake exceeds the backing of the least-backed nomination, so ten accounts holding 1 yocto cannot lock the list against a real holder. Freezing it against everyone costs ten accounts that each stake more than the largest honest staker (a little over ten times that stake, which must stay staked to hold the slots, though it keeps earning the mint); stakers who want a slot can pool their tokens into one account. It does not make candidates good.
 - **Initial distribution is whatever `owner_id` does with the whole supply.** The mechanic does not design distribution.
 - **The chair is trusted with a small, bounded lever.** At most 2% of supply per epoch can be minted, and the launch chair's key can do nothing but `set_policy` within the bounds. The reasoning hash is a commitment, not a proof of anything: the contract cannot tell whether an AI, a person or a script made the decision.
 - **Time is block time.** For epochs of a minute or more, validators can skew it by seconds, not by epochs.
 - **Rollover is lazy.** NEAR has no cron, so an epoch boundary is applied by the first call after it. Views show the correct current state; events for earlier epochs are logged when the next call arrives.
-- **Not audited.** Tested in a local sandbox only. Not deployed to testnet or mainnet by this repository yet.
+- **Not audited by a third party.** Internal adversarial reviews by AI agents shaped the rules. Tested in a local sandbox and deployed to NEAR testnet (`token.chair-coin-2.testnet`); not deployed to mainnet.
 - **The "no upgrade path" guarantee needs the documented deployment**: one transaction, signed by a parent account, that creates the token account, deploys the wasm and calls `new`, and adds no key ([`SPEC.md`](SPEC.md) "Deploying"). `new` is callable by anyone on a deployed but uninitialized contract, so a separate deploy and `new` could be front-run, and a leftover full-access key could redeploy the contract. The sandbox tests launch it exactly this way.
 - **`new` bounds two parameters, not everything**: the threshold is at most 50% of the stake and the bond at most 100 NEAR, so those two can never make the chair unremovable, and the supply cannot be launched to the token account itself. A launch can still make the chair permanent in two ways the code does not stop: it can park the supply with an `owner_id` that never stakes (the quorum is 5% of the supply), or set an epoch as long as a year. Both are visible before anyone buys: `get_params` shows the epoch length and the owner's balance and stake show where the supply sits.
 
+## Troubleshooting
+
+Under heavy machine load the local sandbox node has occasionally stopped mid-run (`Sandbox failed to fast forward: error sending request`). Rerun the test, and run the sandbox suite with no other sandbox running.
+
 ## AI-generated code disclosure
 
-All code was written by AI agents (Claude Fable 5.2, Opus 5.5 and Sonnet 5.5, Anthropic).
+All code was written by AI agents (Claude Fable 5.2, Opus 5.5 and Sonnet 5.5, Anthropic), directed by one human.
+
+The live chair on testnet is the rule-based agent (`chair-agent/`, `rule-v1`: no model, no API key). The LLM chair exists in the same code with a rule fallback and is tested against a scripted stand-in; it has not been run against testnet or the Anthropic API, so no AI model has chaired a live run.
 
 ## Sister project
 
-The submitter's other, independent entry in this hackathon is **Preflight**: TODO-PREFLIGHT-URL. The two projects share no code and are submitted separately, per rule Q-015.
+The submitter's other, independent entry in this hackathon is **Preflight**: <https://github.com/WonkaRed/preflight>. The two projects share no code and are submitted separately, per rule Q-015.
 
 ## Layout
 
@@ -136,8 +175,9 @@ The submitter's other, independent entry in this hackathon is **Preflight**: TOD
 | --- | --- | --- |
 | `contract/` | the token | [`SPEC.md`](SPEC.md) |
 | `sandbox-tests/` | near-workspaces tests and `make demo` | |
-| `chair-agent/` | the chair: rule-based and LLM (TypeScript) | [`SPEC.md`](SPEC.md) |
-| `sim/` | 60-epoch supply simulator (TypeScript) | [`SPEC.md`](SPEC.md) |
-| `web/` | not built yet | |
+| `chair-agent/` | the chair: rule-based and LLM (TypeScript) | [`chair-agent/README.md`](chair-agent/README.md) |
+| `sim/` | 60-epoch supply simulator (TypeScript) | [`sim/README.md`](sim/README.md) |
+| `web/` | the page: live ledger and event log of the testnet token, and the simulation (static files) | [`web/README.md`](web/README.md) |
+| `deploy/` | testnet deployment, scripted run and read-only verification (TypeScript) | [`deploy/README.md`](deploy/README.md) |
 
 MIT licensed, see [`LICENSE`](LICENSE).
