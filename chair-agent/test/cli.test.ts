@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { tempDir } from "./helpers.js";
 import { existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { join } from "node:path";
 import { after, before, test } from "node:test";
 import { KeyPair } from "near-api-js";
@@ -98,6 +100,32 @@ test("--chair llm without ANTHROPIC_API_KEY uses the rule chair and says so", as
   assert.equal(await main([...base(), "--chair", "llm", "--dry-run"], {}, o), 0);
   assert.match(o.err_.join("\n"), /ANTHROPIC_API_KEY is not set: using the rule-based chair/);
   assert.match(o.out_.join("\n"), /chair kind rule-v1/);
+});
+
+test("--llm-endpoint and --llm-model name a local chair: the decision says local:<id>, and one without the other is refused", async () => {
+  nextEpoch();
+  const server = createServer((_req, res) => {
+    res.setHeader("content-type", "application/json");
+    res.end(JSON.stringify({
+      id: "chatcmpl-test", type: "message", role: "assistant", model: "qwen-test", stop_reason: "end_turn", stop_sequence: null,
+      content: [{ type: "text", text: '{"rate_bps": 25, "reasoning": "answered by the local stand-in"}' }],
+      usage: { input_tokens: 1, output_tokens: 1 },
+    }));
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  try {
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    const o = io();
+    // No ANTHROPIC_API_KEY in this environment: the local endpoint is all the chair needs.
+    assert.equal(await main([...base(), "--chair", "llm", "--dry-run", "--llm-endpoint", url, "--llm-model", "qwen-test"], {}, o), 0, o.err_.join("\n"));
+    assert.match(o.out_.join("\n"), /chair local:qwen-test \(llm\)/);
+    assert.match(o.out_.join("\n"), /answered by the local stand-in/);
+    const lone = io();
+    assert.equal(await main([...base(), "--chair", "llm", "--dry-run", "--llm-endpoint", url], {}, lone), 2);
+    assert.match(lone.err_.join("\n"), /must be given together/);
+  } finally {
+    server.close();
+  }
 });
 
 test("a full-access key is refused before anything is sent", async () => {

@@ -2,7 +2,7 @@ import { parseArgs } from "node:util";
 import { MAX_SEND_ATTEMPTS, tick, type TickResult } from "./agent.js";
 import { ChainReader } from "./chain.js";
 import type { DecideOptions } from "./decide.js";
-import { AnthropicLlmClient, LlmChair, llmConfigured, type LlmClient } from "./llm-chair.js";
+import { AnthropicLlmClient, LlmChair, LocalLlmClient, llmConfigured, type LlmClient } from "./llm-chair.js";
 import { DecisionLog, findReasoning, verifyLog } from "./log.js";
 import { NearRpc } from "./rpc.js";
 import { ruleChair } from "./rule-chair.js";
@@ -27,9 +27,11 @@ run options (each also read from the environment variable in brackets):
   --allow-full-access-key  run although the chair account holds a full-access key (SPEC says it must not); warns
   --margin-ms <n>      stay valid across a rollover this close to epoch end   default 15000
   --llm-timeout-ms <n> give the model this long before the rule chair decides  default 30000
+  --llm-endpoint <url> use a model served on this machine (http, loopback) instead of Anthropic  [CHAIR_LLM_ENDPOINT]
+  --llm-model <id>     the id that endpoint serves; the chair is then named local:<id>         [CHAIR_LLM_MODEL]
 
 The key: CHAIR_KEY (ed25519:...) or CHAIR_KEY_FILE (a file holding it). The LLM chair also needs
-ANTHROPIC_API_KEY; without it --chair llm falls back to the rule chair.
+ANTHROPIC_API_KEY, unless --llm-endpoint and --llm-model are given; without either --chair llm falls back to the rule chair.
 `;
 
 export interface Io {
@@ -122,6 +124,8 @@ async function runCommand(args: readonly string[], env: NodeJS.ProcessEnv, io: I
       "allow-full-access-key": { type: "boolean" },
       "margin-ms": { type: "string" },
       "llm-timeout-ms": { type: "string" },
+      "llm-endpoint": { type: "string" },
+      "llm-model": { type: "string" },
     },
     strict: true,
     allowPositionals: false,
@@ -139,10 +143,17 @@ async function runCommand(args: readonly string[], env: NodeJS.ProcessEnv, io: I
   let chair = ruleChair;
   let llm: LlmChair | null = null;
   if (wanted === "llm") {
-    if (deps.llmClient === undefined && !llmConfigured(env)) {
-      io.err("ANTHROPIC_API_KEY is not set: using the rule-based chair");
+    const endpoint = values["llm-endpoint"] ?? env["CHAIR_LLM_ENDPOINT"];
+    const model = values["llm-model"] ?? env["CHAIR_LLM_MODEL"];
+    if ((endpoint === undefined) !== (model === undefined)) throw new Error("--llm-endpoint and --llm-model must be given together");
+    if (deps.llmClient !== undefined) {
+      llm = new LlmChair(deps.llmClient);
+    } else if (endpoint !== undefined && model !== undefined) {
+      llm = new LlmChair(new LocalLlmClient(endpoint, model));
+    } else if (llmConfigured(env)) {
+      llm = new LlmChair(new AnthropicLlmClient());
     } else {
-      llm = new LlmChair(deps.llmClient ?? new AnthropicLlmClient());
+      io.err("ANTHROPIC_API_KEY is not set: using the rule-based chair");
     }
   }
   const decideOptions: DecideOptions = { chair: llm ?? chair, marginMs, timeoutMs };

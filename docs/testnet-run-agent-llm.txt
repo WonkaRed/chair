@@ -1,0 +1,57 @@
+LLM chair run, 2026-11-11, NEAR testnet: model local:qwen3.8-27b (the id the local endpoint reports), served by vLLM on this machine's own GPUs, no cloud API and no Claude model involved; 6 decisions (epochs 18-23), all 6 the model's own answers, 0 fall-backs to the rule chair; reasoning text below is the model's, the hash and tx are real.
+chair-agent on testnet: token token.chair-coin-2.testnet, chair challenger.chair-coin-2.testnet, chair kind local:qwen3.8-27b
+epoch 18 | chair local:qwen3.8-27b (llm) | rate 0 -> 10 bps
+reasoning_hash: 5b939c360458ecb901cf24467e599badddcb2d7cfaf21d205ab3d8a0c0676856
+--- reasoning (the text behind the hash; each line prefixed, the prefix is not hashed) ---
+  | $CHAIR decision, epoch 18, chair local:qwen3.8-27b.
+  | Rate in effect 0 bps; decision 10 bps.
+  | Staked share is high at 3550 bps, showing strong confidence. No recent supply change data is available. A small positive rate of 10 bps rewards stakers conservatively without risking inflation, encouraging continued participation.
+--- transaction ---
+challenger.chair-coin-2.testnet -> token.chair-coin-2.testnet.set_policy({"rate_bps":10,"reasoning_hash":"5b939c360458ecb901cf24467e599badddcb2d7cfaf21d205ab3d8a0c0676856"})
+executed, tx Fj6YD25CCozFoumzmpLz4LvP1GscDvXqEF91937qgEB6
+epoch 19 | chair local:qwen3.8-27b (llm) | rate 10 -> 10 bps
+reasoning_hash: a63bee2b3e1e23b31b7e86029001484fe6c066b7c9ad0909ff52e65e7e588379
+--- reasoning (the text behind the hash; each line prefixed, the prefix is not hashed) ---
+  | $CHAIR decision, epoch 19, chair local:qwen3.8-27b.
+  | Rate in effect 10 bps; decision 10 bps.
+  | Supply has grown steadily at 9 bps over the last six epochs, matching the current 10 bps rate. The eight-epoch streak shows stability, so I'll maintain the same rate to keep the experiment on a predictable path.
+--- transaction ---
+challenger.chair-coin-2.testnet -> token.chair-coin-2.testnet.set_policy({"rate_bps":10,"reasoning_hash":"a63bee2b3e1e23b31b7e86029001484fe6c066b7c9ad0909ff52e65e7e588379"})
+executed, tx 7biFiLTsY8WwTGvXTR7g2Xhano7oUxbUrhBD9CH2CrY9
+epoch 20 | chair local:qwen3.8-27b (llm) | rate 10 -> 10 bps
+reasoning_hash: 485eec732b24ebda51b898bd8a945c4de463cc67ca7bfac7a932eb01d0c2e676
+--- reasoning (the text behind the hash; each line prefixed, the prefix is not hashed) ---
+  | $CHAIR decision, epoch 20, chair local:qwen3.8-27b.
+  | Rate in effect 10 bps; decision 10 bps.
+  | The current 10 bps rate has been in effect for 9 epochs and is producing steady, predictable supply growth of about 3.3 bps per epoch, consistent with the 35.43% staked share. No signs of overheating or deflation, so maintaining the rate is the prudent choice.
+--- transaction ---
+challenger.chair-coin-2.testnet -> token.chair-coin-2.testnet.set_policy({"rate_bps":10,"reasoning_hash":"485eec732b24ebda51b898bd8a945c4de463cc67ca7bfac7a932eb01d0c2e676"})
+executed, tx E6T7D5Mq7U8Wch5nZVkGv932c55VehVvdBK89BXo5Jnw
+epoch 21 | chair local:qwen3.8-27b (llm) | rate 10 -> 20 bps
+reasoning_hash: 634e4aadd46cab6f54834e5d9b160d28f42a64c1c4ef1b0a6c662ed4223cfb62
+--- reasoning (the text behind the hash; each line prefixed, the prefix is not hashed) ---
+  | $CHAIR decision, epoch 21, chair local:qwen3.8-27b.
+  | Rate in effect 10 bps; decision 20 bps.
+  | Supply has grown steadily by about 5 bps per epoch under the current 10 bps rate. Increasing to 20 bps will test whether growth accelerates proportionally and provide a clearer signal about the rate-growth relationship in this experiment.
+--- transaction ---
+challenger.chair-coin-2.testnet -> token.chair-coin-2.testnet.set_policy({"rate_bps":20,"reasoning_hash":"634e4aadd46cab6f54834e5d9b160d28f42a64c1c4ef1b0a6c662ed4223cfb62"})
+executed, tx 65yki7VUFtmiMLyVVEtRqTaLgvtt9NVPYeAg6UNVMJzA
+epoch 22 | chair local:qwen3.8-27b (llm) | rate 20 -> 20 bps
+reasoning_hash: 10cae9844526b14c042339571d17525c50bdf021dd4bf8bf9c310bf7aca36f79
+--- reasoning (the text behind the hash; each line prefixed, the prefix is not hashed) ---
+  | $CHAIR decision, epoch 22, chair local:qwen3.8-27b.
+  | Rate in effect 20 bps; decision 20 bps.
+  | Supply has grown steadily at about +50 bps over the last six epochs while the current +20 bps rate has been in effect for 11 epochs. The staked share of 35.32% is healthy and stable. Maintaining the current rate preserves the predictable growth trajectory without introducing unnecessary volatility. No adjustment is needed given the consistent performance.
+--- transaction ---
+challenger.chair-coin-2.testnet -> token.chair-coin-2.testnet.set_policy({"rate_bps":20,"reasoning_hash":"10cae9844526b14c042339571d17525c50bdf021dd4bf8bf9c310bf7aca36f79"})
+executed, tx BnKWCcp3wG1do9PSw4AVEMvLrfvaL66xVNK2TPMDruzj
+epoch 23 | chair local:qwen3.8-27b (llm) | rate 20 -> 20 bps
+reasoning_hash: 2304382b20e2f029e021b976a166dde39c3fbd5a1adf303bf753e35f4291da1f
+--- reasoning (the text behind the hash; each line prefixed, the prefix is not hashed) ---
+  | $CHAIR decision, epoch 23, chair local:qwen3.8-27b.
+  | Rate in effect 20 bps; decision 20 bps.
+  | Supply has been growing steadily at 70 bps over the last 6 epochs, and the current 20 bps rate has been in effect for 12 epochs. The growth is consistent and within expectations, so I'm maintaining the current rate to keep policy stable. No signals suggest a need to tighten or loosen.
+--- transaction ---
+challenger.chair-coin-2.testnet -> token.chair-coin-2.testnet.set_policy({"rate_bps":20,"reasoning_hash":"2304382b20e2f029e021b976a166dde39c3fbd5a1adf303bf753e35f4291da1f"})
+executed, tx Cm6LynGmynbotT37BjEVebG2sAnrHWLHEm1NhEu6L6b5
+--- stopped by the operator after epoch 23 (6 decisions)

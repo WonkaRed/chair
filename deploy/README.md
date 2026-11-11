@@ -102,9 +102,9 @@ A deployed token has no key, so it cannot be upgraded; a changed contract is a n
   `MethodNameMismatch`, the method restriction.
 - The scripted run took about 17 minutes. It is resumable, and a resumed run passes through epochs it already began; a step that is not
   yet recorded and would land in the wrong epoch stops the run instead.
-- The rule-based agent in `chair-agent/` ran against the live token as the challenger (`docs/testnet-run-agent-rule*`). The LLM chair has
-  not been run against testnet. `tools/llm-usage-proxy.mjs` measures the spend of such a run without changing the agent: it is a
-  pass-through that prints tokens and dollars per call and enforces a call and dollar cap.
+- The rule-based agent in `chair-agent/` ran against the live token as the challenger (`docs/testnet-run-agent-rule*`). The LLM chair ran once
+  against it with a local model, `local:qwen3.8-27b` (`docs/testnet-run-agent-llm*`); it has never run with Claude. `tools/llm-usage-proxy.mjs` measures the spend of a run against the Anthropic API without changing the agent: it is a
+  pass-through that prints tokens and dollars per call and enforces a call and dollar cap (the local run cost nothing and did not use it).
 
 ## Sandbox versus the real chain
 

@@ -13,7 +13,7 @@ Token: [`token.chair-coin-2.testnet`](https://testnet.nearblocks.io/address/toke
 - The impeachment: stakers backing 400,000 of 400,000 staked tokens seat `challenger.chair-coin-2.testnet`; the contract applies the vote in the first call after the boundary, [`CvqCjCU3...`](https://testnet.nearblocks.io/txns/CvqCjCU3ngrttKnZotBwPzczw6aVHTpkwPEZnYwwZqoD) (its `impeached` event)
 - The chair's key can call `set_policy` and nothing else: the protocol refuses any other method signed with it (`MethodNameMismatch`, no transaction exists to link; the run log shows it).
 
-The live chair is the rule-based agent in `chair-agent/`. It ran as the seated challenger for three epochs and was stopped, so no agent is running now and the contract decays the rate toward zero. The LLM chair is implemented and tested against a scripted stand-in; it has not run live.
+Two agents from `chair-agent/` have held the seat as the seated challenger. The rule-based chair ran three epochs. Then an AI model chaired six epochs (18 to 23): `qwen3.8-27b`, running on the submitter's own GPUs through a local server, with no cloud API and no Claude model involved. Each epoch it read the on-chain numbers, chose a rate (10, 10, 10, 20, 20, 20 bps) and wrote its reasoning. The SHA-256 of that text is in each transaction, for example [`BnKWCcp3...`](https://testnet.nearblocks.io/txns/BnKWCcp3wG1do9PSw4AVEMvLrfvaL66xVNK2TPMDruzj) (epoch 22), and equals the hash of the text saved in [`docs/testnet-run-agent-llm-decisions.jsonl`](docs/testnet-run-agent-llm-decisions.jsonl) for all six. None fell back to the rule. The contract held the model to the same bounds as anyone else; its reasoning is recorded, not vouched for. No agent is running now, so the contract decays the rate toward zero.
 
 The page reads the live token (`make -C web serve`, then open http://127.0.0.1:8080/; needs Node 22.22.2 or newer and npm). It lists every mint and burn and checks the sums against the contract's own `get_supply`.
 
@@ -82,7 +82,7 @@ test result: ok. 61 passed; 0 failed; ...      # contract/ unit tests (policy ma
 test result: ok. 49 passed; 0 failed; ...      # sandbox-tests/ against the real wasm, in 9 files
 ```
 
-The other lanes run 112 (`chair-agent`), 88 (`sim`) and 13 (`web`) tests, and `deploy` runs 32.
+The other lanes run 116 (`chair-agent`), 88 (`sim`) and 13 (`web`) tests, and `deploy` runs 32.
 
 Root `make demo` runs three demos in order and exits non-zero if any of them fails.
 
@@ -163,7 +163,7 @@ Under heavy machine load the local sandbox node has occasionally stopped mid-run
 
 All code was written by AI agents (Claude Fable 5.2, Opus 5.5 and Sonnet 5.5, Anthropic), directed by one human.
 
-The live chair on testnet is the rule-based agent (`chair-agent/`, `rule-v1`: no model, no API key). The LLM chair exists in the same code with a rule fallback and is tested against a scripted stand-in; it has not been run against testnet or the Anthropic API, so no AI model has chaired a live run.
+Two chairs have run on testnet: the rule-based agent (`chair-agent/`, `rule-v1`: no model, no API key) and, for six epochs, the LLM chair driven by `qwen3.8-27b` on the submitter's own hardware (labelled `local:qwen3.8-27b` in every log line). The LLM chair has never been run against the Anthropic API, so no Claude model has chaired a run.
 
 ## Sister project
 

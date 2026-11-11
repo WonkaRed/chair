@@ -125,17 +125,21 @@ export class LlmChair implements Chair {
 
 /** The real client. The key comes from ANTHROPIC_API_KEY only, read by the SDK itself. */
 export class AnthropicLlmClient implements LlmClient {
-  readonly label = `llm:${LLM_MODEL}`;
+  readonly label: string;
   private readonly sdk: Anthropic;
+  protected readonly model: string;
   /** `baseURL` exists so a test can point the real SDK at a local server; leave it unset otherwise. */
-  constructor(opts: { baseURL?: string; apiKey?: string } = {}) {
-    this.sdk = new Anthropic({ maxRetries: 1, ...opts });
+  constructor(opts: { baseURL?: string; apiKey?: string; model?: string; label?: string } = {}) {
+    const { model = LLM_MODEL, label = `llm:${model}`, ...sdkOpts } = opts;
+    this.model = model;
+    this.label = label;
+    this.sdk = new Anthropic({ maxRetries: 1, ...sdkOpts });
   }
 
   async complete(req: LlmRequest): Promise<LlmResponse> {
     const res = await this.sdk.messages.create(
       {
-        model: LLM_MODEL,
+        model: this.model,
         max_tokens: 4000,
         system: req.system,
         messages: [{ role: "user", content: req.user }],
@@ -143,8 +147,41 @@ export class AnthropicLlmClient implements LlmClient {
       },
       { signal: req.signal },
     );
+    return this.read(res);
+  }
+
+  protected read(res: Anthropic.Message): LlmResponse {
     const text = res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
     return { text, stopReason: res.stop_reason };
+  }
+}
+
+const LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+/**
+ * A model served on this machine through an Anthropic-Messages-compatible endpoint (vLLM's `/v1/messages`). The label
+ * says `local:` and names the id the endpoint reports, so a decision can never be attributed to a model that did not
+ * write it: the endpoint must be loopback, and an answer that does not name the configured model is refused.
+ */
+export class LocalLlmClient extends AnthropicLlmClient {
+  constructor(endpoint: string, model: string) {
+    let url: URL;
+    try {
+      url = new URL(endpoint);
+    } catch {
+      throw new Error("the local LLM endpoint is not a URL");
+    }
+    if (url.protocol !== "http:" || !LOOPBACK_HOSTS.has(url.hostname)) {
+      throw new Error("the local LLM endpoint must be http on this machine (127.0.0.1, localhost or [::1])");
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,99}$/.test(model)) throw new Error("the local LLM model id is not a plain model id");
+    // The server needs no key, but the SDK insists on one: a placeholder, not a credential.
+    super({ baseURL: endpoint, apiKey: "local-endpoint-needs-no-key", model, label: `local:${model}` });
+  }
+
+  protected override read(res: Anthropic.Message): LlmResponse {
+    if (res.model !== this.model) throw new Error(`the endpoint answered as ${JSON.stringify(res.model)}, not ${this.model}`);
+    return super.read(res);
   }
 }
 

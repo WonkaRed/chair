@@ -19,7 +19,7 @@ Needs Node 22.22.2 or newer and npm. Dependencies are pinned exactly in `package
 `@types/node` 26.6.6.
 
 ```sh
-make test   # typecheck, then 112 tests with node --test; no network except loopback fakes, no key; temp files go under out/test-tmp (override with CHAIR_TEST_TMP)
+make test   # typecheck, then 116 tests with node --test; no network except loopback fakes, no key; temp files go under out/test-tmp (override with CHAIR_TEST_TMP)
 make demo   # 16 epochs against an in-memory model of the token; prints a table, writes out/demo-decisions.jsonl
 ```
 
@@ -49,12 +49,14 @@ acting once per epoch.
 ```
 chair-agent run [--rpc <url>] [--token <acct>] [--account <acct>] [--log <file>] [--chair rule|llm]
                 [--dry-run] [--once] [--allow-full-access-key] [--margin-ms <n>] [--llm-timeout-ms <n>]
+                [--llm-endpoint <url> --llm-model <id>]
 chair-agent verify-log <file> [hash]     # recompute every hash; with a hash, print the text it commits to
 ```
 
 `--dry-run` needs no key, signs nothing, sends nothing and writes no log. `--chair llm` needs `ANTHROPIC_API_KEY`
 in the environment; without it the agent says so and uses the rule chair. The key is read only by the SDK from
-that variable, never from a file, and never printed.
+that variable, never from a file, and never printed. With `--llm-endpoint` and `--llm-model` (or `CHAIR_LLM_ENDPOINT`
+and `CHAIR_LLM_MODEL`) the model is one served on this machine instead, and no Anthropic key is needed (see "A local model" below).
 
 ## The rule chair (`rule-v1`)
 
@@ -73,6 +75,14 @@ agent then clamps the rate into the bounds of the window read after the model an
 truncated answer, wrong or duplicate keys, non-integer or out-of-range type falls back to the rule chair, and the reasoning
 text says so. Model text is never used for anything but the logged reasoning: it does not reach a shell, a path,
 or a transaction field other than through the SHA-256 hash.
+
+### A local model
+
+`--llm-endpoint http://127.0.0.1:18020 --llm-model <id>` sends the same request, and the same validation and fall-back apply to the answer, to a model served on this
+machine through an Anthropic-Messages-compatible endpoint (vLLM's `/v1/messages`). The chair is then named `local:<id>` in every decision, log line and reasoning text.
+The name cannot be a lie by construction: the endpoint must be `http` on loopback (`127.0.0.1`, `localhost`, `[::1]`), the model id must be a plain id, and an answer whose
+`model` field is not the configured id is an error, which falls back to the rule chair. `<id>` is whatever `/v1/models` of the endpoint lists for the model you mean to run. A local
+model may emit thinking blocks; only its text block is read.
 
 ## One decision per epoch, and the epoch it is for
 
@@ -114,7 +124,7 @@ Verified by `make test`: bounds are never exceeded over randomized inputs; every
 logged text; the signed transaction is a single zero-deposit `set_policy` function call (decoded and checked);
 full-access and wrongly scoped keys are refused; the real RPC, signing and SDK code paths run end to end against
 loopback fake servers. Verified live on NEAR testnet (`docs/testnet-run-agent-rule.txt`): the signer, RPC client and chain reader decided and sent `set_policy` as `challenger.chair-coin-2.testnet`, three epochs in a row
-with the rule chair, and `verify-log` recomputes every hash. NOT verified: the LLM chair has never answered from the real Anthropic API (the one attempt was refused for lack of credit) and has not run on testnet; it is tested against a scripted stand-in.
+with the rule chair, and `verify-log` recomputes every hash. The LLM chair ran live on testnet once, with a local model, not Claude: `docs/testnet-run-agent-llm.txt` (6 decisions, epochs 18-23, all by `local:qwen3.8-27b`, 0 fall-backs; two transactions re-read by RPC and the on-chain hash equals the SHA-256 of the saved text). NOT verified: the Anthropic path has never answered from the real Anthropic API (the one attempt was refused for lack of credit), and the local model's reasoning was not audited for factual accuracy (it misreads `streak_epochs`, the chair's time in office, as how long the current rate has held in its epoch-23 text).
 
 `reasoning_hash` is a rule of the contract, not a choice of this agent: `set_policy` panics unless it is exactly 64
 lowercase hex characters (`reasoning_hash must be a SHA-256 digest: 64 lowercase hex characters`), and `fake-chain.ts`

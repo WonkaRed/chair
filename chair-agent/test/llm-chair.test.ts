@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { createServer, type IncomingMessage } from "node:http";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
-import { ANSWER_SCHEMA, AnthropicLlmClient, LLM_MODEL, LlmChair, buildPrompt, llmConfigured, parseAnswer } from "../src/llm-chair.js";
+import { ANSWER_SCHEMA, AnthropicLlmClient, LLM_MODEL, LlmChair, LocalLlmClient, buildPrompt, llmConfigured, parseAnswer } from "../src/llm-chair.js";
 import { snapshot } from "./helpers.js";
 
 test("the prompt is numbers only: no account ids and no free-form chain text", () => {
@@ -79,4 +79,63 @@ test("an answer with a duplicate key is malformed, however it is escaped; nested
     rateBps: 10,
     reasoning: 'has "rate_bps": 5 inside, {braces}, [brackets]',
   });
+});
+
+/** A loopback stand-in for a local vLLM `/v1/messages` that answers as `served`, with a thinking block first as vLLM does. */
+async function localServer(served: string, onBody: (b: Record<string, unknown>) => void = () => {}) {
+  const server = createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (c: Buffer) => chunks.push(c));
+    req.on("end", () => {
+      onBody(JSON.parse(Buffer.concat(chunks).toString("utf8")) as Record<string, unknown>);
+      res.setHeader("content-type", "application/json");
+      res.end(JSON.stringify({
+        id: "chatcmpl-test", type: "message", role: "assistant", model: served, stop_reason: "end_turn", stop_sequence: null,
+        content: [
+          { type: "thinking", thinking: "private scratch work", signature: "sig" },
+          { type: "text", text: '{"rate_bps": 7, "reasoning": "local ok"}' },
+        ],
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }));
+    });
+  });
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  return { server, url: `http://127.0.0.1:${(server.address() as AddressInfo).port}` };
+}
+
+test("LocalLlmClient asks for the configured model, is labelled local:<id>, and drops thinking blocks", async () => {
+  let body: Record<string, unknown> | undefined;
+  const { server, url } = await localServer("qwen-test", (b) => (body = b));
+  try {
+    const client = new LocalLlmClient(url, "qwen-test");
+    assert.equal(client.label, "local:qwen-test");
+    assert.equal(new LlmChair(client).name, "local:qwen-test");
+    const out = await client.complete({ system: "S", user: "U", signal: new AbortController().signal });
+    assert.deepEqual(out, { text: '{"rate_bps": 7, "reasoning": "local ok"}', stopReason: "end_turn" });
+    assert.equal(body!["model"], "qwen-test");
+  } finally {
+    server.close();
+  }
+});
+
+test("LocalLlmClient refuses an answer from a model other than the one it is named after", async () => {
+  const { server, url } = await localServer("some-other-model");
+  try {
+    const client = new LocalLlmClient(url, "qwen-test");
+    await assert.rejects(client.complete({ system: "S", user: "U", signal: new AbortController().signal }), /answered as "some-other-model", not qwen-test/);
+  } finally {
+    server.close();
+  }
+});
+
+test("LocalLlmClient only accepts a loopback http endpoint and a plain model id", () => {
+  for (const url of ["http://127.0.0.1:18020", "http://localhost:18020", "http://[::1]:18020"]) {
+    assert.equal(new LocalLlmClient(url, "lane/auto").label, "local:lane/auto");
+  }
+  for (const url of ["https://127.0.0.1:18020", "http://example.com", "http://127.0.0.1.example.com", "http://10.0.0.5:18020", "not a url", ""]) {
+    assert.throws(() => new LocalLlmClient(url, "m"), /local LLM endpoint/, url);
+  }
+  for (const model of ["", " m", "m x", "claude\nx", "-m", "x".repeat(101)]) {
+    assert.throws(() => new LocalLlmClient("http://127.0.0.1:1", model), /model id/, JSON.stringify(model));
+  }
 });
