@@ -6,40 +6,45 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="color-scheme" content="light dark">
 <meta name="referrer" content="no-referrer">
-<title>$CHAIR: every mint and burn, and what the contract allows</title>
-<meta name="description" content="A memecoin whose mint and burn rate is set each epoch by a chair built for an AI agent, inside bounds the contract enforces. The full mint and burn log, read from the chain, and a 60-epoch simulation.">
+<title>$CHAIR: an AI runs this memecoin's central bank</title>
+<meta name="description" content="An AI runs this memecoin's central bank. The contract keeps it on a leash. Read the Chair's minutes, checked against the chain, and put a question to it.">
 <script src="theme.js"></script>
 <link rel="icon" href="data:,">
 <link rel="stylesheet" href="style.css">
 <script type="module" src="js/app.js"></script>
 </head>
 <body>
-<a class="skip" href="#log">Skip to the log</a>
+<svg class="sprite" aria-hidden="true" focusable="false"><symbol id="seal" viewBox="0 0 64 64"><circle cx="32" cy="32" r="30" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="32" cy="32" r="26.5" fill="none" stroke="currentColor" stroke-width="3.2" stroke-dasharray="0.1 5.45" stroke-linecap="round"/><circle cx="32" cy="32" r="22" fill="none" stroke="currentColor" stroke-width="1"/><path d="M25 17h14v17H25zM21.5 34h21M25 34v14M39 34v14" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></symbol></svg>
+<a class="skip" href="#press">Skip to the press conference</a>
 <header class="top">
   <div class="wrap bar">
-    <a class="mark" href="#top" id="top" aria-label="$CHAIR, top of page"><span class="glyph" aria-hidden="true"></span>$CHAIR</a>
+    <a class="mark" href="#top" id="top" aria-label="$CHAIR, top of page"><svg class="seal-icon" aria-hidden="true"><use href="#seal"/></svg>$CHAIR</a>
     <nav aria-label="Sections">
+      <a href="#press">Press conference</a>
       <a href="#minutes">Minutes</a>
-      <a href="#refusals">Refusals</a>
-      <a href="#now">Rate</a>
-      <a href="#ledger">Ledger</a>
-      <a href="#log">Log</a>
-      <a href="#simulation">Simulation</a>
+      <a href="#refusals">Times the contract told the Chair no</a>
       <a href="#guarantees">Guarantees</a>
     </nav>
     <button type="button" id="theme" class="chip" aria-label="Colour theme">Theme</button>
   </div>
 </header>
 <main class="wrap">
-  <section class="intro">
-    <h1>A token whose supply is steered by a chair built for an AI agent, on a leash the contract holds.</h1>
-    <p class="lede">Once per epoch the chair picks a rate. A positive rate mints new tokens for stakers, a negative rate burns a share of every transfer. The contract limits the rate and the size of each move, and it works the same whether or not a chair is listening. This page is every mint and burn the contract has made, checked against its own books. The chair writes its minutes in character, as a deadpan parody of a central banker.</p>
-    <p id="source" class="source" role="note">Loading the chain…</p>
+  <section class="hero" aria-labelledby="hero-h">
+    <h1 id="hero-h"><span>An AI runs this memecoin's central bank.</span> <span class="h1-second">The contract keeps it on a leash.</span></h1>
+    <p class="sub-line">Once per epoch the Chair sets how much supply is minted or burned, and publishes its minutes. The contract refuses any rate beyond 2%, and any move of more than 0.5% at a time.</p>
+    <div id="hero-minutes" class="slot hero-slot">Reading the chain…</div>
     <noscript><p class="source fixture">This page reads the chain with JavaScript. Nothing is sent anywhere and no script is loaded from any other host.</p></noscript>
+  </section>
+
+  <section id="press" aria-labelledby="press-h">
+    <h2 id="press-h">Press conference</h2>
+    <p class="lede">Put one question to the Chair. It answers, and the answer is then entered into the on-chain minutes. Your question goes to the submitter's press desk, so keep anything private out of it.</p>
+    <div id="press-body" class="slot"></div>
   </section>
 
   <section id="minutes" aria-labelledby="minutes-h">
     <h2 id="minutes-h">Chair minutes</h2>
+    <p class="note">Every decision the Chair has put on chain, newest first. The latest is at the top of this page.</p>
     <div id="minutes-body" class="slot">Loading…</div>
     <details class="assumptions">
       <summary>How the check works, and what it does not show</summary>
@@ -53,12 +58,12 @@
   </section>
 
   <section id="refusals" aria-labelledby="refusals-h">
-    <h2 id="refusals-h">Refusals</h2>
+    <h2 id="refusals-h">Times the contract told the Chair no</h2>
     <p class="note">Every <code>set_policy</code> call the contract turned down, with the reason it gave. A refused call changes nothing and logs no event, so it is not among the minutes.</p>
     <div id="refusals-body" class="slot">Loading…</div>
   </section>
 
-  <section id="now" aria-labelledby="now-h">
+  <section id="rate" aria-labelledby="now-h">
     <h2 id="now-h">The rate right now</h2>
     <div id="now" class="slot">Loading…</div>
   </section>
@@ -105,6 +110,10 @@
     </ul>
   </section>
 </main>
-<footer class="wrap foot"><p id="foot">$CHAIR is a hackathon project and a toy monetary experiment. Nothing here is advice.</p></footer>
+<footer class="wrap foot">
+  <p id="foot">$CHAIR is a hackathon project and a toy monetary experiment. Nothing here is advice. The transfers, stakes and claims in the log are scripted test activity by three accounts the submitter controls, not users.</p>
+  <h2 class="foot-h">Where this page reads from</h2>
+  <p id="source" class="source" role="note">Loading the chain…</p>
+</footer>
 </body>
 </html>

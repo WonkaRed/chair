@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { join } from "node:path";
 import { fakeDoc, host, walk } from "./fakedom.mjs";
 import { build, cspFor } from "../scripts/build.mjs";
@@ -163,13 +163,21 @@ test("CSP allows only the configured hosts, and the page has no inline script or
   assert.match(cspFor(cfg), /connect-src 'self' https:\/\/rpc\.example\.org https:\/\/idx\.example\.org;/);
   assert.match(cspFor({ ...cfg, fixture: "f.json" }), /connect-src 'self';/);
   assert.throws(() => cspFor({ ...cfg, rpcUrl: "http://rpc.example.org" }), /https/);
+  const gist = "https://gist.githubusercontent.com/WonkaRed/x/raw/chair-press.json";
+  assert.match(cspFor({ ...cfg, pressDiscoveryUrl: gist }), /connect-src 'self' https:\/\/rpc\.example\.org https:\/\/idx\.example\.org https:\/\/gist\.githubusercontent\.com https:\/\/\*\.trycloudflare\.com;/);
+  assert.match(cspFor({ ...cfg, fixture: "f.json", pressDiscoveryUrl: gist }), /connect-src 'self' https:\/\/gist\.githubusercontent\.com https:\/\/\*\.trycloudflare\.com;/, "the desk is independent of the fixture");
+  for (const none of [{}, { pressDiscoveryUrl: "" }]) assert.doesNotMatch(cspFor({ ...cfg, ...none }), /gist|trycloudflare/, "nothing is allowed when no discovery document is configured");
+  assert.throws(() => cspFor({ ...cfg, pressDiscoveryUrl: "http://gist.example.org/x.json" }), /pressDiscoveryUrl/);
+  const { config: shipped } = await import(pathToFileURL(join(root, "config.js")).href);
+  assert.equal("pressUrl" in shipped, false, "the fixed pressUrl path is gone");
+  assert.match(await readFile(join(dist, "index.html"), "utf8"), shipped.pressDiscoveryUrl ? /connect-src [^;]*https:\/\/\*\.trycloudflare\.com/ : /connect-src (?![^;]*trycloudflare)/);
   const html = await readFile(join(dist, "index.html"), "utf8");
   assert.doesNotMatch(html, /__CSP__/);
   assert.match(html, /default-src 'none'; script-src 'self'; style-src 'self'/);
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)/);
   assert.doesNotMatch(html, /\sstyle=|\son[a-z]+=/i);
   assert.doesNotMatch(html, /(src|href)="https?:\/\//);
-  for (const f of ["style.css", "js/charts.js", "js/views.js", "js/dom.js", "js/app.js", "js/minutes.js", "js/decisions.js"]) {
+  for (const f of ["style.css", "js/charts.js", "js/views.js", "js/dom.js", "js/app.js", "js/minutes.js", "js/decisions.js", "js/press.js"]) {
     const t = (await readFile(join(dist, f), "utf8")).split("\n").filter((l) => !l.trimStart().startsWith("//")).join("\n");
     assert.doesNotMatch(t, /innerHTML|outerHTML|insertAdjacentHTML|eval\(|@import|url\(\s*['"]?https?:/);
   }
@@ -335,4 +343,21 @@ test("the reconciliation table labels every cell, so the narrow layout can stack
   assert.equal(cells.length, 9);
   assert.ok(cells.every((c) => typeof c.attrs["data-label"] === "string" && c.attrs["data-label"] !== ""));
   assert.match(await readFile(join(dist, "style.css"), "utf8"), /\.recon td::before \{ content: attr\(data-label\)/);
+});
+
+test("the page opens with the joke: the headline, the latest minutes, then the press conference; the nav has at most four items and names the refusals plainly", async () => {
+  const html = await readFile(join(dist, "index.html"), "utf8");
+  assert.match(html, /<h1[^>]*>.*An AI runs this memecoin's central bank\..*The contract keeps it on a leash\..*<\/h1>/);
+  const at = (needle) => html.indexOf(needle);
+  assert.ok(at('id="hero-minutes"') > at("<h1") && at('id="press"') > at('id="hero-minutes"') && at('id="minutes"') > at('id="press"'), "headline, then minutes, then press, then the list");
+  const nav = html.match(/<nav[^>]*>([\s\S]*?)<\/nav>/)[1];
+  const links = [...nav.matchAll(/<a href="(#[\w-]+)">([^<]+)<\/a>/g)];
+  assert.ok(links.length > 0 && links.length <= 4, `${links.length} nav items`);
+  assert.ok(links.some(([, , label]) => label === "Times the contract told the Chair no"));
+  assert.ok(!html.includes(">Refusals<"));
+  for (const [, id] of links) assert.equal(html.split(`id="${id.slice(1)}"`).length - 1, 1, `${id} names exactly one element`);
+  const ids = [...html.matchAll(/\sid="([^"]+)"/g)].map((m) => m[1]);
+  assert.deepEqual(ids.filter((x, i) => ids.indexOf(x) !== i), [], "no id is used twice");
+  assert.ok(at('id="source"') > at("<footer"), "the RPC provenance box is in the footer");
+  assert.doesNotMatch(html, /\u2014|\u2013/, "no en or em dashes");
 });

@@ -3,9 +3,9 @@
 // argument of `set_policy`) or, for decisions made before the chair sent it, from the texts bundled at build time (minutes.json,
 // keyed by the SHA-256 the chain stores). Chain strings and bundled text are untrusted: they reach the page through `textContent` only.
 import { HASH_RE } from "./decisions.js";
-import { h } from "./dom.js";
+import { h, svg } from "./dom.js";
 import { isAccountId, isTxHash, safeLines, safeText, showAccount } from "./text.js";
-import { fmtRate, fmtTime, shortHash } from "./views.js";
+import { fmtPct, fmtRate, fmtSignedPct, fmtTime, shortHash } from "./views.js";
 
 const PAGE = 20;
 const isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -69,8 +69,8 @@ export async function resolveTexts(decisions, texts, subtle = globalThis.crypto?
 /** What the chair's silence, if any, has done to the rate: the views already apply the decay (SPEC "Views"). */
 export function silence(policy, latest) {
   const rate = fmtRate(policy.rateBps);
-  if (policy.lastSetEpoch === null) return { cls: "warn", text: `The chair has not set a rate yet. The rate in effect is ${rate}.` };
-  if (policy.lastSetEpoch === policy.epoch) return { cls: "ok", text: `The chair has decided in the current epoch, ${policy.epoch}.` };
+  if (policy.lastSetEpoch === null) return { cls: "warn", text: `The Chair has not set a rate yet. The rate in effect is ${rate}.` };
+  if (policy.lastSetEpoch === policy.epoch) return { cls: "ok", text: `The Chair has decided in the current epoch, ${policy.epoch}.` };
   const missed = policy.epoch - policy.lastSetEpoch - 1;
   if (missed === 0) return { cls: "ok", text: `No decision yet in epoch ${policy.epoch}; the last was in epoch ${policy.lastSetEpoch}. The rate in effect is ${rate}.` };
   const moved = latest !== undefined && latest.rateBps === policy.rateBps ? `the rate stays at ${rate}` : latest === undefined ? `the rate in effect is ${rate}` : `the rate has decayed to ${rate}`;
@@ -85,10 +85,26 @@ const MARKS = {
 };
 const KIND = { llm: "an AI model", rule: "a rule-based chair" };
 
+// Every agent text opens with two lines of boilerplate: "$CHAIR decision, epoch N, chair X." and "Rate in effect R; decision D.".
+// They are shown as small metadata; the sentences after them are the minutes. The check still runs on the whole, exact text.
+const BOILERPLATE = [/^\$CHAIR decision, epoch \d+, chair .+\.$/, /^Rate in effect .+ bps; decision .+ bps\.$/];
+
+/** `{meta, prose}`: the leading boilerplate lines, and the rest. A text that is nothing but boilerplate is all prose. */
+export function splitMinutes(text) {
+  const lines = text.split("\n");
+  let n = 0;
+  while (n < BOILERPLATE.length && n < lines.length && BOILERPLATE[n].test(lines[n])) n++;
+  const prose = lines.slice(n).join("\n").trim();
+  return prose === "" ? { meta: [], prose: text } : { meta: lines.slice(0, n), prose };
+}
+
 const move = (d) => {
   const delta = d.rateBps - d.previousRateBps;
   return delta === 0 ? `unchanged from ${fmtRate(d.previousRateBps)}` : `${delta > 0 ? "up" : "down"} ${Math.abs(delta)} bps from ${fmtRate(d.previousRateBps)}`;
 };
+
+/** What a rate does, in the contract's terms (SPEC "Rollover"). */
+const effect = (bps) => (bps > 0 ? `Mints ${fmtPct(bps)} of supply for stakers each epoch.` : bps < 0 ? `Burns ${fmtPct(bps)} of every transfer.` : "Nothing minted, nothing burned.");
 
 function who(doc, d, rec) {
   const label = rec?.chair ? safeText(rec.chair, 80) : null;
@@ -100,9 +116,9 @@ function who(doc, d, rec) {
   );
 }
 
-function pill(doc, state, extra = {}) {
+function pill(doc, state, label = MARKS[state].short, extra = {}) {
   const m = MARKS[state];
-  return h(doc, "span", { class: `verdict ${m.cls} m-mark`, ...extra }, h(doc, "span", { class: "mark", "aria-hidden": "true" }, m.mark), ` ${m.short}`);
+  return h(doc, "span", { class: `verdict ${m.cls} m-mark`, ...extra }, h(doc, "span", { class: "mark", "aria-hidden": "true" }, m.mark), ` ${label}`);
 }
 
 function proof(doc, d, ctx) {
@@ -113,77 +129,106 @@ function proof(doc, d, ctx) {
   );
 }
 
-function reasoning(doc, rec, ctx) {
+/** The pieces of one decision: its state, the prose to lead with, the boilerplate as metadata, and the notes that belong with the proof. */
+function parts(doc, d, ctx) {
+  const rec = ctx.resolved.get(d.tx);
+  const state = rec ? rec.verdict : "absent";
   if (!rec) {
-    return h(doc, "p", { class: "m-absent" }, ctx.texts === null ? "The bundled reasoning texts could not be loaded, so no text is shown for this decision." : "no reasoning text for this decision: its transaction carries none and none was saved");
+    const lead = h(doc, "p", { class: "m-absent" }, ctx.texts === null ? "The bundled reasoning texts could not be loaded, so no text is shown for this decision." : "no reasoning text for this decision: its transaction carries none and none was saved");
+    return { state, rec, lead, meta: null, notes: [] };
   }
   const shown = safeLines(rec.text);
-  const state = rec.verdict;
+  const { meta, prose } = splitMinutes(shown);
   const src = rec.source && /^[\w.-]+$/.test(rec.source) && ctx.repoBase ? h(doc, "a", { href: `${ctx.repoBase}/docs/${rec.source}`, rel: "noopener noreferrer", target: "_blank" }, `docs/${rec.source}`) : null;
-  return [
-    h(doc, "div", { class: "reasoning", lang: "en" }, shown),
-    h(doc, "p", { class: `m-check ${MARKS[state].cls}`, role: "status" }, h(doc, "strong", {}, `${MARKS[state].mark} ${MARKS[state].short}.`), ` ${MARKS[state].long}`),
-    shown !== rec.text ? h(doc, "p", { class: "note" }, "Some characters in this text are not printable and are shown as \\u{...} escapes. The check above ran on the exact text.") : null,
-    rec.onChain ? h(doc, "p", { class: "note" }, "The text was read from the arguments of the transaction below.") : null,
-    src ? h(doc, "p", { class: "note" }, "The text was recorded when the chair ran: ", src, ".") : null,
-  ];
+  return {
+    state,
+    rec,
+    lead: h(doc, "blockquote", { class: "reasoning", lang: "en" }, prose),
+    meta: meta.length === 0 ? null : h(doc, "p", { class: "m-meta" }, meta.map((line) => h(doc, "span", {}, line))),
+    notes: [
+      h(doc, "p", { class: `m-check ${MARKS[state].cls}` }, h(doc, "strong", {}, `${MARKS[state].mark} ${MARKS[state].short}.`), ` ${MARKS[state].long}`),
+      shown !== rec.text ? h(doc, "p", { class: "note" }, "Some characters in this text are not printable and are shown as \\u{...} escapes. The check above ran on the exact text.") : null,
+      rec.onChain ? h(doc, "p", { class: "note" }, "The text was read from the arguments of the transaction below.") : null,
+      src ? h(doc, "p", { class: "note" }, "The text was recorded when the chair ran: ", src, ".") : null,
+    ],
+  };
 }
 
-function detail(doc, d, ctx) {
-  const rec = ctx.resolved.get(d.tx);
-  return { state: rec ? rec.verdict : "absent", nodes: [who(doc, d, rec), reasoning(doc, rec, ctx), proof(doc, d, ctx)].flat() };
-}
+const HOW = "Your browser computed the SHA-256 of the exact text above and compared it with the reasoning_hash the contract logged for this decision. A match shows the text was not edited after the decision. It does not show the Chair was right.";
 
-function latestCard(doc, d, ctx) {
-  const { state, nodes } = detail(doc, d, ctx);
-  return h(doc, "article", { class: `minute latest ${state}`, "aria-label": `Latest decision, epoch ${d.epoch}` },
-    h(doc, "header", { class: "m-head" },
-      h(doc, "div", { class: "m-figure" }, h(doc, "span", { class: "k" }, `Epoch ${d.epoch}`), h(doc, "span", { class: "v rate" }, fmtRate(d.rateBps)), h(doc, "span", { class: "s" }, move(d))),
-      state === "absent" ? null : pill(doc, state),
+/** The mark's words: what was checked, and where. A recorded sandbox run is never called testnet. */
+const verdictLabel = (state, ctx) => (state === "verified" ? (ctx.network ? `Verified on NEAR ${safeText(ctx.network, 12)}` : "Verified against the recorded sandbox run") : MARKS[state].short);
+
+/** The latest decision as the page's pull-quote: the prose large, the epoch, the rate as a percent with bps second, and the proof folded behind the mark. */
+function heroCard(doc, d, ctx, silent) {
+  const p = parts(doc, d, ctx);
+  return h(doc, "figure", { class: `minutes-paper ${p.state}`, "aria-label": `Latest minutes, epoch ${d.epoch}` },
+    svg(doc, "svg", { class: "watermark", "aria-hidden": "true" }, svg(doc, "use", { href: "#seal" })),
+    h(doc, "p", { class: "paper-head" }, h(doc, "span", {}, "Minutes of the Committee of One"), h(doc, "span", { class: "paper-epoch" }, `Epoch ${d.epoch}`)),
+    p.lead,
+    h(doc, "figcaption", { class: "paper-rate" },
+      h(doc, "span", { class: "rate-big" }, fmtSignedPct(d.rateBps)),
+      h(doc, "span", { class: "rate-bps" }, fmtRate(d.rateBps)),
+      h(doc, "span", { class: "rate-effect" }, effect(d.rateBps)),
+      h(doc, "span", { class: "rate-prev" }, `Previous rate ${fmtRate(d.previousRateBps)}.`),
     ),
-    nodes,
+    silent ? h(doc, "p", { class: "m-status warn" }, silent) : null,
+    h(doc, "details", { class: `seal ${p.state}` },
+      h(doc, "summary", {}, svg(doc, "svg", { class: "stamp", "aria-hidden": "true" }, svg(doc, "use", { href: "#seal" })), pill(doc, p.state, verdictLabel(p.state, ctx))),
+      h(doc, "div", { class: "seal-body" },
+        p.meta,
+        p.rec ? h(doc, "p", { class: "note" }, HOW) : null,
+        who(doc, d, p.rec),
+        p.notes,
+        proof(doc, d, ctx),
+      ),
+    ),
   );
 }
 
-function row(doc, d, ctx) {
-  const { state, nodes } = detail(doc, d, ctx);
-  return h(doc, "details", { class: `minute row ${state}` },
-    h(doc, "summary", {},
-      h(doc, "span", { class: "m-epoch" }, `Epoch ${d.epoch}`),
-      h(doc, "span", { class: "m-rate" }, h(doc, "strong", {}, fmtRate(d.rateBps)), h(doc, "span", { class: "sub" }, move(d))),
-      pill(doc, state),
+/** `d` is `loadLog`'s result; `ctx` as for `renderMinutes`. Fills the hero's slot with the latest decision. */
+export function renderHero(doc, host, d, ctx) {
+  while (host.firstChild) host.removeChild(host.firstChild);
+  const [latest] = d.decisions;
+  if (latest === undefined) return host.append(h(doc, "p", { class: "empty" }, d.status === "incomplete" ? "The decisions come from the transaction index, which could not be read. See the status under the log." : "No decision has been recorded on chain yet."));
+  const s = silence(d.policy, latest);
+  host.append(heroCard(doc, latest, ctx, s.cls === "warn" ? s.text : null));
+}
+
+function card(doc, d, ctx) {
+  const p = parts(doc, d, ctx);
+  return h(doc, "article", { class: `minute card ${p.state}` },
+    p.lead,
+    h(doc, "p", { class: "m-line" },
+      h(doc, "strong", {}, `Epoch ${d.epoch}`),
+      h(doc, "span", {}, `${fmtSignedPct(d.rateBps)} (${fmtRate(d.rateBps)}), ${move(d)}`),
+      pill(doc, p.state),
     ),
-    h(doc, "div", { class: "m-body" }, nodes),
+    p.meta,
+    h(doc, "details", { class: "m-more" },
+      h(doc, "summary", {}, "Proof and details"),
+      h(doc, "div", { class: "m-body" }, who(doc, d, p.rec), p.notes, proof(doc, d, ctx)),
+    ),
   );
 }
 
 /** Persistent nodes, no re-render: the focus stays on the control that was pressed. */
-function olderList(doc, older, ctx) {
-  const list = h(doc, "div", { class: "m-older", id: "minutes-older" });
-  list.hidden = true;
+function cards(doc, list, ctx) {
   const rows = h(doc, "div", { class: "m-rows" });
   const more = h(doc, "button", { type: "button", class: "chip more" });
   let shown = 0;
   const showNext = () => {
-    for (const d of older.slice(shown, shown + PAGE)) rows.append(row(doc, d, ctx));
-    shown = Math.min(older.length, shown + PAGE);
-    more.hidden = shown >= older.length;
-    more.textContent = `Show ${Math.min(PAGE, older.length - shown)} more of ${older.length - shown}`;
+    for (const d of list.slice(shown, shown + PAGE)) rows.append(card(doc, d, ctx));
+    shown = Math.min(list.length, shown + PAGE);
+    more.hidden = shown >= list.length;
+    more.textContent = `Show ${Math.min(PAGE, list.length - shown)} more of ${list.length - shown}`;
   };
   more.addEventListener("click", showNext);
   showNext();
-  list.append(rows, more);
-  const toggle = h(doc, "button", { type: "button", class: "chip", "aria-expanded": "false", "aria-controls": "minutes-older" }, `Show all ${plural(older.length, "earlier decision")}`);
-  toggle.addEventListener("click", () => {
-    const open = list.hidden;
-    list.hidden = !open;
-    toggle.setAttribute("aria-expanded", String(open));
-    toggle.textContent = open ? "Hide earlier decisions" : `Show all ${plural(older.length, "earlier decision")}`;
-  });
-  return [toggle, list];
+  return [rows, more];
 }
 
-/** `d` is `loadLog`'s result; `ctx` is `{texts, resolved, explorer, repoBase}`: `texts` the bundled texts or null, `resolved` from `resolveTexts`. */
+/** The earlier decisions as cards, newest first (the latest is the hero). `ctx` is `{texts, resolved, explorer, repoBase, network}`: `texts` the bundled texts or null, `resolved` from `resolveTexts`. */
 export function renderMinutes(doc, host, d, ctx) {
   while (host.firstChild) host.removeChild(host.firstChild);
   const [latest, ...older] = d.decisions;
@@ -191,7 +236,5 @@ export function renderMinutes(doc, host, d, ctx) {
   host.append(h(doc, "p", { class: `m-status ${s.cls}`, role: "status" }, s.text));
   if (d.status === "incomplete") host.append(h(doc, "p", { class: "empty" }, "The decisions come from the transaction index, which could not be read. See the status under the log."));
   else if (latest === undefined) host.append(h(doc, "p", { class: "empty" }, "No decision has been recorded on chain yet."));
-  if (latest === undefined) return;
-  host.append(latestCard(doc, latest, ctx));
-  if (older.length > 0) host.append(...olderList(doc, older, ctx));
+  if (older.length > 0) host.append(...cards(doc, older, ctx));
 }

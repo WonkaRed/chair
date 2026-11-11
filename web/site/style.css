@@ -1,20 +1,21 @@
-/* No external fonts or scripts. System faces only: a text face for reading, the platform monospace for amounts and ids. */
+/* No external fonts or scripts. System faces only: a serif for the Chair's own words, a sans for the page, the platform monospace for amounts and ids. */
 :root {
-  --bg: #f3f5f7; --panel: #ffffff; --ink: #121c26; --ink2: #44525f; --muted: #66727e; --rule: #d3dae0; --hair: #e4e9ed;
-  --accent: #0b6a66; --accent-ink: #ffffff; --mint: #0b6a66; --burn: #b5361b; --warn: #8a5a00; --warn-bg: #fff4d6; --bad-bg: #fde8e3; --good-bg: #e2f3ef;
+  --bg: #f2f4f3; --panel: #fbfcfb; --ink: #15202b; --ink2: #43515c; --muted: #637079; --rule: #cfd7d6; --hair: #e3e8e7;
+  --accent: #0a5f58; --accent-ink: #ffffff; --mint: #0a5f58; --burn: #b5361b; --warn: #8a5a00; --warn-bg: #fff4d6; --bad-bg: #fde8e3; --good-bg: #e2f3ef;
   --s1: #0072b2; --s2: #d55e00; --s3: #00805f; --s4: #b0457f; --s5: #6b6200;
   --text: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --serif: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua", "Noto Serif", Georgia, serif;
   --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
 }
 :root[data-theme="dark"] {
-  --bg: #0d1217; --panel: #151c23; --ink: #e8edf1; --ink2: #b4c0ca; --muted: #8c99a5; --rule: #2a3540; --hair: #1f2932;
-  --accent: #4fd1c5; --accent-ink: #06201e; --mint: #4fd1c5; --burn: #ff8a6b; --warn: #f2c14e; --warn-bg: #2b2410; --bad-bg: #331a14; --good-bg: #0f2a27;
+  --bg: #0e1416; --panel: #141c1f; --ink: #e8edf1; --ink2: #b4c0ca; --muted: #8c99a5; --rule: #2a3540; --hair: #1f2932;
+  --accent: #7cc8b8; --accent-ink: #06201e; --mint: #7cc8b8; --burn: #ff8a6b; --warn: #f2c14e; --warn-bg: #2b2410; --bad-bg: #331a14; --good-bg: #0f2a27;
   --s1: #56b4e9; --s2: #f0a35e; --s3: #3ddc97; --s4: #e58fc3; --s5: #e6d84f;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0d1217; --panel: #151c23; --ink: #e8edf1; --ink2: #b4c0ca; --muted: #8c99a5; --rule: #2a3540; --hair: #1f2932;
-    --accent: #4fd1c5; --accent-ink: #06201e; --mint: #4fd1c5; --burn: #ff8a6b; --warn: #f2c14e; --warn-bg: #2b2410; --bad-bg: #331a14; --good-bg: #0f2a27;
+    --bg: #0e1416; --panel: #141c1f; --ink: #e8edf1; --ink2: #b4c0ca; --muted: #8c99a5; --rule: #2a3540; --hair: #1f2932;
+    --accent: #7cc8b8; --accent-ink: #06201e; --mint: #7cc8b8; --burn: #ff8a6b; --warn: #f2c14e; --warn-bg: #2b2410; --bad-bg: #331a14; --good-bg: #0f2a27;
     --s1: #56b4e9; --s2: #f0a35e; --s3: #3ddc97; --s4: #e58fc3; --s5: #e6d84f;
   }
 }
@@ -34,16 +35,16 @@ code, .amt, .v, .tx, .acct { font-family: var(--mono); font-size: 0.92em; }
 .bar nav { display: flex; gap: 1rem; flex: 1; overflow-x: auto; white-space: nowrap; }
 .bar nav a { color: var(--ink2); text-decoration: none; padding: 0.5rem 0; }
 .bar nav a:hover { color: var(--accent); text-decoration: underline; }
-.mark { display: inline-flex; align-items: center; gap: 0.5rem; font-weight: 800; letter-spacing: 0.02em; color: var(--ink); text-decoration: none; font-size: 1.15rem; }
-/* The glyph is a chair seen from the side: a seat and a back, drawn with borders so no image is needed. */
-.glyph { width: 1rem; height: 1.1rem; border-left: 4px solid var(--accent); border-bottom: 4px solid var(--accent); display: inline-block; box-shadow: 0.35rem 0.5rem 0 -0.05rem var(--accent) inset; }
+.mark { display: inline-flex; align-items: center; gap: 0.5rem; font: 700 1.3rem/1 var(--serif); letter-spacing: 0.01em; color: var(--ink); text-decoration: none; }
+/* The seal is one inline SVG symbol (index.html), drawn in currentColor. */
+.sprite { position: absolute; width: 0; height: 0; overflow: hidden; }
+.seal-icon { width: 2rem; height: 2rem; color: var(--accent); flex: none; }
 .chip { font: inherit; font-size: 0.9rem; color: var(--ink); background: var(--panel); border: 1px solid var(--rule); border-radius: 999px; padding: 0.4rem 0.9rem; min-height: 2.25rem; cursor: pointer; }
 .chip:hover { border-color: var(--accent); }
 .chip[aria-pressed="true"], .chip.on { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
 
-main > section { padding-block: 2.5rem 0.5rem; }
-h1 { font-size: clamp(1.7rem, 4.6vw, 2.9rem); line-height: 1.12; letter-spacing: -0.02em; margin: 1.5rem 0 1rem; max-width: 30ch; font-weight: 800; }
-h2 { font-size: 1.45rem; margin: 0 0 1rem; letter-spacing: -0.01em; border-top: 3px solid var(--ink); padding-top: 0.75rem; }
+main > section { padding-block: 2.75rem 0.5rem; }
+h2 { font: 600 1.7rem/1.2 var(--serif); margin: 0 0 1rem; letter-spacing: -0.005em; border-top: 4px double var(--ink); padding-top: 0.75rem; }
 .lede { max-width: 68ch; color: var(--ink2); font-size: 1.05rem; }
 .source { display: block; max-width: 68ch; padding: 0.7rem 0.9rem; border-left: 4px solid var(--accent); background: var(--panel); margin: 1.25rem 0 0; font-size: 0.95rem; }
 .source.fixture, .source.warn { border-left-color: var(--warn); background: var(--warn-bg); }
@@ -126,7 +127,9 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 .verify { margin: 1.25rem 0; }
 .cmd { display: flex; gap: 0.5rem; align-items: stretch; flex-wrap: wrap; }
 .cmd code { flex: 1 1 18rem; background: var(--ink); color: var(--bg); padding: 0.6rem 0.9rem; border-radius: 6px; overflow-x: auto; white-space: nowrap; }
-.foot { padding-block: 2rem 3rem; color: var(--muted); font-size: 0.9rem; }
+.foot { padding-block: 3rem; color: var(--muted); font-size: 0.9rem; }
+.foot .foot-h { font: 600 1rem/1.2 var(--text); border-top: 1px solid var(--rule); margin: 1.5rem 0 0.5rem; padding-top: 1rem; color: var(--ink2); }
+.foot .source { margin-top: 0; }
 
 .recon, .charts, #ledger-body, #log-body, #refusals-body, #sim-summary { min-width: 0; }
 .recon, #ledger-body, #sim-summary { overflow-x: auto; }
@@ -148,43 +151,107 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 .fact .v, .tv .v { margin: 0.15rem 0 0; }
 .term { display: flex; align-items: center; gap: 0.75rem; }
 
-/* Chair minutes: the latest decision as a card, older ones as collapsed rows. Same panel, rule and accent language as the rest. */
-#minutes { padding-top: 1.5rem; }
+/* The hero: the Chair's latest minutes as a framed document, its words large. The seal is the proof, folded until opened. */
+.hero { padding-block: 2.5rem 1rem; }
+h1 { font: 600 clamp(2.1rem, 5.6vw, 3.5rem)/1.08 var(--serif); letter-spacing: -0.015em; margin: 0; }
+h1 span { display: block; }
+h1 .h1-second { color: var(--ink2); }
+.sub-line { max-width: 62ch; font-size: 1.1rem; color: var(--ink2); margin: 1.25rem 0 0; }
+.hero-slot { margin-top: 2rem; }
+.minutes-paper { position: relative; margin: 0; background: var(--panel); border: 1px solid var(--rule); box-shadow: inset 0 0 0 6px var(--panel), inset 0 0 0 7px var(--rule); padding: 1.75rem 2.25rem 1.5rem; min-width: 0; }
+.watermark { position: absolute; right: 3rem; top: 5.5rem; width: 13rem; height: 13rem; color: var(--accent); opacity: 0.1; pointer-events: none; }
+.minutes-paper > :not(.watermark) { position: relative; }
+.paper-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.25rem 1rem; margin: 0 0 1.25rem; padding-bottom: 0.6rem; border-bottom: 1px solid var(--hair); color: var(--ink2); font: italic 1rem/1.3 var(--serif); }
+.paper-epoch { font-style: normal; font-variant-numeric: lining-nums; }
+.reasoning { quotes: "\201C" "\201D"; margin: 0; font: 1.15rem/1.5 var(--serif); overflow-wrap: anywhere; white-space: pre-wrap; max-width: 62ch; }
+.reasoning::before { content: open-quote; } .reasoning::after { content: close-quote; }
+.minutes-paper .reasoning { font-size: clamp(1.35rem, 2.7vw, 2.05rem); line-height: 1.32; max-width: 44ch; }
+.paper-rate { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.35rem 1.1rem; margin: 1.5rem 0 0; padding-top: 1rem; border-top: 1px solid var(--hair); }
+.rate-big { font: 600 2.6rem/1 var(--serif); font-variant-numeric: lining-nums tabular-nums; }
+.rate-bps { font-family: var(--mono); color: var(--muted); font-size: 0.95rem; }
+.rate-effect { flex: 1 1 14rem; color: var(--ink); } .rate-prev { color: var(--muted); font-size: 0.92rem; }
+.minutes-paper > .m-status { margin: 1rem 0 0; }
+.seal { margin-top: 1.1rem; }
+.seal summary { display: inline-flex; align-items: center; gap: 0.6rem; cursor: pointer; list-style: none; min-height: 2.75rem; padding: 0.2rem 0.9rem 0.2rem 0.3rem; border: 1px solid var(--rule); border-radius: 999px; }
+.seal summary::-webkit-details-marker { display: none; }
+.seal summary:hover { border-color: var(--accent); }
+.seal summary::after { content: ""; width: 0.45rem; height: 0.45rem; border: solid var(--muted); border-width: 0 2px 2px 0; transform: translateY(-0.12rem) rotate(45deg); transition: transform 0.15s; }
+.seal[open] summary::after { transform: translateY(0.1rem) rotate(225deg); }
+.seal .stamp { width: 2.1rem; height: 2.1rem; color: var(--mint); flex: none; }
+.seal.mismatch .stamp { color: var(--burn); } .seal.unchecked .stamp { color: var(--warn); } .seal.absent .stamp { color: var(--muted); }
+.seal summary .verdict { background: transparent; padding: 0; font-size: 1rem; }
+.seal-body { margin-top: 1rem; padding-top: 0.9rem; border-top: 1px solid var(--hair); max-width: 68ch; }
+.seal-body > :first-child { margin-top: 0; }
+.m-meta { margin: 0.9rem 0 0; color: var(--muted); font-size: 0.85rem; overflow-wrap: anywhere; } .m-meta span { display: block; }
+
+/* The minutes list: each card leads with the Chair's words; the figures and the proof come after. */
+#minutes { padding-top: 2rem; }
 .m-status { max-width: 68ch; margin: 0 0 1rem; padding: 0.7rem 0.9rem; border-left: 4px solid var(--accent); background: var(--panel); font-size: 0.95rem; }
 .m-status.warn { border-left-color: var(--warn); background: var(--warn-bg); }
 .verdict.none { background: transparent; color: var(--muted); border: 1px solid var(--rule); }
-.minute { background: var(--panel); border: 1px solid var(--rule); border-left: 4px solid var(--muted); border-radius: 8px; min-width: 0; }
+.minute { background: var(--panel); border: 1px solid var(--rule); border-left: 4px solid var(--muted); border-radius: 6px; min-width: 0; }
 .minute.verified { border-left-color: var(--mint); } .minute.mismatch { border-left-color: var(--burn); } .minute.unchecked { border-left-color: var(--warn); }
-.minute.latest { padding: 1.1rem 1.25rem 1.25rem; }
-.m-head { display: flex; flex-wrap: wrap; align-items: flex-start; justify-content: space-between; gap: 0.5rem 1rem; margin-bottom: 0.75rem; }
-.m-figure > span { display: block; }
-.m-figure .s { color: var(--ink2); }
-.m-mark { white-space: nowrap; }
+.minute.card { padding: 1.1rem 1.25rem 0.9rem; }
+.m-rows { display: grid; gap: 0.75rem; }
+.m-line { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 1rem; margin: 0.8rem 0 0; color: var(--ink2); font-size: 0.92rem; }
+.m-line strong { color: var(--ink); }
+.m-more { margin-top: 0.6rem; } .m-more summary { cursor: pointer; color: var(--accent); font-size: 0.9rem; min-height: 1.75rem; }
 .m-who { margin: 0 0 0.9rem; color: var(--ink2); max-width: 68ch; overflow-wrap: anywhere; }
 .m-who strong { color: var(--ink); }
 .nowrap { white-space: nowrap; }
 .m-check strong { color: var(--ink); } .m-check.ok strong { color: var(--mint); } .m-check.bad strong { color: var(--burn); } .m-check.warn strong { color: var(--warn); }
-.reasoning { max-width: 68ch; padding-left: 1rem; border-left: 3px solid var(--rule); font-size: 1.05rem; line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
-.m-absent { margin: 0 0 0.9rem; padding: 0.6rem 0.8rem; border: 1px dashed var(--rule); border-radius: 6px; color: var(--ink2); max-width: 68ch; }
+.m-absent { margin: 0; padding: 0.6rem 0.8rem; border: 1px dashed var(--rule); border-radius: 6px; color: var(--ink2); max-width: 68ch; }
 .m-check { margin: 0.9rem 0 0.25rem; font-size: 0.92rem; color: var(--ink2); max-width: 68ch; }
 .m-proof { display: grid; gap: 0.35rem; margin: 1rem 0 0; padding-top: 0.75rem; border-top: 1px solid var(--hair); }
 .m-proof > div { display: grid; grid-template-columns: 12.5rem minmax(0, 1fr); gap: 0 0.75rem; }
 .m-proof dd { margin: 0; font-size: 0.88rem; overflow-wrap: anywhere; }
 .m-hash { font-family: var(--mono); }
-.m-older { margin-top: 0.75rem; }
-.m-rows { display: grid; gap: 0.5rem; }
-.minute.row { border-radius: 6px; }
-.minute.row summary { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 1rem; padding: 0.6rem 0.9rem; min-height: 2.75rem; cursor: pointer; }
-.minute.row summary:hover { background: var(--hair); }
-.m-epoch { font-family: var(--mono); min-width: 6rem; }
-.m-rate { flex: 1 1 12rem; } .m-rate .sub { display: inline; margin-left: 0.6rem; }
-.m-body { padding: 0.25rem 1.25rem 1.1rem 1.9rem; }
-.m-older .more { margin-top: 0.75rem; }
 #minutes-body > .chip { margin-top: 1rem; }
+
+/* The press conference. */
+.press-grid { display: grid; gap: 2rem 3rem; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: start; }
+.press-col, .record { min-width: 0; }
+.ask-form label { display: block; margin-bottom: 0.4rem; color: var(--ink2); font-size: 0.95rem; }
+.ask-form textarea { display: block; width: 100%; min-height: 6.5rem; resize: vertical; padding: 0.8rem 0.9rem; font: 1.15rem/1.45 var(--serif); color: var(--ink); background: var(--panel); border: 1px solid var(--ink2); border-radius: 4px; }
+.ask-form textarea:disabled { border-color: var(--rule); color: var(--muted); cursor: not-allowed; }
+.ask-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 0.6rem; }
+.count { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 0.9rem; }
+.ask { font: 600 1rem var(--text); min-height: 2.75rem; padding: 0.55rem 1.5rem; color: var(--accent-ink); background: var(--accent); border: 0; border-radius: 4px; cursor: pointer; }
+.ask:hover:not(:disabled) { filter: brightness(1.12); }
+.ask:disabled { opacity: 0.45; cursor: not-allowed; }
+.form-note { min-height: 1.5em; margin: 0.5rem 0 0; color: var(--ink2); font-size: 0.92rem; }
+.closed { margin-bottom: 1.25rem; padding: 1.1rem 1.25rem; background: var(--panel); border: 1px solid var(--rule); border-left: 4px solid var(--warn); border-radius: 4px; }
+.closed[hidden] { display: none; }
+.closed-line { margin: 0 0 0.4rem; font: 1.3rem/1.3 var(--serif); }
+.closed .note { margin: 0 0 0.75rem; } .closed > :last-child { margin-bottom: 0; }
+.exchange { margin-top: 1.75rem; }
+.asked { margin: 0 0 0.5rem; color: var(--ink2); font-size: 0.92rem; overflow-wrap: anywhere; }
+.asked .k { margin-right: 0.35rem; }
+.answer { quotes: "\201C" "\201D"; margin: 0; padding-left: 1rem; border-left: 3px solid var(--accent); font: 1.3rem/1.42 var(--serif); white-space: pre-wrap; overflow-wrap: anywhere; }
+.answer::before { content: open-quote; } .answer::after { content: close-quote; }
+.entry { display: flex; align-items: center; gap: 0.6rem; margin: 0.8rem 0 0; font-size: 0.95rem; color: var(--ink2); }
+.entry .dot { flex: none; width: 0.7rem; height: 0.7rem; border-radius: 50%; border: 2px solid var(--warn); }
+.entry.waiting .dot { animation: pulse 1.6s ease-in-out infinite; }
+.entry.entered { color: var(--mint); font-weight: 600; } .entry.entered .dot { background: var(--mint); border-color: var(--mint); }
+@keyframes pulse { 50% { opacity: 0.25; } }
+.record h3 { margin: 0 0 0.35rem; font: 600 1.2rem/1.3 var(--serif); }
+.rec-list { list-style: none; margin: 1rem 0 0; padding: 0; display: grid; gap: 1.1rem; }
+.rec { padding-top: 0.9rem; border-top: 1px solid var(--rule); }
+.rec .answer { font-size: 1.08rem; }
+.rec-meta { display: flex; flex-wrap: wrap; gap: 0.2rem 1.1rem; margin: 0.5rem 0 0; color: var(--muted); font-size: 0.85rem; }
+.rec-meta .in a { font-weight: 600; } .rec-meta .wait { color: var(--warn); }
+.sr-only { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
+@media (prefers-reduced-motion: reduce) { .entry.waiting .dot { animation: none; } }
+@media (max-width: 56rem) { .press-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 40rem) {
-  .minute.latest { padding: 0.9rem 0.9rem 1rem; }
+  .minutes-paper { padding: 1.25rem 1.1rem 1.1rem; box-shadow: inset 0 0 0 4px var(--panel), inset 0 0 0 5px var(--rule); }
+  .rate-big { font-size: 2.2rem; }
+  .watermark { display: none; }
+  .minute.card { padding-inline: 0.9rem; }
   .m-proof > div { grid-template-columns: minmax(0, 1fr); }
-  .m-body { padding-inline: 0.9rem; }
-  .m-rate .sub { display: block; margin-left: 0; }
+  .top { position: static; }
+  .bar nav { order: 3; flex: 1 0 100%; flex-wrap: wrap; white-space: normal; overflow: visible; gap: 0 1.1rem; }
+  .bar nav a { padding: 0.3rem 0; font-size: 0.9rem; }
+  .bar #theme { margin-left: auto; }
 }
 .m-mark .mark { color: inherit; font-size: inherit; }

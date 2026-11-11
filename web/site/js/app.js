@@ -3,7 +3,8 @@ import { lineChart } from "./charts.js";
 import { clear, h } from "./dom.js";
 import { renderGuarantees, VERIFY_COMMAND } from "./guarantees.js";
 import { loadLog } from "./loadlog.js";
-import { loadTexts, renderMinutes, resolveTexts } from "./minutes.js";
+import { loadTexts, renderHero, renderMinutes, resolveTexts } from "./minutes.js";
+import { createPress } from "./press.js";
 import { renderRefusals } from "./refusals.js";
 import { BEHAVIOURS, simulate } from "./simview.js";
 import { fixtureTransport, rpcTransport } from "./sources.js";
@@ -51,6 +52,7 @@ async function showChain() {
     made = await makeTransport();
   } catch (e) {
     renderFailure(doc, $("now"), e);
+    renderFailure(doc, $("hero-minutes"), e);
     renderFailure(doc, $("minutes-body"), e);
     renderFailure(doc, $("refusals-body"), e);
     clear($("ledger-body"));
@@ -64,6 +66,7 @@ async function showChain() {
       data = await loadLog(made.transport);
     } catch (e) {
       renderFailure(doc, $("now"), e);
+      renderFailure(doc, $("hero-minutes"), e);
       renderFailure(doc, $("minutes-body"), e);
       renderFailure(doc, $("refusals-body"), e);
       clear($("ledger-body"));
@@ -73,7 +76,9 @@ async function showChain() {
     }
     const bundled = await texts;
     const explorer = made.fixture ? null : config.explorerUrl;
-    renderMinutes(doc, $("minutes-body"), data, { texts: bundled, resolved: await resolveTexts(data.decisions, bundled), explorer, repoBase: `${config.repoUrl}/blob/${config.repoRef}` });
+    const ctx = { texts: bundled, resolved: await resolveTexts(data.decisions, bundled), explorer, repoBase: `${config.repoUrl}/blob/${config.repoRef}`, network: made.fixture ? null : config.network };
+    renderHero(doc, $("hero-minutes"), data, ctx);
+    renderMinutes(doc, $("minutes-body"), data, ctx);
     renderRefusals(doc, $("refusals-body"), data, { explorer });
     renderNow(doc, $("now"), data);
     renderLedger(doc, $("ledger-body"), data);
@@ -154,6 +159,7 @@ function showGuarantees() {
 }
 
 setupTheme();
+createPress(doc, $("press-body"), { discoveryUrl: config.pressDiscoveryUrl, explorer: config.fixture === null ? config.explorerUrl : null });
 showGuarantees();
 showSimulation();
 await showChain();

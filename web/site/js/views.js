@@ -6,7 +6,9 @@ import { isTxHash, safeText, showAccount } from "./text.js";
 
 const MINUS = "−";
 export const fmtRate = (bps) => `${bps > 0 ? "+" : bps < 0 ? MINUS : ""}${Math.abs(bps)} bps`;
-const fmtPct = (bps) => `${(Math.abs(bps) / 100).toFixed(2)}%`;
+export const fmtPct = (bps) => `${(Math.abs(bps) / 100).toFixed(2)}%`;
+/** A rate as a percent with its sign: 15 bps is +0.15%, -15 bps is −0.15%. */
+export const fmtSignedPct = (bps) => `${bps > 0 ? "+" : bps < 0 ? MINUS : ""}${fmtPct(bps)}`;
 export const fmtTime = (ms) => `${new Date(Number(ms)).toISOString().replace("T", " ").slice(0, 16)} UTC`;
 export const shortHash = (hash) => `${hash.slice(0, 6)}…${hash.slice(-6)}`;
 

@@ -15,7 +15,7 @@ const root = join(fileURLToPath(import.meta.url), "..", "..");
 const docs = join(root, "..", "docs");
 const site = (f) => import(join(root, "site", "js", f));
 const { decisionsOfTxs, refusalsOfTxs } = await site("decisions.js");
-const { checkReasoning, loadTexts, renderMinutes, resolveTexts, sha256Hex, silence } = await site("minutes.js");
+const { checkReasoning, loadTexts, renderHero, renderMinutes, resolveTexts, sha256Hex, silence, splitMinutes } = await site("minutes.js");
 const { renderRefusals } = await site("refusals.js");
 const { loadLog } = await site("loadlog.js");
 const { fixtureTransport } = await site("sources.js");
@@ -157,7 +157,7 @@ test("silence says what the chair's absence did to the rate, and only says decay
 const EVIL = "<img src=x onerror=alert(1)>\u202e\u2066\u200b\u0007 <script>alert(1)</script>";
 const HIDDEN = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/;
 const FORBIDDEN_TAGS = new Set(["script", "img", "iframe", "style", "object", "embed", "link"]);
-const HREF = /^https:\/\/(example\.invalid\/txns\/[1-9A-HJ-NP-Za-km-z]{32,44}|example\.invalid\/repo\/blob\/main\/docs\/[\w.-]+)$/;
+const HREF = /^(#seal|https:\/\/(example\.invalid\/txns\/[1-9A-HJ-NP-Za-km-z]{32,44}|example\.invalid\/repo\/blob\/main\/docs\/[\w.-]+))$/;
 
 function assertInert(root, label) {
   for (const n of walk(root)) {
@@ -180,10 +180,14 @@ let txCount = 0;
 const decision = (over = {}) => ({ chair: "chair.test.near", epoch: 5, rateBps: 10, previousRateBps: 0, hash: sha("t"), chainText: null, tx: txId(++txCount), tsMs: 1_700_000_000_000, height: 1, ...over });
 const policy = { epoch: 9, rateBps: 0, lastSetEpoch: 5, streak: 1, epochEndsMs: 1, chair: "chair.test.near" };
 const ctx = (texts, resolved) => ({ texts, resolved, explorer: "https://example.invalid", repoBase: "https://example.invalid/repo/blob/main" });
+/** The page's two slots, hero (the latest decision) and the minutes list (the earlier ones), in one host. */
 const render = (d, c) => {
   const doc = fakeDoc();
   const h = host(doc);
-  renderMinutes(doc, h, d, c);
+  const slots = [host(doc), host(doc)];
+  renderHero(doc, slots[0], d, c);
+  renderMinutes(doc, slots[1], d, c);
+  h.append(...slots);
   return h;
 };
 
@@ -194,7 +198,8 @@ test("a verified decision shows its text, the verified mark, the rate and the mo
   const texts = await textsMap();
   const h = render(d, ctx(texts, await resolveTexts(d.decisions, texts)));
   const text = textOf(h);
-  assert.ok(text.includes(r.reasoning), "the text is shown whole");
+  const { meta, prose } = splitMinutes(r.reasoning);
+  assert.ok(text.includes(prose) && meta.length === 2 && meta.every((line) => text.includes(line)), "the prose and both boilerplate lines are shown");
   assert.match(text, /Verified/);
   assert.match(text, new RegExp(`Epoch ${r.epoch}`));
   assert.ok(text.includes(r.chair) && text.includes("an AI model"));
@@ -251,27 +256,73 @@ test("hostile text, label, account and hash reach the page as inert text only", 
   assert.equal(await loadTexts("m.json", async () => { throw new Error("offline"); }), null);
 });
 
-test("older decisions sit behind a show-all control that toggles by click and shows more in place", async () => {
+test("the latest decision is the hero, earlier ones are cards that show more in place a page at a time", async () => {
   const many = Array.from({ length: 45 }, (_, i) => decision({ epoch: 100 - i, hash: sha(`h${i}`) }));
-  const h = render({ decisions: many, policy, status: "complete" }, ctx(new Map(), new Map()));
-  const all = [...walk(h)];
-  const toggle = all.find((n) => n.tag === "button" && n.attrs["aria-controls"] === "minutes-older");
-  const list = all.find((n) => n.attrs?.id === "minutes-older");
-  assert.equal(toggle.attrs["aria-expanded"], "false");
-  assert.equal(list.hidden, true);
-  assert.match(textOf(toggle), /Show all 44 earlier decisions/);
-  assert.equal(all.filter((n) => n.tag === "details").length, 20, "rows are added a page at a time");
-  toggle.listeners.click[0]();
-  assert.equal(list.hidden, false);
-  assert.equal(toggle.attrs["aria-expanded"], "true");
-  assert.match(textOf(toggle), /Hide earlier/);
-  const more = [...walk(h)].find((n) => n.tag === "button" && /^Show 20 more of 24/.test(textOf(n)));
-  more.listeners.click[0]();
-  assert.equal([...walk(h)].filter((n) => n.tag === "details").length, 40);
-  [...walk(h)].find((n) => n.tag === "button" && /^Show 4 more of 4/.test(textOf(n))).listeners.click[0]();
-  assert.equal([...walk(h)].filter((n) => n.tag === "details").length, 44);
-  toggle.listeners.click[0]();
-  assert.equal(list.hidden, true);
+  const doc = fakeDoc();
+  const hero = host(doc);
+  const list = host(doc);
+  const c = ctx(new Map(), new Map());
+  renderHero(doc, hero, { decisions: many, policy, status: "complete" }, c);
+  renderMinutes(doc, list, { decisions: many, policy, status: "complete" }, c);
+  assert.match(textOf(hero), /Epoch 100/);
+  assert.doesNotMatch(textOf(list), /Epoch 100(?!\d)/, "the hero's decision is not listed again");
+  const cards = () => [...walk(list)].filter((n) => n.tag === "article").length;
+  assert.equal(cards(), 20, "cards are added a page at a time, none collapsed behind a control");
+  assert.equal([...walk(list)].some((n) => n.attrs?.["aria-controls"]), false);
+  [...walk(list)].find((n) => n.tag === "button" && /^Show 20 more of 24/.test(textOf(n))).listeners.click[0]();
+  assert.equal(cards(), 40);
+  const last = [...walk(list)].find((n) => n.tag === "button" && /^Show 4 more of 4/.test(textOf(n)));
+  last.listeners.click[0]();
+  assert.equal(cards(), 44);
+  assert.equal(last.hidden, true);
+});
+
+test("the two boilerplate header lines are metadata, not the quote; a text without them is all quote", async () => {
+  const voiced = "$CHAIR decision, epoch 310, chair local:qwen3.8-27b.\nRate in effect 190 bps; decision 190 bps.\nThe Committee of One has met. The Chair asks that this be recorded.";
+  assert.deepEqual(splitMinutes(voiced), { meta: ["$CHAIR decision, epoch 310, chair local:qwen3.8-27b.", "Rate in effect 190 bps; decision 190 bps."], prose: "The Committee of One has met. The Chair asks that this be recorded." });
+  assert.deepEqual(splitMinutes("The Chair holds."), { meta: [], prose: "The Chair holds." });
+  assert.deepEqual(splitMinutes("$CHAIR decision, epoch 1, chair x.\nRate in effect 0 bps; decision 0 bps."), { meta: [], prose: "$CHAIR decision, epoch 1, chair x.\nRate in effect 0 bps; decision 0 bps." }, "nothing but boilerplate: shown whole");
+  const hash = sha(voiced);
+  const d = { decisions: [decision({ hash, rateBps: -15, previousRateBps: 0, epoch: 310 }), decision({ hash, rateBps: -15, previousRateBps: 0, epoch: 309 })], policy, status: "complete" };
+  const texts = new Map([[hash, { text: voiced, chair: "local:qwen3.8-27b", kind: "llm", source: null }]]);
+  const resolved = new Map(d.decisions.map((x) => [x.tx, { text: voiced, chair: "local:qwen3.8-27b", kind: "llm", source: null, onChain: false, verdict: "verified" }]));
+  const page = render(d, ctx(texts, resolved));
+  const quotes = [...walk(page)].filter((n) => n.tag === "blockquote");
+  assert.equal(quotes.length, 2, "hero and card");
+  for (const q of quotes) assert.equal(textOf(q), "The Committee of One has met. The Chair asks that this be recorded.", "only the sentences are the quote");
+  const metas = [...walk(page)].filter((n) => n.attrs?.class === "m-meta");
+  assert.equal(metas.length, 2);
+  assert.match(textOf(metas[0]), /^\$CHAIR decision, epoch 310, chair local:qwen3\.8-27b\.Rate in effect 190 bps; decision 190 bps\.$/);
+});
+
+test("the hero leads with the prose, the rate as a percent with bps second, what it does, and a verified mark that folds the proof", async () => {
+  const text = "$CHAIR decision, epoch 408, chair local:qwen3.8-27b.\nRate in effect 0 bps; decision -15 bps.\nThe Chair cuts the rate by 15 basis points. The Chair has no further comment.";
+  const hash = sha(text);
+  const d = { decisions: [decision({ hash, rateBps: -15, previousRateBps: 0, epoch: 408 })], policy: { ...policy, epoch: 409, lastSetEpoch: 408 }, status: "complete" };
+  const resolved = await resolveTexts(d.decisions, new Map([[hash, { text, chair: "local:qwen3.8-27b", kind: "llm", source: null }]]));
+  const doc = fakeDoc();
+  const hero = host(doc);
+  renderHero(doc, hero, d, { ...ctx(null, resolved), network: "testnet" });
+  const all = [...walk(hero)];
+  const nodeText = (cls) => textOf(all.find((n) => n.attrs?.class === cls));
+  assert.equal(nodeText("reasoning"), "The Chair cuts the rate by 15 basis points. The Chair has no further comment.");
+  assert.equal(nodeText("rate-big"), "\u22120.15%");
+  assert.equal(nodeText("rate-bps"), "\u221215 bps");
+  assert.equal(nodeText("rate-effect"), "Burns 0.15% of every transfer.");
+  assert.match(textOf(all.find((n) => n.tag === "summary")), /Verified on NEAR testnet/);
+  const details = all.find((n) => n.tag === "details");
+  assert.match(textOf(details), new RegExp(`${hash}[\\s\\S]*`), "the hash sits inside the fold");
+  assert.ok(all.some((n) => n.tag === "a" && n.attrs.href === `https://example.invalid/txns/${d.decisions[0].tx}`), "and the transaction link");
+  assert.ok(!textOf(all.find((n) => n.tag === "summary")).includes(hash), "the hash is not the lead");
+  assert.doesNotMatch(textOf(hero), /No decision for/, "no silence note while the Chair is current");
+  // a recorded sandbox run is never called testnet
+  const fx = host(doc);
+  renderHero(doc, fx, d, { ...ctx(null, resolved), network: null });
+  assert.match(textOf(fx), /Verified against the recorded sandbox run/);
+  assert.doesNotMatch(textOf(fx), /testnet/);
+  const rates = (bps) => { const x = host(doc); renderHero(doc, x, { ...d, decisions: [{ ...d.decisions[0], rateBps: bps }] }, ctx(null, resolved)); return textOf(x); };
+  assert.match(rates(40), /\+0\.40%[\s\S]*Mints 0\.40% of supply for stakers each epoch\./);
+  assert.match(rates(0), /0\.00%[\s\S]*Nothing minted, nothing burned\./);
 });
 
 test("an unreadable index says so instead of claiming there is no decision; an empty chain says that", () => {
@@ -303,7 +354,9 @@ test("a decision reads the reasoning argument of its transaction, and the page c
   assert.deepEqual([resolved.get(decisions[0].tx).verdict, resolved.get(decisions[0].tx).onChain], ["verified", true]);
   const d = { decisions, policy, status: "complete" };
   const h = render(d, ctx(new Map(), resolved));
-  assert.ok(textOf(h).includes(TEXT) && /Verified/.test(textOf(h)) && /read from the arguments of the transaction/.test(textOf(h)));
+  const { meta, prose } = splitMinutes(TEXT);
+  assert.ok(textOf(h).includes(prose) && /Verified/.test(textOf(h)) && /read from the arguments of the transaction/.test(textOf(h)));
+  assert.deepEqual(meta, [], "this text has no boilerplate lines, so all of it is the quote");
   assertInert(h, "chain text");
 });
 

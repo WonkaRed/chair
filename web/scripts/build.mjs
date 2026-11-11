@@ -20,6 +20,11 @@ export function cspFor(config) {
       connect.push(u.origin);
     }
   }
+  if (config.pressDiscoveryUrl) {
+    const u = new URL(config.pressDiscoveryUrl);
+    if (u.protocol !== "https:") throw new Error(`config: pressDiscoveryUrl ${config.pressDiscoveryUrl} must be https`);
+    connect.push(u.origin, "https://*.trycloudflare.com"); // the document, then the desk it names (the page checks that name too)
+  }
   return ["default-src 'none'", "script-src 'self'", "style-src 'self'", "img-src 'self' data:", `connect-src ${[...new Set(connect)].join(" ")}`, "base-uri 'none'", "form-action 'none'"].join("; ");
 }
 
