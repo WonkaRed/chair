@@ -263,8 +263,11 @@ export function createPress(doc, host, { discoveryUrl = "", explorer = null, fet
     return inflight;
   }
 
+  /** The desk's own word for "the room is full, ask again shortly" (a 503 that is not a closed desk). */
+  const isFull = (status, body) => status === 503 && isObj(body) && body.code === "press_full";
   const refuse = (status, body) => {
     if (status === 429) return "The Chair has taken enough questions for now. Ask again later.";
+    if (isFull(status, body)) return "The press room is full. Ask again in a minute.";
     if (status === 400 && isObj(body) && typeof body.error === "string") return `The question was not accepted: ${safeText(body.error, 140)}`;
     return "The press desk did not take the question. Nothing was entered.";
   };
@@ -293,7 +296,7 @@ export function createPress(doc, host, { discoveryUrl = "", explorer = null, fet
         schedule();
       } else {
         message = res.ok ? "The press desk sent a reply this page cannot read. Nothing was entered." : refuse(res.status, body);
-        if (res.status === 503) online = false;
+        if (res.status === 503 && !isFull(res.status, body)) online = false;
       }
     } catch {
       message = "The press desk did not answer. Nothing was entered.";

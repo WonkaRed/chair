@@ -4,8 +4,8 @@ import type { Server } from "node:http";
 import { join } from "node:path";
 import { test } from "node:test";
 import { main } from "../src/cli.js";
-import { createPressServer, listen, MAX_BODY_BYTES, type PressServerOptions } from "../src/press-server.js";
-import { PressStore } from "../src/press-store.js";
+import { clientKey, createPressServer, listen, MAX_BODY_BYTES, type PressServerOptions } from "../src/press-server.js";
+import { entryLine, PressStore, type PressEntry } from "../src/press-store.js";
 import { reasoningHash } from "../src/reasoning.js";
 import { tempDir } from "./helpers.js";
 
@@ -108,7 +108,7 @@ test("bad input is a 400 with an error, and never reaches the model", async () =
   }
 });
 
-test("rate limits: 3 per visitor per 10 minutes, 30 per hour in all; Retry-After says when; a full limit costs no model call", async () => {
+test("rate limits: 3 per visitor per 10 minutes, 80 per hour in all (what the chain can carry); Retry-After says when; a full limit costs no model call", async () => {
   let t = 1_000_000;
   const d = await desk({ now: () => t });
   try {
@@ -122,16 +122,17 @@ test("rate limits: 3 per visitor per 10 minutes, 30 per hour in all; Retry-After
     assert.equal((await ask(d, "other visitor", ip(2))).status, 200, "another visitor is not limited");
     t += 10 * 60_000 + 1;
     assert.equal((await ask(d, "again", ip(1))).status, 200, "the window slides");
-    // IPv6: the whole /64 is one visitor.
-    for (let i = 0; i < 3; i++) assert.equal((await ask(d, `v6-${i}`, { "cf-connecting-ip": `2001:db8:1:2:${i}::${i + 1}` })).status, 200);
-    assert.equal((await ask(d, "v6", { "cf-connecting-ip": "2001:db8:1:2:ffff::1" })).status, 429);
+    // IPv6: the whole /56 is one visitor, however its host bits and its subnets are chosen; the next /56 is another.
+    for (let i = 0; i < 3; i++) assert.equal((await ask(d, `v6-${i}`, { "cf-connecting-ip": `2001:db8:1:20${i}${i}:${i}::${i + 1}` })).status, 200);
+    assert.equal((await ask(d, "v6", { "cf-connecting-ip": "2001:db8:1:20ff:ffff::1" })).status, 429);
+    assert.equal((await ask(d, "next /56", { "cf-connecting-ip": "2001:db8:1:2100::1" })).status, 200);
   } finally {
     await d.close();
   }
   let g = 5_000_000;
-  const e = await desk({ now: () => g, limits: { perIpCount: 1000, globalCount: 30 } });
+  const e = await desk({ now: () => g, limits: { perIpCount: 1000, globalCount: 80, pendingMax: 1000 } });
   try {
-    for (let i = 0; i < 30; i++) assert.equal((await ask(e, `g${i}`)).status, 200);
+    for (let i = 0; i < 80; i++) assert.equal((await ask(e, `g${i}`)).status, 200);
     assert.equal((await ask(e, "one too many")).status, 429);
     g += 60 * 60_000 + 1;
     assert.equal((await ask(e, "next hour")).status, 200);
@@ -146,7 +147,9 @@ test("503 when the Chair is not taking questions, and when the queue is full; on
     d.setAvailable(false);
     const res = await ask(d, "hello");
     assert.equal(res.status, 503);
-    assert.equal(typeof ((await res.json()) as { error: unknown }).error, "string");
+    const body = (await res.json()) as { error: unknown; code: unknown };
+    assert.equal(typeof body.error, "string");
+    assert.equal(body.code, "desk_closed", "the page tells a closed desk from a full press room by this");
     assert.equal(((await (await fetch(`${d.base}/record`)).json()) as { taking_questions: boolean }).taking_questions, false);
     assert.equal(d.asked.length, 0);
   } finally {
@@ -171,6 +174,7 @@ test("503 when the Chair is not taking questions, and when the queue is full; on
     await new Promise((r) => setTimeout(r, 50));
     const full = await ask(e, "one too many");
     assert.equal(full.status, 503, "the queue holds five");
+    assert.equal(((await full.json()) as { code: unknown }).code, "press_full", "a full room is not a closed desk");
     for (let n = 0; n < 6; n++) {
       for (let i = 0; i < 100 && release.length <= n; i++) await new Promise((r) => setTimeout(r, 10));
       release[n]!();
@@ -179,6 +183,47 @@ test("503 when the Chair is not taking questions, and when the queue is full; on
     assert.equal(peak, 1, "never two model calls at once");
   } finally {
     await e.close();
+  }
+});
+
+test("the backlog of answered questions waiting for the chain is bounded, and the record shows them as awaiting entry", async () => {
+  const d = await desk({ limits: { perIpCount: 1000, globalCount: 1000, pendingMax: 5 } });
+  try {
+    for (let i = 0; i < 5; i++) assert.equal((await ask(d, `backlog ${i}`)).status, 200);
+    const full = await ask(d, "one more");
+    assert.equal(full.status, 503);
+    assert.equal(((await full.json()) as { code: unknown }).code, "press_full");
+    assert.equal(d.asked.length, 5, "a full backlog costs no model call");
+    const rec = (await (await fetch(`${d.base}/record?limit=50`)).json()) as { taking_questions: boolean; entries: { epoch: unknown; tx_hash: unknown }[] };
+    assert.equal(rec.taking_questions, true);
+    assert.deepEqual(rec.entries.map((e) => [e.epoch, e.tx_hash]), Array(5).fill([null, null]), "every waiting entry says so");
+    // The chair enters two of them: room for two more, and the entered ones carry their epoch and transaction.
+    const [oldest, second] = d.store.pending() as [PressEntry, PressEntry];
+    d.store.markEntered(`${entryLine(oldest)}\n${entryLine(second)}`, 9, "tx9");
+    assert.equal((await ask(d, "room again")).status, 200);
+    const after = (await (await fetch(`${d.base}/record?limit=50`)).json()) as { entries: { epoch: unknown }[] };
+    assert.equal(after.entries.filter((e) => e.epoch === 9).length, 2);
+    assert.equal(after.entries.filter((e) => e.epoch === null).length, 4);
+  } finally {
+    await d.close();
+  }
+});
+
+test("the client key: CF-Connecting-IP counts only on a loopback connection; X-Forwarded-For never counts", async () => {
+  const req = (peer: string, headers: Record<string, string>): Parameters<typeof clientKey>[0] => ({ socket: { remoteAddress: peer }, headers }) as never;
+  assert.equal(clientKey(req("127.0.0.1", { "cf-connecting-ip": "203.0.113.7" })), "203.0.113.7", "behind the tunnel, Cloudflare names the visitor");
+  assert.equal(clientKey(req("::1", { "cf-connecting-ip": "203.0.113.7" })), "203.0.113.7");
+  assert.equal(clientKey(req("198.51.100.9", { "cf-connecting-ip": "203.0.113.7" })), "198.51.100.9", "from anywhere else the header is forgery and is ignored");
+  assert.equal(clientKey(req("127.0.0.1", { "x-forwarded-for": "203.0.113.7" })), "127.0.0.1", "X-Forwarded-For is never read");
+  assert.equal(clientKey(req("127.0.0.1", { "cf-connecting-ip": "not an address" })), "127.0.0.1", "a header that is not an address is ignored");
+  assert.equal(clientKey(req("127.0.0.1", { "cf-connecting-ip": "::ffff:203.0.113.7" })), "203.0.113.7", "a mapped IPv4 is its IPv4: no second key for the same visitor");
+  const d = await desk();
+  try {
+    const statuses: number[] = [];
+    for (let i = 0; i < 4; i++) statuses.push((await ask(d, `rotate ${i}`, { "x-forwarded-for": `203.0.113.${i}` })).status);
+    assert.deepEqual(statuses, [200, 200, 200, 429], "rotating X-Forwarded-For does not rotate the limit key");
+  } finally {
+    await d.close();
   }
 });
 
@@ -267,4 +312,32 @@ test("chair-agent press takes questions through the real command and stops on ab
   const refused: string[] = [];
   assert.equal(await main(["press", "--port", "0"], {}, { out: () => undefined, err: (l) => refused.push(l) }), 2);
   assert.match(refused.join("\n"), /--llm-endpoint and --llm-model/);
+});
+
+test("the desk stays off the model while a decision is waiting on it, and asks as soon as the decision is done", async () => {
+  const dir = tempDir("press-yield");
+  const ac = new AbortController();
+  const out: string[] = [];
+  const calls: number[] = [];
+  const llmClient = { complete: () => { calls.push(Date.now()); return Promise.resolve({ text: JSON.stringify({ answer: "The Chair has noted it." }), stopReason: "end_turn" }); } };
+  try {
+    const file = join(dir, "press.jsonl");
+    const store = new PressStore(file);
+    const done = main(["press", "--port", "0", "--press", file], {}, { out: (l) => out.push(l), err: (l) => out.push(l) }, { llmClient, signal: ac.signal });
+    for (let i = 0; i < 100 && !out.some((l) => l.includes("press on 127.0.0.1")); i++) await new Promise((r) => setTimeout(r, 20));
+    const port = /127\.0\.0\.1:(\d+)/.exec(out.join("\n"))?.[1];
+    assert.ok(port !== undefined);
+    store.decisionStarted();
+    const pending = fetch(`http://127.0.0.1:${port}/ask`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: "hello Chair" }) });
+    await new Promise((r) => setTimeout(r, 700));
+    assert.equal(calls.length, 0, "no call to the model while the decision holds it");
+    store.decisionDone();
+    const res = await pending;
+    assert.equal(res.status, 200);
+    assert.equal(calls.length, 1);
+    ac.abort();
+    assert.equal(await done, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

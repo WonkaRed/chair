@@ -205,6 +205,19 @@ test("a question that is empty or over 140 characters is stopped before it is se
   assert.equal(press.state().own.length, 0, "nothing was entered, so nothing is remembered");
 });
 
+test("a 503 that says the press room is full is not a closed desk: the form stays open and the visitor is told to ask again shortly", async () => {
+  let next = reply(503, { error: "the press room is full; try again shortly", code: "press_full" });
+  const { root, press } = await make({ discoveryUrl: DISCOVERY, fetchImpl: routed((u, init) => (init?.method === "POST" ? next() : OPEN())) });
+  await press.ask("fine");
+  assert.match(text(root), /press room is full\. Ask again in a minute/);
+  assert.equal(text(root).includes(OFFLINE), false, "the desk is still open");
+  assert.equal(press.state().online, true);
+  assert.equal(press.state().own.length, 0);
+  next = reply(503, { error: "the Chair is not taking questions right now", code: "desk_closed" });
+  await press.ask("fine");
+  assert.ok(text(root).includes(OFFLINE), "a closed desk still closes the form");
+});
+
 test("text from the desk and from the visitor is never put in as HTML: answers, hashes and questions reach the page as inert text", async () => {
   const entry = { id: "e1", question_hash: EVIL, answer: EVIL, asked_at_ms: 1_700_000_000_000, epoch: 9, tx_hash: TX };
   const bad = [{ ...entry, id: "e2", tx_hash: EVIL }, { ...entry, id: "e3", answer: 5 }, { ...entry, id: EVIL }, "x", null, { ...entry, id: "e4", asked_at_ms: "now" }];

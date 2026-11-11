@@ -14,13 +14,20 @@ export const MAX_BODY_BYTES = 1024;
 export const DEFAULT_LIMITS = {
   perIpCount: 3,
   perIpWindowMs: 10 * 60_000,
-  globalCount: 30,
+  /** What the chain can carry: two answers in each 90 s epoch is 80 an hour. */
+  globalCount: 80,
   globalWindowMs: 60 * 60_000,
+  /** Answered questions still waiting to be entered in the minutes; past it the desk closes until the agent has caught up. */
+  pendingMax: 40,
   /** Questions that may wait for the one model call at a time. */
   queueMax: 5,
 } as const;
 
 export type Limits = { -readonly [K in keyof typeof DEFAULT_LIMITS]: number };
+
+/** The `code` of an error the page can act on: the desk is closed (machine, model or record down) or the press room is full (try again shortly). */
+const DESK_CLOSED = { error: "the Chair is not taking questions right now", code: "desk_closed" } as const;
+const PRESS_FULL = { error: "the press room is full; try again shortly", code: "press_full" } as const;
 
 const RECORD_DEFAULT = 20;
 const RECORD_MAX = 50;
@@ -75,7 +82,7 @@ class SerialQueue {
   }
 }
 
-/** An address as a rate-limit key: an IPv4-mapped address is its IPv4, an IPv6 one is its /64 (a household holds the whole block). */
+/** An address as a rate-limit key: an IPv4-mapped address is its IPv4, an IPv6 one is its /56 (the block a provider hands one household or one phone). */
 function ipKey(ip: string): string {
   const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
   if (mapped !== null) return mapped[1]!;
@@ -84,7 +91,7 @@ function ipKey(ip: string): string {
   const front = head === "" ? [] : head.split(":");
   const back = tail === "" ? [] : tail.split(":");
   const groups = ip.includes("::") ? [...front, ...Array<string>(Math.max(0, 8 - front.length - back.length)).fill("0"), ...back] : front;
-  return groups.slice(0, 4).map((g) => g.padStart(4, "0")).join(":");
+  return [...groups.slice(0, 3).map((g) => g.padStart(4, "0")), (groups[3] ?? "0").padStart(4, "0").slice(0, 2)].join(":");
 }
 
 /**
@@ -156,8 +163,8 @@ export function createPressServer(opts: PressServerOptions): Server {
     const question = cleanQuestion(q);
     if (question === null) return bad("the question must be 1 to 140 characters");
 
-    if (!opts.available()) return reply(res, 503, { error: "the Chair is not taking questions right now" }, cors);
-    if (!queue.hasRoom) return reply(res, 503, { error: "the press room is full; try again shortly" }, cors);
+    if (!opts.available()) return reply(res, 503, DESK_CLOSED, cors);
+    if (!queue.hasRoom || opts.store.pending().length >= limits.pendingMax) return reply(res, 503, PRESS_FULL, cors);
     const t = now();
     const key = clientKey(req);
     const wait = Math.max(perIp.waitMs(key, t), global.waitMs("all", t));
@@ -172,7 +179,7 @@ export function createPressServer(opts: PressServerOptions): Server {
     try {
       opts.store.add(entry);
     } catch {
-      return reply(res, 503, { error: "the record cannot be written; the Chair is not taking questions" }, cors);
+      return reply(res, 503, { error: "the record cannot be written; the Chair is not taking questions", code: "desk_closed" }, cors);
     }
     opts.log?.(`answered ${entry.id} ${entry.questionHash.slice(0, 12)} ${entry.source}`);
     reply(res, 200, { id: entry.id, answer: entry.answer, question_hash: entry.questionHash, asked_at_ms: entry.askedAtMs, status: "answered" }, cors);
@@ -185,7 +192,7 @@ export function createPressServer(opts: PressServerOptions): Server {
     try {
       reply(res, 200, { taking_questions: opts.available(), entries: opts.store.recent(Math.min(limit, RECORD_MAX)).map(toPublic) }, cors);
     } catch {
-      reply(res, 503, { error: "the record cannot be read" }, cors);
+      reply(res, 503, { error: "the record cannot be read", code: "desk_closed" }, cors);
     }
   }
 
@@ -195,7 +202,7 @@ export function createPressServer(opts: PressServerOptions): Server {
       typeof origin === "string" && ALLOWED_ORIGIN.test(origin) ? { "access-control-allow-origin": origin, vary: "Origin" } : { vary: "Origin" };
     const url = new URL(req.url ?? "/", "http://localhost");
     const fail = (): void => {
-      if (!res.headersSent) reply(res, 503, { error: "the Chair is not taking questions right now" }, cors);
+      if (!res.headersSent) reply(res, 503, DESK_CLOSED, cors);
     };
 
     if (req.method === "OPTIONS") {

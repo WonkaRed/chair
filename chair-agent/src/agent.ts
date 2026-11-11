@@ -1,5 +1,5 @@
 import type { Reader } from "./chain.js";
-import { finalize, propose, windowFor, type DecideOptions } from "./decide.js";
+import { finalize, propose, windowFor, type DecideOptions, type Proposed } from "./decide.js";
 import type { DecisionLog, EpochState } from "./log.js";
 import type { PressEntry, PressStore } from "./press-store.js";
 import { reasoningHash } from "./reasoning.js";
@@ -53,7 +53,7 @@ export async function tick(deps: AgentDeps): Promise<TickResult> {
     if (prior.decision !== null) return resend(deps, deps.submitter, snapshot, prior);
   }
 
-  const proposed = await propose(snapshot, deps.log.history(policy.epoch), deps.decideOptions, deps.log.memory(policy.epoch, policy.rateBps));
+  const proposed = await proposeWhileDeskWaits(deps, snapshot, policy);
   // The chair may have taken a while: decide against the chain as it is now, not as it was.
   const fresh = await deps.reader.snapshot();
   if (fresh.policy.chair !== deps.chairAccount) return { status: "not-chair", snapshot: fresh };
@@ -63,6 +63,27 @@ export async function tick(deps: AgentDeps): Promise<TickResult> {
 
   deps.log.recordDecision(decision, fresh);
   return send(deps, deps.submitter, fresh, decision, 0);
+}
+
+/**
+ * The chair's call to the model, with the press desk told to keep off the model until it is done: the desk and the chair share one model, and a
+ * decision must not wait behind answers to the press. The marker is a courtesy: a store that cannot write it only means the desk does not yield.
+ */
+async function proposeWhileDeskWaits(deps: AgentDeps, snapshot: Snapshot, policy: Snapshot["policy"]): Promise<Proposed> {
+  try {
+    deps.press?.decisionStarted();
+  } catch {
+    // No marker, no yielding; the decision goes on.
+  }
+  try {
+    return await propose(snapshot, deps.log.history(policy.epoch), deps.decideOptions, deps.log.memory(policy.epoch, policy.rateBps));
+  } finally {
+    try {
+      deps.press?.decisionDone();
+    } catch {
+      // A marker that stays is ignored once it is old.
+    }
+  }
 }
 
 /** The questions waiting for these minutes. The press is a side lane: a store that cannot be read means no press section, never a missed decision. */

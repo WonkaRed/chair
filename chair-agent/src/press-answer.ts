@@ -3,9 +3,13 @@ import { oneLine } from "./press-store.js";
 import type { AnswerSource } from "./press-store.js";
 import type { LlmClient } from "./llm-chair.js";
 import { withTimeout } from "./decide.js";
+import { VOCABULARY } from "./press-vocabulary.js";
 
 /** Longest answer, in characters. An answer over it is not cut: it is replaced by a fixed line. */
 export const MAX_ANSWER_CHARS = 240;
+
+/** The longest the desk waits for a decision to finish with the model before it asks anyway; the decision's own limit is 30 s. */
+export const MAX_YIELD_MS = 45_000;
 
 /** Time the model gets for one answer. */
 export const ANSWER_TIMEOUT_MS = 15_000;
@@ -29,6 +33,8 @@ const SYSTEM = [
   "name no real person, company, institution, currency, central bank or place (the only names are \"the Chair\", \"the Committee of One\" and \"the contract\");",
   "state no number, date or statistic; never describe or characterize the contract, the rate, the supply, the stakers or the votes, and when asked about them deflect without naming them;",
   "never repeat the question's words back; no links, no emoji, no exclamation marks, no em or en dashes.",
+  "Use only words from this list, and nothing else: an answer with any other word is thrown away. When the question needs a word that is not on it, deflect with ceremony and do not name the topic.",
+  `The list: ${[...VOCABULARY].sort().join(" ")}.`,
   "Answer with JSON only: {\"answer\": <string>}",
 ].join(" ");
 
@@ -59,22 +65,50 @@ const norm = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]+/g, " ").
 /** True for a question that asks about price or advice; such a question is answered from the fixed price lines when the model cannot be used. */
 export const isPriceTalk = (text: string): boolean => PRICE_WORDS.test(text);
 
+/** The most sentences an answer may have; the prompt asks for one or two. */
+export const MAX_SENTENCES = 2;
+
+/** The words of the Chair's own title: a question may use them and so may the answer, so a run made only of them is not an echo. */
+const CEREMONY = new Set(["the", "chair", "committee", "of", "one", "s"]);
+
+/** A run of this many consecutive words in the answer that is also in the question counts as quoting it. */
+const ECHO_RUN = 3;
+
+/** True when the answer holds a run of `ECHO_RUN` words that the question holds too, unless the run is only the Chair's title. */
+function quotes(answer: string, question: string): boolean {
+  const q = norm(question).split(" ");
+  const a = norm(answer).split(" ");
+  const seen = new Set<string>();
+  for (let i = 0; i + ECHO_RUN <= q.length; i++) seen.add(q.slice(i, i + ECHO_RUN).join(" "));
+  for (let i = 0; i + ECHO_RUN <= a.length; i++) {
+    const run = a.slice(i, i + ECHO_RUN);
+    if (seen.has(run.join(" ")) && !run.every((w) => CEREMONY.has(w))) return true;
+  }
+  return false;
+}
+
 /**
- * The answer as the Chair may say it, or null when it breaks a rule: empty, over `MAX_ANSWER_CHARS`, anything but plain printable ASCII
- * (after straight-quoting curly quotes and turning dashes and exclamation marks into commas and full stops), a digit, a link or handle,
- * a price or advice word, a well-known real name, a word about how the contract works (CHAIN_TALK), or the question's own words. Cleaning is `cleanReasoning`'s, as for the minutes.
+ * The answer as the Chair may say it, or null. Fails closed: the model's text is accepted only when every word of it is in `VOCABULARY`
+ * (the words the Chair may say, nothing else; see `press-vocabulary.ts`), it is plain text of letters and sentence punctuation, it is
+ * at most `MAX_ANSWER_CHARS` and `MAX_SENTENCES` long, and it does not quote the question (any run of three words, or the whole of a short
+ * one). The word lists below it (price, names, links, chain talk) are a second wall behind the vocabulary and stay in case the vocabulary
+ * is ever widened. Curly quotes are straightened, dashes become commas and exclamation marks full stops; the cleaning is `cleanReasoning`'s,
+ * as for the minutes.
  */
 export function checkAnswer(raw: string, question: string): string | null {
   const text = oneLine(raw)
-    .replace(/[‘’]/g, "'")
-    .replace(/[“”]/g, '"')
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201c\u201d]/g, '"')
     .replace(/\s*[\u2013\u2014]\s*/g, ", ")
     .replace(/!/g, ".");
   if (text === "" || text.length > MAX_ANSWER_CHARS) return null;
-  if (!/^[\x20-\x7e]+$/.test(text) || /\d/.test(text)) return null;
+  if (!/^[A-Za-z][A-Za-z .,;:?'"-]*$/.test(text)) return null;
+  if (text.split(/[.?]+(?:\s+|$)/).filter((s) => /[a-z]/i.test(s)).length > MAX_SENTENCES) return null;
+  if ((text.toLowerCase().match(/[a-z]+(?:'[a-z]+)*/g) ?? []).some((w) => !VOCABULARY.has(w))) return null;
   if (LINKS.test(text) || PRICE_WORDS.test(text) || REAL_NAMES.test(text) || CHAIN_TALK.test(text)) return null;
   const q = norm(question);
   if (q.length >= 6 && norm(text).includes(q)) return null;
+  if (quotes(text, question)) return null;
   return text;
 }
 
@@ -117,6 +151,14 @@ function parseAnswer(text: string): string | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Waits while `busy()` says a decision is using the model, so that the chair's call never shares the model with a new answer for the press;
+ * gives up after `maxMs` (the desk is never held for good by a marker that should not be there).
+ */
+export async function stayOffTheModel(busy: () => boolean, maxMs: number = MAX_YIELD_MS, stepMs = 200): Promise<void> {
+  for (let waited = 0; waited < maxMs && busy(); waited += stepMs) await new Promise<void>((r) => setTimeout(r, stepMs));
 }
 
 /** Asks the model, and checks what it says. A failure of any kind, or an answer that breaks a rule, gives the fixed line instead. */

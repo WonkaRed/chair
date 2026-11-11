@@ -6,7 +6,7 @@ import { ChainReader } from "./chain.js";
 import type { DecideOptions } from "./decide.js";
 import { AnthropicLlmClient, LlmChair, LocalLlmClient, llmConfigured, type LlmClient } from "./llm-chair.js";
 import { DecisionLog, findReasoning, verifyLog } from "./log.js";
-import { answerQuestion, ModelWatch } from "./press-answer.js";
+import { answerQuestion, ModelWatch, stayOffTheModel } from "./press-answer.js";
 import { createPressServer, listen } from "./press-server.js";
 import { PressStore } from "./press-store.js";
 import { NearRpc } from "./rpc.js";
@@ -234,9 +234,13 @@ async function pressCommand(args: readonly string[], env: NodeJS.ProcessEnv, io:
     await watch.start();
   }
   const llm = client;
+  const store = new PressStore(file);
   const server = createPressServer({
-    store: new PressStore(file),
-    answer: (question) => answerQuestion(llm, question),
+    store,
+    answer: async (question) => {
+      await stayOffTheModel(() => store.decisionBusy());
+      return answerQuestion(llm, question);
+    },
     available: () => watch === null || watch.available,
     log: (line) => io.out(line),
   });

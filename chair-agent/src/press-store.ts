@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { cleanReasoning, reasoningHash } from "./reasoning.js";
 
@@ -56,6 +56,9 @@ export const oneLine = (answer: string): string => cleanReasoning(answer, 2000)?
 
 /** The first 12 hex characters of the question hash, the form in which it is written into the minutes. */
 export const hashPrefix = (e: Pick<PressEntry, "questionHash">): string => e.questionHash.slice(0, 12);
+
+/** How long a decision may hold the marker: past the model's own time limit for a decision (30 s by default) with room to spare. */
+export const DECISION_MARKER_MAX_MS = 90_000;
 
 /** The one line of the minutes that stands for an entry; `PressStore.markEntered` finds entries by exactly this line. */
 export const entryLine = (e: Pick<PressEntry, "questionHash" | "answer">): string =>
@@ -118,6 +121,30 @@ export class PressStore {
     this.append({ v: 1, kind: "ask", id: e.id, question: e.question, question_hash: e.questionHash, answer: e.answer, source: e.source, asked_at_ms: e.askedAtMs });
   }
 
+  /** The marker the chair agent keeps while a decision waits on the model, beside the record so that both processes find it. */
+  private get marker(): string {
+    return `${this.path}.deciding`;
+  }
+
+  /** The agent is about to wait on the model for a decision: the desk stays off the model until `decisionDone`. */
+  decisionStarted(): void {
+    mkdirSync(dirname(this.path), { recursive: true });
+    writeFileSync(this.marker, `${Date.now()}\n`, { mode: 0o600 });
+  }
+
+  decisionDone(): void {
+    rmSync(this.marker, { force: true });
+  }
+
+  /** True while a decision is waiting on the model. A marker older than `DECISION_MARKER_MAX_MS` is a crash's leftover and counts for nothing. */
+  decisionBusy(nowMs: number = Date.now()): boolean {
+    try {
+      return nowMs - statSync(this.marker).mtimeMs < DECISION_MARKER_MAX_MS;
+    } catch {
+      return false;
+    }
+  }
+
   /** The newest `limit` entries, newest first. */
   recent(limit: number): PressEntry[] {
     return this.read().slice(-limit).reverse();
@@ -129,14 +156,19 @@ export class PressStore {
   }
 
   /**
-   * Marks every pending entry whose line (`entryLine`) is a line of `minutes` as entered in `epoch` by `txHash`; returns how many.
+   * Marks the pending entries whose line (`entryLine`) is a line of `minutes` as entered in `epoch` by `txHash`, oldest first, and no more
+   * of them than the minutes hold copies of that line (two identical entries, one written, mark one); returns how many.
    * Going by the text that was sent, not by what was meant to be sent, keeps a re-sent decision and a trimmed one honest.
    */
   markEntered(minutes: string, epoch: number, txHash: string): number {
-    const lines = new Set(minutes.split("\n"));
+    const copies = new Map<string, number>();
+    for (const line of minutes.split("\n")) copies.set(line, (copies.get(line) ?? 0) + 1);
     let n = 0;
     for (const e of this.pending()) {
-      if (!lines.has(entryLine(e))) continue;
+      const line = entryLine(e);
+      const left = copies.get(line) ?? 0;
+      if (left === 0) continue;
+      copies.set(line, left - 1);
       this.append({ v: 1, kind: "entered", id: e.id, epoch, tx_hash: txHash });
       n++;
     }
