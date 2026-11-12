@@ -1,6 +1,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { cleanReasoning, HASH_RE, reasoningHash } from "./reasoning.js";
+import { REMARK_MEMORY } from "./remark.js";
 import type { ChairKind, ChairMemory, Decision, HistoryPoint, Snapshot } from "./types.js";
 import { u128 } from "./validate.js";
 
@@ -24,6 +25,8 @@ export type LogRecord =
       readonly reasoning: string;
       readonly reasoning_hash: string;
       readonly total_supply: string;
+      /** The epoch the chain was read in for `total_supply` and `total_staked`; differs from `epoch` when the epoch rolled over during the decision. Lines before it lack it: read as `epoch`. */
+      readonly supply_epoch?: number;
       readonly total_staked: string | null;
       readonly block_time_ms: number;
       // Lines written before the mandate lack the four fields below; read them as absent.
@@ -34,6 +37,8 @@ export type LogRecord =
       readonly supply_change_24h_meetings?: number | null;
       /** Whether the rate set is the mandate's (as near as the contract's step allows) or the chair's own judgment. */
       readonly followed?: "mandate" | "judgment";
+      /** The closing sentence of `reasoning` when the model wrote it; null when it is a line of the fixed book (or the chair is not a model). Lines written before the remark lack it. */
+      readonly remark?: string | null;
     }
   | {
       readonly v: 2;
@@ -89,7 +94,9 @@ export class DecisionLog {
       previous_rate_bps: d.previousRateBps,
       reasoning: d.reasoning,
       reasoning_hash: d.reasoningHash,
+      remark: d.remark,
       total_supply: s.totalSupply.toString(),
+      supply_epoch: s.policy.epoch,
       total_staked: s.staking === null ? null : s.staking.totalStaked.toString(),
       block_time_ms: s.blockTimeMs,
       ...(d.mandate === undefined
@@ -128,29 +135,34 @@ export class DecisionLog {
 
   /**
    * The chair's own record as the log has it: how many epochs in a row before `epoch` an executed decision set exactly `rateInEffect`
-   * (0 when the last epoch's did not), and how many of its calls the contract refused. Numbers the log holds, never inferred.
+   * (0 when the last epoch's did not), how many of its calls the contract refused, and the latest model-written remarks (the history a new remark must not repeat). Numbers the log holds, never inferred.
    */
   memory(epoch: number, rateInEffect: number): ChairMemory {
     const rateByHash = new Map<string, number>();
     const executed = new Map<number, number>();
+    const remarks: string[] = [];
     let refusals = 0;
     for (const rec of this.mine()) {
+      if (rec.kind === "decision" && typeof rec.remark === "string") remarks.push(rec.remark);
       if (rec.kind === "decision") rateByHash.set(rec.reasoning_hash, rec.rate_bps);
       else if (rec.status === "rejected") refusals++;
       else if (rec.status === "executed" && rateByHash.has(rec.reasoning_hash)) executed.set(rec.epoch, rateByHash.get(rec.reasoning_hash)!);
     }
     let sameRateEpochs = 0;
     while (executed.get(epoch - 1 - sameRateEpochs) === rateInEffect) sameRateEpochs++;
-    return { sameRateEpochs, refusals };
+    return { sameRateEpochs, refusals, remarks: remarks.slice(-REMARK_MEMORY) };
   }
 
   /** Supply at past decisions of this token and account, strictly before `beforeEpoch`, oldest first, one point per epoch. */
   history(beforeEpoch: number): HistoryPoint[] {
     const byEpoch = new Map<number, HistoryPoint>();
     for (const rec of this.mine()) {
-      if (rec.kind !== "decision" || rec.epoch >= beforeEpoch) continue;
+      // The supply is filed under the epoch it was read in, which is not the decision's own when the epoch rolled over meanwhile.
+      if (rec.kind !== "decision") continue;
+      const epoch = rec.supply_epoch ?? rec.epoch;
+      if (epoch >= beforeEpoch) continue;
       try {
-        byEpoch.set(rec.epoch, { epoch: rec.epoch, totalSupply: u128(rec.total_supply, "total_supply") });
+        byEpoch.set(epoch, { epoch, totalSupply: u128(rec.total_supply, "total_supply") });
       } catch {
         // A hand-edited line with a bad supply is skipped; `verifyLog` reports it.
       }

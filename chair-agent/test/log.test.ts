@@ -117,9 +117,9 @@ test("the mandate and the day's supply change are logged per decision; old lines
     assert.equal(rec["followed"], "mandate");
     // A decision from before the mandate, and one with no history to tell the day's change from.
     const { mandate: _dropped, ...old } = d;
-    log.recordDecision({ ...old, epoch: 10, reasoning: "old", reasoningHash: reasoningHash("old") }, s);
+    log.recordDecision({ ...old, epoch: 10, reasoning: "old", reasoningHash: reasoningHash("old") }, { ...s, policy: { ...s.policy, epoch: 10 } });
     const young = await decide(s, [], { chair: ruleChair, marginMs: 0, timeoutMs: 100 });
-    log.recordDecision({ ...young, epoch: 11 }, s);
+    log.recordDecision({ ...young, epoch: 11 }, { ...s, policy: { ...s.policy, epoch: 11 } });
     const lines = readFileSync(path, "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
     assert.ok(!("mandate_rate_bps" in lines[1]!) && !("followed" in lines[1]!), "an old line has none of the fields");
     assert.equal(lines[2]!["supply_change_24h_bps"], null);

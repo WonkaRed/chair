@@ -24,6 +24,18 @@ export const DEADBAND_BPS = 5;
 /** The mandate in the one sentence a non-crypto reader can follow. */
 export const MANDATE_SENTENCE = "The more holders stake, the less the Chair prints.";
 
+/** The fixed book of closing lines. The rule chair picks by situation; an AI chair whose own remark is unusable closes on `FALLBACK_CLOSINGS`, one by meeting. */
+export const CLOSING = {
+  leadership: "The Chair calls this leadership.",
+  noObjection: "The Chair files no objection.",
+  thanks: "The Chair thanks itself for its service.",
+  unanimous: "The motion carries unanimously.",
+  recorded: "The Chair asks that this be recorded.",
+  noComment: "The Chair has no further comment.",
+} as const;
+/** The lines that read true after any decision, whatever the rate did. */
+export const FALLBACK_CLOSINGS: readonly string[] = [CLOSING.recorded, CLOSING.thanks, CLOSING.unanimous, CLOSING.noComment];
+
 export function stakedShareBps(totalStaked: bigint, totalSupply: bigint): number {
   return Number((totalStaked * 10_000n) / totalSupply);
 }
@@ -137,7 +149,7 @@ export function ruleDecision(input: DecisionInput): Proposal {
     lines.push(`${percent(stakedShareBps(snapshot.staking.totalStaked, snapshot.totalSupply))} of all coins are staked, and the Chair would like ${percent(TARGET_STAKED_BPS)}. ${MANDATE_SENTENCE}`);
   }
 
-  lines.push(rate === current ? "The Chair calls this leadership." : rate !== wanted ? "The Chair files no objection." : rate > current ? "The Chair thanks itself for its service." : "The motion carries unanimously.");
+  lines.push(rate === current ? CLOSING.leadership : rate !== wanted ? CLOSING.noObjection : rate > current ? CLOSING.thanks : CLOSING.unanimous);
   return { rateBps: rate, reasoning: lines.join(" ") };
 }
 

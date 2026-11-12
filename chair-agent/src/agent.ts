@@ -1,5 +1,5 @@
 import type { Reader } from "./chain.js";
-import { finalize, propose, windowFor, type DecideOptions, type Proposed } from "./decide.js";
+import { basisOf, finalize, propose, windowFor, type DecideOptions, type Proposed } from "./decide.js";
 import type { DecisionLog, EpochState } from "./log.js";
 import type { PressEntry, PressStore } from "./press-store.js";
 import { reasoningHash } from "./reasoning.js";
@@ -61,7 +61,7 @@ export async function tick(deps: AgentDeps): Promise<TickResult> {
   const decision = finalize(fresh, deps.log.history(fresh.policy.epoch), proposed, deps.decideOptions, pendingQuestions(deps));
   if (deps.submitter === null) return { status: "dry-run", snapshot: fresh, decision };
 
-  deps.log.recordDecision(decision, fresh);
+  deps.log.recordDecision(decision, basisOf(proposed, fresh));
   return send(deps, deps.submitter, fresh, decision, 0);
 }
 
@@ -112,6 +112,7 @@ async function resend(deps: AgentDeps, submitter: Submitter, snapshot: Snapshot,
     reasoningHash: rec.reasoning_hash,
     chair: rec.chair,
     kind: rec.chair_kind,
+    remark: rec.remark ?? null,
   };
   return send(deps, submitter, snapshot, decision, prior.failedSends);
 }

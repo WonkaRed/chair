@@ -77,7 +77,7 @@ test("bps become percent exactly: the sign is the words' job, never part of the 
 
 test("the run of meetings describes the rate before the decision, and a run of one is nothing to say", () => {
   const field = "meetings_before_this_one_the_chair_set_the_rate_in_effect";
-  const run = (sameRateEpochs: number) => JSON.parse(buildPrompt({ snapshot: snapshot({ rate: 22 }), history: [], window: WINDOW, memory: { sameRateEpochs, refusals: 0 } }).user)[field] as unknown;
+  const run = (sameRateEpochs: number) => JSON.parse(buildPrompt({ snapshot: snapshot({ rate: 22 }), history: [], window: WINDOW, memory: { sameRateEpochs, refusals: 0, remarks: [] } }).user)[field] as unknown;
   assert.equal(run(0), null);
   assert.equal(run(1), null, "\"one meeting in a row\" is never said");
   assert.equal(run(2), 2);
@@ -108,7 +108,7 @@ const input = (rate: number, sameRateEpochs: number, o: Parameters<typeof snapsh
   snapshot: snapshot({ rate, supply: 1_003_000n, staked: 463_100n, epoch: 20, ...o }),
   history: [{ epoch: 14, totalSupply: 1_000_000n }],
   window: WINDOW,
-  memory: { sameRateEpochs, refusals: 0 },
+  memory: { sameRateEpochs, refusals: 0, remarks: [] },
 });
 
 test("the prompt asks for a change in one sentence that names each rate once, and wordingFault refuses a new rate said twice", () => {

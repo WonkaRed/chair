@@ -61,6 +61,8 @@ export interface ChairMemory {
   readonly sameRateEpochs: number;
   /** Times the contract refused one of the chair's calls, as logged. */
   readonly refusals: number;
+  /** The model-written remarks of the latest logged decisions, oldest first, at most `REMARK_MEMORY` of them. */
+  readonly remarks: readonly string[];
 }
 
 export interface DecisionInput {
@@ -82,6 +84,8 @@ export interface Chair {
   /** Short stable label recorded in the log, e.g. `rule-v1`. */
   readonly name: string;
   propose(input: DecisionInput, signal: AbortSignal): Promise<Proposal>;
+  /** The Chair's own closing remark on a decision of `rateBps`, or null when it has none worth keeping. Only a chair that calls a model has one. */
+  remark?(input: DecisionInput, rateBps: number, signal: AbortSignal): Promise<string | null>;
 }
 
 /** The mandate as it stood for one decision, for the log. */
@@ -106,6 +110,8 @@ export interface Decision {
   readonly reasoningHash: string;
   readonly chair: string;
   readonly kind: ChairKind;
+  /** The closing sentence of the minutes when the model wrote it; null when the minutes close on a line of the fixed book, or the chair is not a model. */
+  readonly remark: string | null;
   /** Absent when a decision is rebuilt from a log line to be sent again; nothing then logs it. */
   readonly mandate?: MandateReport;
 }
