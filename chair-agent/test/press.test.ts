@@ -249,7 +249,7 @@ test("memory counts epochs in a row the chair itself set the rate now in effect,
     await set(10);
     await set(10);
     await set(10);
-    assert.deepEqual(w.log.memory(w.chain.epoch, 10), { sameRateEpochs: 3, refusals: 0 });
+    assert.deepEqual(w.log.memory(w.chain.epoch, 10), { sameRateEpochs: 3, refusals: 0, remarks: [] });
     assert.equal(w.log.memory(w.chain.epoch, 20).sameRateEpochs, 0, "a different rate in effect: nothing in a row");
     w.chain.advanceEpochs(1, 1000);
     assert.equal(w.log.memory(w.chain.epoch, 10).sameRateEpochs, 0, "a silent epoch breaks the run");
@@ -265,10 +265,10 @@ test("the decision prompt carries the memory as the log's numbers, only when it 
   const snap = snapshot({ epoch: 20, rate: -5, lastSet: 19, staked: 10n });
   const input = { snapshot: snap, history: [], window: { lo: -50, hi: 50 } };
   assert.ok(!("meetings_before_this_one_the_chair_set_the_rate_in_effect" in (JSON.parse(buildPrompt(input).user) as object)));
-  const withMemory = JSON.parse(buildPrompt({ ...input, memory: { sameRateEpochs: 4, refusals: 0 } }).user) as Record<string, unknown>;
+  const withMemory = JSON.parse(buildPrompt({ ...input, memory: { sameRateEpochs: 4, refusals: 0, remarks: [] } }).user) as Record<string, unknown>;
   assert.equal(withMemory["meetings_before_this_one_the_chair_set_the_rate_in_effect"], 4);
   assert.equal(withMemory["times_the_contract_refused_the_chair"], null, "no refusal on record is null: the Chair never says zero times");
-  const none = JSON.parse(buildPrompt({ ...input, memory: { sameRateEpochs: 0, refusals: 2 } }).user) as Record<string, unknown>;
+  const none = JSON.parse(buildPrompt({ ...input, memory: { sameRateEpochs: 0, refusals: 2, remarks: [] } }).user) as Record<string, unknown>;
   assert.equal(none["meetings_before_this_one_the_chair_set_the_rate_in_effect"], null, "no run is null, which the prompt says never to mention");
   assert.equal(none["times_the_contract_refused_the_chair"], 2);
   const { system } = buildPrompt(input);
@@ -281,7 +281,7 @@ test("the agent hands the log's memory to the model through the chair", async ()
   const w = world();
   try {
     const seen: string[] = [];
-    const chair = new LlmChair({ complete: (req: LlmRequest) => { seen.push(req.user); return Promise.resolve({ text: JSON.stringify({ rate_bps: 10, reasoning: "ok" }), stopReason: "end_turn" }); } });
+    const chair = new LlmChair({ complete: (req: LlmRequest) => { if (req.schema === undefined) seen.push(req.user); return Promise.resolve({ text: JSON.stringify({ rate_bps: 10, reasoning: "ok" }), stopReason: "end_turn" }); } });
     const opts = { chair, marginMs: 15_000, timeoutMs: PATIENT_MS };
     assert.equal((await tick({ ...deps(w), decideOptions: opts })).status, "executed");
     w.chain.advanceEpochs(1, 1000);
@@ -311,7 +311,7 @@ test("the decision marker: the agent holds it exactly while it waits on the mode
     const busyDuring: boolean[] = [];
     const ok = new LlmChair({ complete: () => { busyDuring.push(w.press.decisionBusy()); return Promise.resolve({ text: JSON.stringify({ rate_bps: 10, reasoning: "ok" }), stopReason: "end_turn" }); } });
     assert.equal((await tick({ ...deps(w), decideOptions: { chair: ok, marginMs: 15_000, timeoutMs: PATIENT_MS } })).status, "executed");
-    assert.deepEqual(busyDuring, [true], "held while the model is asked");
+    assert.deepEqual(busyDuring, [true, true, true], "held while the model is asked: the decision and the two attempts at a remark the stand-in cannot answer");
     assert.equal(w.press.decisionBusy(), false, "and released after");
 
     w.chain.advanceEpochs(1, 1000);
@@ -319,7 +319,7 @@ test("the decision marker: the agent holds it exactly while it waits on the mode
     const res = await tick({ ...deps(w), decideOptions: { chair: broken, marginMs: 15_000, timeoutMs: PATIENT_MS } });
     assert.equal(res.status, "executed");
     assert.equal(res.status === "executed" && res.decision.kind, "rule-fallback");
-    assert.deepEqual(busyDuring, [true, true]);
+    assert.deepEqual(busyDuring, [true, true, true, true], "one more call, and it failed: no remark is asked after a failed decision");
     assert.equal(w.press.decisionBusy(), false, "released when the model failed too");
   } finally {
     w.done();

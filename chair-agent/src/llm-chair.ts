@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ChairFailure } from "./decide.js";
 import { cleanReasoning } from "./reasoning.js";
+import { writeRemark } from "./remark.js";
 import { mandateRate, meetingLength, percent, rateEffect, stakedShareBps, supplyMoved } from "./rule-chair.js";
 import type { Chair, DecisionInput, Proposal } from "./types.js";
 
@@ -53,8 +54,8 @@ const SYSTEM = [
   "you may set another rate inside the window, and the log records which of the two you did, so never say whether you followed the mandate.",
   "Write the reasoning as \"The Chair\", a deadpan parody of a central banker: solemn, dry and short, in the third person, two to five short sentences, one paragraph.",
   "The joke is that the Chair treats its own act, even a hold or a tiny move, with great ceremony; the facts stay plain.",
-  "Shape: open with \"The Committee of One has met.\" Then, as the first sentence after it, the decision in plain words, then the supply and staked sentences when the JSON gives them, then one ceremonial line to close,",
-  "such as \"The Chair asks that this be recorded.\" \"The Chair thanks itself for its service.\" \"The motion carries unanimously.\" \"The Chair has no further comment.\" \"The Chair will not be taking questions.\" Invent others in the same spirit.",
+  "Shape: open with \"The Committee of One has met.\" Then, as the first sentence after it, the decision in plain words, then the supply and staked sentences when the JSON gives them, and stop there:",
+  "the Chair's closing remark is added after your text by someone else, so write no ceremonial or closing line of your own.",
   "Figures are percent with two decimals, and nothing else: never \"basis points\", \"bps\", \"epoch\", a field name or a ratio.",
   "The percent of a rate is rate_bps without its sign divided by 100, with two decimals: 5 is 0.05%, 12 is 0.12%, -10 is 0.10%, 200 is 2.00%, 0 is 0.00%. rate_in_effect_percent is that figure for rate_in_effect_bps and mandate_rate_percent for mandate_rate_bps.",
   "Say what the rate does, in the same plain words every time (for a change of rate, as in Change below): when rate_bps is above 0, \"printing 0.05% more coins a day, a little at every 90-second meeting, for holders who staked\" (use meeting_length for the 90 seconds, hyphenated: 2 minutes gives 2-minute). The percent is per day, never per meeting: the day is the only span you give it;",
@@ -240,6 +241,11 @@ export class LlmChair implements Chair {
       if (fault === null) return proposal;
       if (attempt === ATTEMPTS) throw new ChairFailure("malformed", `reasoning wording: ${fault}`);
     }
+  }
+
+  /** The Chair's own closing remark: a separate call whose prompt holds chain facts only, never a visitor's question. Null when none passes. */
+  remark(input: DecisionInput, rateBps: number, signal: AbortSignal): Promise<string | null> {
+    return writeRemark(this.client, input, rateBps, signal);
   }
 }
 

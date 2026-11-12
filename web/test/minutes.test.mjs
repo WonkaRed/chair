@@ -15,7 +15,7 @@ const root = join(fileURLToPath(import.meta.url), "..", "..");
 const docs = join(root, "..", "docs");
 const site = (f) => import(join(root, "site", "js", f));
 const { decisionsOfTxs, refusalsOfTxs } = await site("decisions.js");
-const { checkReasoning, loadTexts, renderHero, renderMinutes, resolveTexts, sha256Hex, silence, splitMinutes } = await site("minutes.js");
+const { BOOK_CLOSINGS, checkReasoning, loadTexts, ownClosing, renderHero, renderMinutes, resolveTexts, sha256Hex, silence, splitMinutes } = await site("minutes.js");
 const { renderRefusals, humanReason, PROJECT_TEST_CALLS } = await site("refusals.js");
 const { rawTxCommand } = await site("views.js");
 const { lineChart } = await site("charts.js");
@@ -567,4 +567,69 @@ test("the Refusals section lists each refusal with its panic text and a transact
   assertInert(h, "refusals");
   assert.match(textOf(draw({ status: "complete", refusals: [] })), /refused no set_policy call yet/);
   assert.match(textOf(draw({ status: "incomplete", refusals: [] })), /index, which could not be read/);
+});
+
+// ---- the Chair's own closing line: told from the book's lines, said in plain words, only of a text that checked out ----
+
+const OWN_HEAD = "$CHAIR decision, epoch 310, chair local:qwen3.8-27b.\nRate in effect 190 bps; decision 190 bps.";
+const OWN_BODY = "The Committee of One has met. The rate holds at 1.90% a day.";
+const REMARK = "The Chair has appointed a subcommittee of the Chair to look into the Chair.";
+const OWN_LABEL = "The Chair wrote the closing line itself this meeting.";
+
+test("the page's list of fixed closing lines is the agent's: it fails when the two drift", async () => {
+  const rules = await readFile(join(root, "..", "chair-agent", "src", "rule-chair.ts"), "utf8");
+  const closing = /export const CLOSING = \{([\s\S]*?)\} as const;/.exec(rules);
+  assert.ok(closing, "CLOSING is where the page expects it");
+  const agent = [...closing[1].matchAll(/: "([^"]+)"/g)].map((m) => m[1]);
+  assert.equal(agent.length, 6);
+  const remark = await readFile(join(root, "..", "chair-agent", "src", "remark.ts"), "utf8");
+  const extra = /const BOOK_CLOSINGS: readonly string\[\] = \[\.\.\.Object\.values\(CLOSING\), ((?:"[^"]+",? ?)+)\];/.exec(remark);
+  assert.ok(extra, "the agent's list of closings is where the page expects it");
+  agent.push(...[...extra[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]));
+  assert.deepEqual([...BOOK_CLOSINGS].sort(), agent.sort(), "same lines on both sides");
+});
+
+test("ownClosing: the last sentence of an AI chair's statement when it is not a line of the book, wherever the notes after it begin", () => {
+  const text = (...lines) => [OWN_HEAD, ...lines].join("\n");
+  assert.equal(ownClosing(text(`${OWN_BODY} ${REMARK}`)), REMARK);
+  assert.equal(ownClosing(text(`${OWN_BODY} Is the Chair content? The Chair is.`)), "The Chair is.");
+  assert.equal(ownClosing(text(`${OWN_BODY} Did the Chair mean it?`)), "Did the Chair mean it?");
+  for (const line of BOOK_CLOSINGS) assert.equal(ownClosing(text(`${OWN_BODY} ${line}`)), null, line);
+  // Notes the agent adds after the statement are not the statement.
+  const after = [
+    "The epoch rolled over while the Chair was deliberating. Time does not wait for the Committee of One.",
+    "The Chair asked for 30 bps; the contract accepts 0..20 bps here, so 20 bps is set. The Chair defers.",
+    "The press asked 3 questions since the last meeting. The Chair enters 2 here and the rest at the next meeting.\nQuestion 0123456789ab: The Chair replied: Noted.",
+  ];
+  for (const note of after) {
+    assert.equal(ownClosing(text(`${OWN_BODY} ${REMARK}`, note)), REMARK, note);
+    assert.equal(ownClosing(text(`${OWN_BODY} ${CLOSING_BOOK}`, note)), null, note);
+  }
+  assert.equal(ownClosing(text(`${OWN_BODY} ${REMARK}`, after[0], after[1], after[2])), REMARK);
+  // Not an AI chair's statement: the rule chair, a fallback, a text with no header, a cut text.
+  assert.equal(ownClosing(`$CHAIR decision, epoch 5, chair rule-v1.\nRate in effect 1 bps; decision 1 bps.\n${OWN_BODY} ${REMARK}`), null);
+  assert.equal(ownClosing(`${OWN_BODY} ${REMARK}`), null);
+  assert.equal(ownClosing(text("The Committee of One has met and the rate holds at a very long and careful…")), null);
+  assert.equal(ownClosing(text("")), null);
+});
+const CLOSING_BOOK = "The Chair has no further comment.";
+
+test("the hero and the log say, in plain words, that the Chair wrote its closing line, only when it did and the text checked out", async () => {
+  const labels = (page) => [...walk(page)].filter((n) => n.attrs?.class === "note m-own").map(textOf);
+  const showing = (text, over = {}, verdict = "verified") => {
+    const hash = sha(text);
+    const d = { decisions: [decision({ hash, rateBps: 190, previousRateBps: 190, epoch: 310, ...over }), decision({ hash, rateBps: 190, previousRateBps: 190, epoch: 309, ...over })], policy, status: "complete" };
+    const resolved = new Map(d.decisions.map((x) => [x.tx, { text, chair: "local:qwen3.8-27b", kind: "llm", source: null, onChain: true, verdict }]));
+    return render(d, ctx(new Map(), resolved));
+  };
+  assert.deepEqual(labels(showing(`${OWN_HEAD}\n${OWN_BODY} ${REMARK}`)), [OWN_LABEL, OWN_LABEL], "hero and card");
+  assert.deepEqual(labels(showing(`${OWN_HEAD}\n${OWN_BODY} ${CLOSING_BOOK}`)), [], "a book line: no label");
+  assert.deepEqual(labels(showing(`$CHAIR decision, epoch 310, chair rule-v1.\nRate in effect 190 bps; decision 190 bps.\n${OWN_BODY} ${REMARK}`)), [], "the rule chair wrote nothing itself");
+  assert.deepEqual(labels(showing(`${OWN_HEAD}\n${OWN_BODY} ${REMARK}`, {}, "mismatch")), [], "a text that did not check out is not praised");
+  assert.deepEqual(labels(showing(`${OWN_HEAD}\n${OWN_BODY} ${REMARK}`, { byVisitor: true })), [], "a visitor-forced decision is not the Chair's own");
+  const saved = showing(`${OWN_HEAD}\n${OWN_BODY} ${REMARK}`, {}, "verified");
+  assert.ok(!/LLM|epoch|model|AI/.test(labels(saved)[0]), "plain words");
+  // An old text renders as it did: the prose is the same quote, whether or not the label applies.
+  const old = showing(`$CHAIR decision, epoch 310, chair local:qwen3.8-27b.\nRate in effect 190 bps; decision 190 bps.\n${OWN_BODY} The Chair asks that this be recorded.`);
+  for (const q of [...walk(old)].filter((n) => n.tag === "blockquote")) assert.equal(textOf(q), `${OWN_BODY} The Chair asks that this be recorded.`);
 });

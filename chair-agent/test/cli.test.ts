@@ -310,8 +310,9 @@ test("a send that keeps failing: one model call, one logged decision, three send
   nextEpoch();
   let llmCalls = 0;
   const counting: LlmClient = {
-    complete: () => {
-      llmCalls++;
+    complete: (req) => {
+      // The decision's call, not the remark's: this stand-in answers the remark with something it cannot use.
+      if (req.schema === undefined) llmCalls++;
       return Promise.resolve({ text: JSON.stringify({ rate_bps: 20, reasoning: `call ${llmCalls}` }), stopReason: "end_turn" });
     },
   };

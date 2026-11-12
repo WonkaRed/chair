@@ -117,7 +117,7 @@ test("loadSecretKey: env var, bare file, credentials JSON; errors never contain 
 });
 
 test("submit re-checks the key's scope on the chain and sends nothing when it is wrong", async () => {
-  const decision = { epoch: 1, previousRateBps: 0, rate, reasoning: "x", reasoningHash: reasoningHash("x"), chair: "rule-v1", kind: "rule" as const };
+  const decision = { epoch: 1, previousRateBps: 0, rate, reasoning: "x", reasoningHash: reasoningHash("x"), chair: "rule-v1", kind: "rule" as const, remark: null };
   for (const permission of ["FullAccess", { receiverId: "other.test", methodNames: ["set_policy"] }, { receiverId: "token.test", methodNames: ["set_policy", "ft_transfer"] }] as const) {
     let sent = 0;
     const stub = {

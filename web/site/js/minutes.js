@@ -121,6 +121,34 @@ export function splitMinutes(text) {
   return prose === "" ? { meta: [], prose: text, fallback: null } : { meta: lines.slice(0, n), prose, fallback };
 }
 
+/**
+ * The fixed closing lines of the book (chair-agent `CLOSING` in rule-chair.ts, and the press line in remark.ts `BOOK_CLOSINGS`). The page
+ * mirrors them to tell a closing sentence the Chair wrote itself from one it was given; web/test/minutes.test.mjs fails when the two lists drift.
+ */
+export const BOOK_CLOSINGS = [
+  "The Chair calls this leadership.",
+  "The Chair files no objection.",
+  "The Chair thanks itself for its service.",
+  "The motion carries unanimously.",
+  "The Chair asks that this be recorded.",
+  "The Chair has no further comment.",
+  "The Chair will not be taking questions.",
+];
+/** The AI chair's name in the header line: its label from the agent (`llm:<model>` or `local:<model>`); the rule chair's is `rule-v1`. */
+const AI_HEADER = /^\$CHAIR decision, epoch \d+, chair (?:llm|local):/;
+/** The lines the agent adds after the Chair's statement: the epoch rolled over, the rate was clamped, the press section (decide.ts, press-section.ts). */
+const AFTER_STATEMENT = /^(?:The epoch rolled over while the Chair was deliberating\.|The Chair asked for -?\d+ bps; the contract accepts |The press asked \d+ questions? since the last meeting\.)/;
+
+/** The closing sentence of an AI chair's statement when it is not a line of the book, so the Chair wrote it; else null. Old texts, the rule chair's and fallbacks give null or a book line. */
+export function ownClosing(text) {
+  const { meta, prose } = splitMinutes(text);
+  if (!AI_HEADER.test(meta[0] ?? "")) return null;
+  const lines = prose.split("\n");
+  const cut = lines.findIndex((line) => AFTER_STATEMENT.test(line));
+  const last = /[^.?!]*[.?!]$/.exec((cut < 0 ? lines : lines.slice(0, cut)).join("\n").trim())?.[0].trim();
+  return last === undefined || last === "" || BOOK_CLOSINGS.includes(last) ? null : last;
+}
+
 const move = (d) => {
   const delta = d.rateBps - d.previousRateBps;
   return delta === 0 ? `unchanged from ${fmtSignedPct(d.previousRateBps)}` : `${delta > 0 ? "up" : "down"} ${fmtPct(delta)} from ${fmtSignedPct(d.previousRateBps)}`;
@@ -166,7 +194,7 @@ function parts(doc, d, ctx, saved = false) {
   const state = !rec ? "absent" : saved && rec.verdict === "verified" ? "kept" : rec.verdict;
   if (!rec) {
     const lead = h(doc, "p", { class: "m-absent" }, ctx.texts === null ? "The bundled reasoning texts could not be loaded, so no text is shown for this decision." : "no reasoning text for this decision: its transaction carries none and none was saved");
-    return { state, rec, lead, fallback: null, prose: "", meta: null, notes: [] };
+    return { state, rec, lead, fallback: null, own: null, prose: "", meta: null, notes: [] };
   }
   const shown = safeLines(rec.text);
   const { meta, prose, fallback } = splitMinutes(shown);
@@ -176,6 +204,8 @@ function parts(doc, d, ctx, saved = false) {
     rec,
     prose,
     fallback: fallback === null ? null : h(doc, "p", { class: "plain-line m-fallback" }, fallback),
+    // Said only of a text that checked out, and never of one a visitor forced through the press desk.
+    own: (state === "verified" || state === "kept") && !d.byVisitor && ownClosing(shown) !== null ? h(doc, "p", { class: "note m-own" }, "The Chair wrote the closing line itself this meeting.") : null,
     lead: h(doc, "blockquote", { class: "reasoning", lang: "en" }, prose),
     meta: meta.length === 0 && !d.byVisitor ? null : h(doc, "p", { class: "m-meta" }, d.byVisitor ? h(doc, "strong", { class: "visitor-tag" }, "Forced by a visitor through the press desk, not decided by the AI chair: the chair account signed it. ") : null, meta.map((line) => h(doc, "span", {}, line))),
     notes: [
@@ -206,6 +236,7 @@ function heroCard(doc, d, ctx, { note = null, saved = false } = {}) {
     p.fallback,
     needsPlain(p) ? [h(doc, "p", { class: "plain-line" }, plainDecision(d.rateBps, d.previousRateBps, ctx.unit)), h(doc, "p", { class: "said-k" }, "In the Chair's words")] : null,
     p.lead,
+    p.own,
     h(doc, "figcaption", { class: "paper-rate" },
       h(doc, "span", { class: "rate-big" }, fmtSignedPct(d.rateBps)),
       h(doc, "span", { class: "rate-bps" }, fmtRate(d.rateBps)),
@@ -261,6 +292,7 @@ function card(doc, d, ctx) {
     p.fallback,
     needsPlain(p) ? h(doc, "p", { class: "plain-line" }, plainDecision(d.rateBps, d.previousRateBps, ctx.unit)) : null,
     p.lead,
+    p.own,
     h(doc, "p", { class: "m-line" },
       h(doc, "strong", { title: `Epoch ${d.epoch}` }, `Meeting ${d.epoch}`),
       h(doc, "span", {}, `${rateLabel(d.rateBps, ctx.unit)} (${fmtRate(d.rateBps)}), ${move(d)}`),

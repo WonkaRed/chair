@@ -29,7 +29,7 @@ Needs Node 22.22.2 or newer and npm. Dependencies are pinned exactly in `package
 `@types/node` 26.6.6.
 
 ```sh
-make test   # typecheck, then 363 tests with node --test; no network except loopback fakes, no key; temp files go under out/test-tmp (override with CHAIR_TEST_TMP)
+make test   # typecheck, then 397 tests with node --test; no network except loopback fakes, no key; temp files go under out/test-tmp (override with CHAIR_TEST_TMP)
 make demo   # 16 epochs against an in-memory model of the token; prints a table, writes out/demo-decisions.jsonl
 ```
 
@@ -123,7 +123,7 @@ history). Lines written before this lack the four fields.
 
 `LlmChair` sends the model only numbers (the rate in effect, the mandate rate and what it does, the bounds, the meeting length, the supply change and the staked share each as a finished sentence in percent, the meetings missed since the last decision and, when the agent has its decision log, how many meetings before this one the Chair itself set the rate now in effect and how many times the contract refused one of the Chair's own calls, as that log records them), asks for a JSON object
 `{rate_bps, reasoning}` through structured output, and uses model `claude-sonnet-5-5` via the official SDK (the chair name `llm:claude-sonnet-5-5` is reported by that client only; any other client is `llm:unlabelled-client` unless it names itself). The
-agent then clamps the rate into the bounds of the window read after the model answered (see below). Any error, timeout (`--llm-timeout-ms`, default 30000; the live run (`scripts/run-chair.sh`) passes 60000), refusal,
+agent then clamps the rate into the bounds of the window read after the model answered (see below). Any error, timeout (`--llm-timeout-ms`, default 30000 on the command line; the live run (`scripts/run-chair.sh`) passes 60000, and that is the limit in force, the remark's included), refusal,
 truncated answer, wrong or duplicate keys, non-integer or out-of-range type falls back to the rule chair, and the reasoning
 text says so. A malformed answer (the truncated, wrong-key and wrong-type cases) is asked for once more when at least 10 seconds of the timeout remain; the second try has only the time that is left, and a second malformed answer falls back. The system prompt asks the model for the voice and fences it in: it may state the decision and the figures it was given and nothing the numbers do
 not show (no cause, purpose, forecast, price talk or real names), and it is told that a printing rate is per day, with the sentence to use ("printing 0.05% more coins a day, a little at every 90-second meeting, for holders who staked"), and how to read the silence and run fields. Every figure reaches it already converted to percent, so it copies; its text is refused, once asked again and then replaced by the rule chair's, when it says "basis points", "bps" or "epoch", writes a percent the numbers do not give (the rate it decided, the rate in effect, the staked share and the supply change are the only ones), writes a printing rate as a burn or the reverse, gives a printing rate without its day or ties it to each meeting or each stretch of seconds, claims a run of meetings the Chair may not, or leaves a rate without its unit. [`docs/chair-voice-probe.txt`](../docs/chair-voice-probe.txt) holds
@@ -138,12 +138,45 @@ The name cannot be a lie by construction: the endpoint must be `http` on loopbac
 `model` field is not the configured id is an error, which falls back to the rule chair. `<id>` is whatever `/v1/models` of the endpoint lists for the model you mean to run. A local
 model may emit thinking blocks; only its text block is read.
 
+### The Chair's own remark
+
+The decision prompt no longer writes the closing line of the minutes: the Chair's closing sentence is a separate step. After the model has
+decided, the agent makes a second, separate model call (`src/remark.ts`) that asks for one deadpan sentence of the Chair's own, and the
+minutes close on it. The remark prompt holds the persona and chain facts only (the meeting number, the rate and whether it was held or changed,
+the run of meetings it has been held, the staked share against the 50% the Chair would like, the supply change, and the Chair's own latest remarks to avoid); it never holds anything a visitor wrote,
+and it is a different call from the press desk's, so a question can never steer a sentence that goes on chain. A different form of remark (a ruling, a vote, a grievance, ...) is asked for at each meeting, in turn by meeting number.
+
+What the model writes goes on chain, so `remarkFault` (pure, `test/remark.test.ts`) accepts it only when it is exactly one sentence of 20 to 140
+characters in plain letters, spaces and `. , ' ; : ? -` (no exclamation mark), starting with a capital, naming "the Chair" or "the Committee"; with no digit,
+number in words, ordinal or "times" (the model invents counts and runs), symbol, quote, line break or non-ASCII character; no first or second person; and none of a block list
+of stems (advice and market words, profanity and slurs, real people, companies, countries, currencies and other coins; letters split by hyphens or spaces are put back together, and three or more one-letter words in a row are refused).
+It also must not say anything false about the rate: the prompt gives the model what the rate did this meeting (held, raised or lowered) and what it is now (printing, burning or neither) as facts,
+and a remark that uses a word for the opposite is refused ("raised" on a hold, "burns" on a printing rate), while a denial of what did not happen passes ("did not raise" on a hold).
+It must not open with the same four words as any of the Chair's last 8 remarks, and not equal or contain a tone guide, a line of the closing book, a line of the press book,
+or one of the last 20 remarks (`REMARK_MEMORY`, read back from `decisions.jsonl`, so nothing new is kept). A refused remark is asked for once more, in the next of eight forms
+(a ruling against itself, a Committee that did something, a question answered at once, a flat opening, a solemn half and a flat half, an apology to itself, a commendation or censure of an object, something enormous called routine),
+which are rotated by meeting number so the Chair does not keep making the same joke; the temperature stays at 1 for both, since some endpoints cap it there. After a second refusal, or on any failure, the minutes close on a line of the fixed book (`FALLBACK_CLOSINGS`, one a meeting in turn), as the rule chair's text always does.
+If the decision's own text already ends on a line of the book, that line is cut before the Chair's closing is added, so the minutes close once.
+
+**The filter is a block list and cannot be complete.** The model is local, the text is validated before it is signed, and a refused remark falls back to a fixed line; a word nobody listed can still pass, which is the cost of not shipping a dictionary.
+
+**The token budget.** The remark call asks for at most 800 tokens, and the model server always reasons before it answers; that reasoning counts. With a prompt that listed hard rules and a length in characters the model counted letters and drafted line after line, and about a quarter of calls stopped at the limit with no answer. The prompt now bounds the reasoning (three short lines, no restating, no counting, no list of alternatives), which took the rate to a few calls in a hundred; the few left are a model looping on variants of one line, which no larger limit cures. Those fail like any refused remark: the next form is asked for with the time that is left, then the book.
+
+The remark can never cost a meeting. It starts only after the decision has been accepted, gets at most `REMARK_TIMEOUT_MS` (15 s, both attempts together) and never more than what is left of the
+decision's own `--llm-timeout-ms`, so the whole call is still bound by the limit the rate window was built for; with under 1.5 s left it is not asked for. Any error, timeout or refusal is the book line, never an exception.
+
+**How the record tells the two apart.** The decision line of `decisions.jsonl` has `"remark"`: the model's sentence when the minutes close on it, `null` when they close on the book (or the chair is not a model);
+lines written before the remark lack the field. The text hashed and sent is the text the page shows: the remark is the last sentence of the Chair's statement (a note about a clamped rate or a rollover, and the press section, come after it).
+The chain carries no flag, so the page (`web/site/js/minutes.js`) tells them apart by the closing sentence: when an AI chair's statement does not end on one of the fixed book lines (the page mirrors them, and a web test fails if the lists drift), the hero and the log say "The Chair wrote the closing line itself this meeting." Old minutes, the rule chair's and fallbacks carry no label.
+
 ## One decision per epoch, and the epoch it is for
 
 A model can answer slowly, so the chain is read again after the chair answers: the agent re-checks that it is
 still the chair and that the policy is not yet set, builds the rate window from the fresh read, clamps against
-it, and logs the epoch the decision is actually for (a rule proposal is recomputed if the epoch rolled over; a
-model answer is clamped and noted). The decision is written to the log, then sent. A paid model call happens at
+it, and logs the epoch the decision is actually for (a model answer is clamped and noted). Every figure of the decision comes from one read
+(`basisOf` in `src/decide.ts`): the text, the mandate and the supply and stake in the log are all of the read the model was shown, because its text cites that
+read's staked share, and a stake can move while the model thinks; the rule chair has no wait, so it is decided again on the fresh read. Only what the contract
+checks (the epoch, the rate in effect, the window) comes from the fresh read. The log files that supply under `supply_epoch`, the epoch it was read in, which differs from the decision's `epoch` when the epoch rolled over while the model thought. The decision is written to the log, then sent. A paid model call happens at
 most once per epoch: after a failed send the agent re-sends the logged decision, with no new model call and no
 new log line, backing off 10 s then 20 s, at most 3 sends, then waits for the next epoch. If the contract
 rejects the call, or the logged rate has left the window, or the logged text no longer hashes to its hash, the
