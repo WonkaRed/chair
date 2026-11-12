@@ -1,6 +1,7 @@
 // The refusals: every `set_policy` call the contract turned down, with the panic text it answered with (decisions.js reads them
 // from the same transactions as the minutes). A refused call changes nothing and emits no event, so this list is the only place
 // the page shows that the bounds were tried. Chain strings reach the page through `safeText` and `textContent` only.
+import { seatRole } from "./bound.js";
 import { clear, h } from "./dom.js";
 import { isTxHash, safeText, showAccount } from "./text.js";
 import { askedRate, fmtTime, rawButton, shortHash } from "./views.js";
@@ -26,9 +27,15 @@ const HUMAN = [
   [/^only the chair may set policy/, "The account that signed was not the chair."],
   [/^rate_bps out of bounds/, "The rate asked for was beyond the contract's limit: it can never go above 2% a day when printing or 2% of a transfer when burning."],
   [/^rate step too large/, "The rate asked for was more than 0.5% away from the rate in effect."],
-  [/^policy already set this epoch/, "The chair had already decided in that epoch."],
+  [/^policy already set this epoch/, "The chair had already decided in that meeting."],
   [/^reasoning_hash must be/, "The reasoning hash was not a SHA-256 digest."],
 ];
+
+/** An account as the page shows it, followed by what it is to the seat when that is known ("(sitting Chair)"). */
+export const withRole = (who, sitting) => {
+  const role = seatRole(who, sitting);
+  return role === null ? showAccount(who) : `${showAccount(who)} (${role})`;
+};
 
 /** The contract's reason in plain words, or null when it is not one the page knows. */
 export const humanReason = (panic) => HUMAN.find(([re]) => re.test(panic))?.[1] ?? null;
@@ -49,13 +56,14 @@ function summary(refusals, partial) {
  * the press desk. Null when none is a known test. Kept out of the top of the page, never dropped.
  */
 export function refusalDisclosure(d) {
+  const named = (who) => withRole(who, d.policy?.chair);
   if (d.status === "incomplete") return null;
   const tests = d.refusals.filter((r) => PROJECT_TEST_CALLS.has(r.tx));
   if (tests.length === 0) return null;
   const forced = d.refusals.filter((r) => r.byVisitor && !PROJECT_TEST_CALLS.has(r.tx)).length;
   const bySigner = new Map();
   for (const r of tests) bySigner.set(r.signer, (bySigner.get(r.signer) ?? 0) + 1);
-  const signers = [...bySigner].map(([who, n]) => `${showAccount(who)} (${n})`).join(" and ");
+  const signers = [...bySigner].map(([who, n]) => `${named(who)} (${n})`).join(" and ");
   const lead = tests.length === d.refusals.length ? `All ${tests.length} were` : `${tests.length} of the ${d.refusals.length} were`;
   const visitors = forced === 0 ? "" : `; ${forced} ${forced === 1 ? "was" : "were"} forced by visitors through the press desk`;
   return `Of the refusals listed under "Times the contract told the Chair no", ${lead.replace(/^All/, "all")} deliberate test calls that I made to show the bounds hold, signed by ${signers}${visitors}.`;
@@ -85,7 +93,7 @@ export function renderRefusals(doc, host, d, { explorer, indexerUrl = null }) {
     return h(doc, "tr", { class: "refusal" },
       h(doc, "td", { "data-label": "Asked for" }, r.rateBps === null ? "unreadable" : h(doc, "span", { class: "asked-big" }, askedRate(r.rateBps)), PROJECT_TEST_CALLS.has(r.tx) ? h(doc, "span", { class: "sub" }, "deliberate test") : null),
       h(doc, "td", { "data-label": "Why" }, human ?? raw, human === null ? null : h(doc, "details", { class: "raw-words" }, h(doc, "summary", {}, "The contract's own words"), h(doc, "code", {}, raw))),
-      h(doc, "td", { "data-label": "Signed by", class: "acct" }, showAccount(r.signer), r.byVisitor ? h(doc, "span", { class: "sub visitor-tag" }, "Forced by a visitor through the press desk: the chair account signed it, the AI chair did not choose it") : null),
+      h(doc, "td", { "data-label": "Signed by", class: "acct" }, withRole(r.signer, d.policy?.chair), r.byVisitor ? h(doc, "span", { class: "sub visitor-tag" }, "Forced by a visitor through the press desk: the chair account signed it, the AI chair did not choose it") : null),
       h(doc, "td", { "data-label": "Transaction", class: "tx" }, link, " ", rawButton(doc, indexerUrl, r.tx), h(doc, "span", { class: "sub" }, fmtTime(r.tsMs))),
     );
   });
@@ -102,7 +110,7 @@ export function renderRefusals(doc, host, d, { explorer, indexerUrl = null }) {
 }
 
 /** Who sent a refusal, in words fit for the first screen: what happened, not a confession (the full account is under "What this page does not prove"). */
-const sentBy = (r) => (r.byVisitor ? "A visitor had the Chair's account ask for this, through the press desk." : PROJECT_TEST_CALLS.has(r.tx) ? "A test call, made on purpose to try the limit." : `Signed by ${showAccount(r.signer)}.`);
+const sentBy = (r, sitting) => (r.byVisitor ? "A visitor had the Chair's account ask for this, through the press desk." : PROJECT_TEST_CALLS.has(r.tx) ? "A test call, made on purpose to try the limit." : `Signed by ${withRole(r.signer, sitting)}.`);
 
 /**
  * The newest refusal on chain that says what was asked for, as the stamp it is, for the top of the page: the contract's own answer to a rate it will not take.
@@ -118,6 +126,6 @@ export function renderHeroStamp(doc, host, d, { explorer }) {
   host.append(h(doc, "div", { class: "hero-stamp" },
     h(doc, "p", { class: "or-stamp" }, h(doc, "span", { class: "hs-ask" }, `${askedRate(r.rateBps)}:`), " Refused by the contract"),
     h(doc, "p", { class: "hs-why" }, humanReason(r.reason) ?? safeText(r.reason, 160)),
-    h(doc, "p", { class: "hs-who" }, sentBy(r), " ", link),
+    h(doc, "p", { class: "hs-who" }, sentBy(r, d.policy?.chair), " ", link),
   ));
 }

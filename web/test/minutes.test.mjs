@@ -16,7 +16,7 @@ const docs = join(root, "..", "docs");
 const site = (f) => import(join(root, "site", "js", f));
 const { decisionsOfTxs, refusalsOfTxs } = await site("decisions.js");
 const { BOOK_CLOSINGS, checkReasoning, choiceMatching, loadTexts, ownClosing, parseChoice, renderHero, renderMinutes, resolveTexts, sha256Hex, silence, splitClosing, splitMinutes } = await site("minutes.js");
-const { renderRefusals, refusalDisclosure, humanReason, PROJECT_TEST_CALLS } = await site("refusals.js");
+const { renderRefusals, refusalDisclosure, humanReason, withRole, PROJECT_TEST_CALLS } = await site("refusals.js");
 const { rawTxCommand } = await site("views.js");
 const { lineChart } = await site("charts.js");
 const { loadLog } = await site("loadlog.js");
@@ -294,7 +294,7 @@ test("the refusals are labelled by what they were: every known one is a delibera
   assert.equal(humanReason("only the chair may set policy: caller x"), "The account that signed was not the chair.");
   assert.match(humanReason("rate_bps out of bounds: must be within -200..=200"), /can never go above 2% a day when printing/);
   assert.match(humanReason("rate step too large: moving from 190 to 100"), /more than 0\.5% away/);
-  assert.match(humanReason("policy already set this epoch"), /already decided in that epoch/);
+  assert.match(humanReason("policy already set this epoch"), /already decided in that meeting/);
   assert.match(humanReason("reasoning_hash must be 64 lowercase hex characters"), /not a SHA-256 digest/);
   assert.equal(humanReason("something new"), null, "an unknown reason is shown raw, never guessed at");
   const [known] = [...PROJECT_TEST_CALLS];
@@ -347,10 +347,10 @@ test("chart axis labels fit at phone width: the y labels are never clipped and a
     for (const w of [327, 375, 640, 900]) {
       const { svg, texts } = frame(w);
       assert.equal(svg.attrs.viewBox.split(" ")[2], String(w), "drawn at the width it is shown at, so text never scales");
-      const yLabels = texts.filter((n) => n.attrs.class === "tick" && n.attrs["text-anchor"] === "end" && !["Epoch"].includes(textOf(n)));
+      const yLabels = texts.filter((n) => n.attrs.class === "tick" && n.attrs["text-anchor"] === "end" && !["Meeting"].includes(textOf(n)));
       assert.ok(yLabels.length >= 5);
       for (const l of yLabels) assert.ok(Number(l.attrs.x) - textOf(l).length * 7 >= 0, `${textOf(l)} fits inside the left edge at ${w}px`);
-      const title = texts.find((n) => textOf(n) === "Epoch");
+      const title = texts.find((n) => textOf(n) === "Meeting");
       const xTicks = texts.filter((n) => n.attrs["text-anchor"] === "middle");
       assert.ok(xTicks.length >= 2);
       for (const x of xTicks) assert.ok(Number(x.attrs.x) + (textOf(x).length * 7.4) / 2 < Number(title.attrs.x) - 36, `x tick ${textOf(x)} clear of the axis title at ${w}px`);
@@ -773,4 +773,11 @@ test("the account that signed leads the line about who decided", async () => {
   const who = textOf([...walk(hero)].find((n) => n.attrs?.class === "m-who"));
   assert.match(who, /^The Chair's account chair\.test\.near signed this at \d{4}-\d\d-\d\d \d\d:\d\d UTC\. It was decided by local:qwen3\.8-27b/);
   assert.doesNotMatch(who, /Signed by/);
+});
+
+test("the two chairs are told apart wherever an account is named: the sitting one, the first one with the meeting it was voted out, any other bare", () => {
+  const sitting = "challenger.chair-coin-3.testnet";
+  assert.equal(withRole(sitting, sitting), "challenger.chair-coin-3.testnet (sitting Chair)");
+  assert.equal(withRole("chair.chair-coin-3.testnet", sitting), "chair.chair-coin-3.testnet (first Chair, voted out at meeting 10)");
+  assert.equal(withRole("launch.chair.testnet", sitting), "launch.chair.testnet");
 });

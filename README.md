@@ -6,11 +6,13 @@ $CHAIR is a coin on a test network (NEAR testnet, not the real one). An AI calle
 
 Try it, no install: <https://wonkared.github.io/chair/>
 
-The Chair is given a formula's rate each meeting as advice and may choose another rate within 25 bps (0.25%) of it, always inside the contract's limits. Its minutes say what the formula suggested, what the Chair chose and why. An example of the format (illustrative: written to show the form, not a recorded meeting; the live page shows the real ones, each [public in its transaction](https://testnet.nearblocks.io/)):
+The Chair is given a formula's rate each meeting as advice and may choose another rate within 25 bps (0.25%) of it, always inside the contract's limits. Its minutes say what the formula suggested, what the Chair chose and why. Here are the minutes of meeting 669, recorded on chain and quoted exactly (its first two lines, a header and the rate, are left out; this is [the transaction](https://testnet.nearblocks.io/txns/9W2u49CdoosXPMBTh6D3zQ9QqgFZBHk2urkXjEyGUxNS), and the live page shows the newest ones):
 
-> The formula suggested printing 0.23% a day. The Chair chose printing 0.25% a day: fewer than half of all coins are staked.
+> The formula suggested printing 0.20% a day. The Chair chose printing 0.25% a day: the Chair prefers to move the rate by less than the formula does.
 >
-> The Committee of One has met. The Chair moves the rate from printing 0.29% a day to printing 0.25% a day, a little at every 90-second meeting, for holders who staked. Supply is up 12 coins since the last meeting. 40.65% of all coins are staked, and the Chair would like 50.00%. The more holders stake, the less the Chair prints. *(closing sentence, written by the model:)* The Chair regards the matter as settled, having consulted the Chair.
+> The Committee of One has met. The Chair moves the rate from printing 0.30% a day to printing 0.25% a day, a little at every 90-second meeting, for holders who staked. Supply is up 3 coins since the last meeting. 41.67% of all coins are staked, and the Chair would like 50.00%. The more holders stake, the less the Chair prints. The Chair regrets its own lowering and has reprimanded itself in writing.
+
+The last sentence, "The Chair regrets its own lowering and has reprimanded itself in writing.", is the one the model wrote itself.
 
 ## Try it in a minute
 
@@ -27,7 +29,7 @@ This asks public servers about the live token, not me, and prints PASS or FAIL p
 git clone https://github.com/WonkaRed/chair.git && cd chair && make -C deploy verify
 ```
 
-Read-only: no key, no wallet. It needs `git`, `make`, Node 22.22.2 or newer and network access, and takes about 5 s (the first run installs the 72 npm packages of `deploy/` first). It exits 0 only if every check passes, ending `OK: 13 checks passed` (12 if the transaction index cannot be reached).
+Read-only: no key, no wallet. It needs `git`, `make`, Node 22.22.2 or newer and network access, and takes about 5 to 20 s (the first run installs the 72 npm packages of `deploy/` first). It exits 0 only if every check passes, ending `OK: 13 checks passed` (12 if the transaction index cannot be reached).
 
 Tests and demos need a Linux x86-64 machine (the only platform tried) with glibc 2.39 or newer, because that is what the NEAR sandbox binary is linked against; `git`, `make`, `curl`, a C/C++ compiler; [rustup](https://rustup.rs); Node 22.22.2 or newer with npm; and network access. No API keys, no wallet, no account.
 

@@ -54,7 +54,7 @@ export function rawTxCommand(indexerUrl, hash, { reasoning = false } = {}) {
 export function rawButton(doc, indexerUrl, hash) {
   const command = rawTxCommand(indexerUrl, hash);
   if (command === null) return null;
-  const b = h(doc, "button", { type: "button", class: "chip raw", title: "Copy a curl command that reads this transaction without a browser or an explorer" }, "raw");
+  const b = h(doc, "button", { type: "button", class: "chip raw", title: "Copy a curl command that reads this transaction without a browser or an explorer", "aria-label": `Copy a curl command that reads transaction ${shortHash(hash)} without a browser` }, "raw");
   b.addEventListener("click", async () => {
     try {
       await navigator.clipboard.writeText(command);
@@ -109,7 +109,8 @@ function corridor(doc, policy, params) {
     root.append(svg(doc, "line", { x1: x(v), x2: x(v), y1: 58, y2: 64, class: "tickline" }));
     if (v % 100 === 0) root.append(svg(doc, "text", { x: x(v), y: 98, class: "tick", "text-anchor": v === -max ? "start" : v === max ? "end" : "middle" }, v === 0 ? "0" : plainSigned(v)));
   }
-  root.append(svg(doc, "line", { x1: x(0), x2: x(0), y1: 28, y2: 62, class: "zero" }));
+  root.append(svg(doc, "line", { x1: x(0), x2: x(0), y1: 34, y2: 56, class: "zero" })); // zero is a quiet mark inside the bar, labelled on the axis: only the needle stands out
+  root.append(svg(doc, "line", { x1: x(policy.rateBps), x2: x(policy.rateBps), y1: 26, y2: 60, class: "needle-halo" }), svg(doc, "line", { x1: x(policy.rateBps), x2: x(policy.rateBps), y1: 26, y2: 60, class: "needle" }));
   root.append(svg(doc, "polygon", { points: `${x(policy.rateBps)},58 ${x(policy.rateBps) - 8},74 ${x(policy.rateBps) + 8},74`, class: "marker" }));
   root.append(svg(doc, "text", { x: x(policy.rateBps), y: 22, class: "marker-label", "text-anchor": policy.rateBps > max / 2 ? "end" : policy.rateBps < -max / 2 ? "start" : "middle" }, `${plainSigned(policy.rateBps)} now`));
   return root;
@@ -137,7 +138,7 @@ export function renderNow(doc, host, d) {
   const fact = (cls, k, v, vcls, ...rest) => h(doc, "div", { class: `fact ${cls}` }, h(doc, "span", { class: "k" }, k), h(doc, "span", { class: `v ${vcls}` }, v), ...rest);
   host.append(
     h(doc, "div", { class: "now-grid" },
-      fact("big", "The rate right now", fmtSignedPct(policy.rateBps), "rate", h(doc, "span", { class: "s" }, policy.rateBps > 0 ? `eases: mints ${fmtPct(policy.rateBps)} of supply ${printUnit(params)} to stakers` : policy.rateBps < 0 ? `tightens: every transfer burns ${fmtPct(policy.rateBps)}` : "neutral: nothing is minted or burned")),
+      fact("big", "The rate right now", fmtSignedPct(policy.rateBps), "rate", h(doc, "span", { class: "s" }, policy.rateBps > 0 ? `printing: mints ${fmtPct(policy.rateBps)} of supply ${printUnit(params)} to stakers` : policy.rateBps < 0 ? `burning: every transfer burns ${fmtPct(policy.rateBps)}` : "holding: nothing is minted or burned")),
       fact("", "Coins in existence", h(doc, "span", { title: formatExact(supply.totalSupply) }, formatTokens(supply.totalSupply)), "", h(doc, "span", { class: "s" }, `${formatTokens(supply.minted)} minted and ${formatTokens(supply.burned)} burned since launch`)),
       fact("", "The current meeting", String(policy.epoch), "", h(doc, "span", { class: "s" }, `ends ${fmtTime(policy.epochEndsMs)}; meetings last ${formatDuration(params.epochMs)}`)),
     ),
@@ -205,7 +206,7 @@ export function renderReconcile(doc, host, d, { onRetry }) {
     const rows = d.reconcile.lines.map((l) => h(doc, "tr", {}, h(doc, "th", { scope: "row" }, l.name), h(doc, "td", { "data-label": "Logged events", title: formatExact(l.logged) }, formatTokens(l.logged)), h(doc, "td", { "data-label": d.partial ? "Chain change" : "get_supply", title: formatExact(l.chain) }, formatTokens(l.chain)), h(doc, "td", { "data-label": "Result", class: l.ok ? "good" : "badtext" }, l.ok ? "equal" : "differs")));
     host.append(h(doc, "table", { class: "recon" }, h(doc, "caption", {}, d.partial ? `Event sums against the change in get_supply after block ${d.pinnedFrom}, up to and including block ${d.pinnedHeight}, the last block in which the contract logged an event` : d.pinnedHeight === null ? "Event sums against get_supply" : `Event sums against get_supply at block ${d.pinnedHeight}, the last block in which the contract logged an event`), h(doc, "thead", {}, h(doc, "tr", {}, h(doc, "th", { scope: "col" }, ""), h(doc, "th", { scope: "col" }, "Sum of logged events"), h(doc, "th", { scope: "col" }, chainLabel), h(doc, "th", { scope: "col" }, ""))), h(doc, "tbody", {}, rows)));
   }
-  if (d.pending !== null) host.append(h(doc, "p", { class: "note" }, `${formatTokens(d.pending.minted)} more is minted in views right now: an epoch boundary has passed and its mint is due. The contract applies it, and logs it, with the next transaction.`));
+  if (d.pending !== null) host.append(h(doc, "p", { class: "note" }, `${formatTokens(d.pending.minted)} more is minted in views right now: a meeting boundary has passed and its mint is due. The contract applies it, and logs it, with the next transaction.`));
   for (const a of d.anomalies.slice(0, 5)) host.append(h(doc, "p", { class: "note warnnote" }, safeText(a, 160)));
   if (d.status === "incomplete" && d.retryable && onRetry) {
     const b = h(doc, "button", { type: "button", class: "chip" }, "Try again");
@@ -248,14 +249,14 @@ export function renderLog(doc, host, d, state, { explorer, indexerUrl = null, re
     const link = explorer && isTxHash(e.hash) ? h(doc, "a", { href: `${explorer}/txns/${e.hash}`, rel: "noopener noreferrer", target: "_blank" }, shortHash(e.hash)) : h(doc, "span", { title: safeText(e.hash, 64) }, isTxHash(e.hash) ? shortHash(e.hash) : safeText(e.hash, 20));
     body.append(
       h(doc, "tr", { class: `log-row ${e.kind}` },
-        h(doc, "td", { "data-label": "Epoch" }, h(doc, "span", {}, String(e.epoch)), e.epochFrom === "block time" ? h(doc, "span", { class: "sub", title: "No chair event carries the epoch for this change; it is computed from the block time." }, "from block time") : null),
+        h(doc, "td", { "data-label": "Meeting" }, h(doc, "span", {}, String(e.epoch)), e.epochFrom === "block time" ? h(doc, "span", { class: "sub", title: "No chair event carries the meeting number for this change; it is computed from the block time." }, "from block time") : null),
         h(doc, "td", { "data-label": "Change", class: "amt", title: formatExact(e.amount) }, h(doc, "span", { class: `sign ${burn ? "burn" : "mint"}` }, burn ? `${MINUS} Burn` : e.kind === "launch" ? "Launch" : "+ Mint"), h(doc, "span", {}, formatTokens(e.amount))),
         h(doc, "td", { "data-label": "Reason" }, h(doc, "span", {}, e.reason), detail.length ? h(doc, "span", { class: "sub" }, detail.join("; ")) : null),
         h(doc, "td", { "data-label": "Transaction", class: "tx" }, link, " ", rawButton(doc, indexerUrl, e.hash), h(doc, "span", { class: "sub" }, fmtTime(e.tsMs))),
       ),
     );
   }
-  host.append(h(doc, "table", { class: "log" }, h(doc, "caption", {}, `Showing ${shown.length} of ${filtered.length} ${state.filter === "all" ? "supply changes" : state.filter === "mint" ? "mints" : "burns"}${d.partial ? ` in the latest ${d.txCount} transactions` : ""}`), h(doc, "thead", {}, h(doc, "tr", {}, ["Epoch", "Change", "Reason", "Transaction"].map((t) => h(doc, "th", { scope: "col" }, t)))), body));
+  host.append(h(doc, "table", { class: "log" }, h(doc, "caption", {}, `Showing ${shown.length} of ${filtered.length} ${state.filter === "all" ? "supply changes" : state.filter === "mint" ? "mints" : "burns"}${d.partial ? ` in the latest ${d.txCount} transactions` : ""}`), h(doc, "thead", {}, h(doc, "tr", {}, ["Meeting", "Change", "Reason", "Transaction"].map((t) => h(doc, "th", { scope: "col" }, t)))), body));
   if (ordered.length > shown.length) {
     const more = h(doc, "button", { type: "button", class: "chip more" }, `Show ${Math.min(LOG_PAGE, ordered.length - shown.length)} more`);
     more.addEventListener("click", () => ((state.shown += LOG_PAGE), rerender()));

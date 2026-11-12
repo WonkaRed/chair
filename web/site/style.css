@@ -98,17 +98,17 @@ h3 { font: 600 1.25rem/1.3 var(--serif); margin: 1.5rem 0 0.5rem; }
 
 /* The hero: plain words first, the two things to do, then the Chair's latest minutes as flavour. */
 .hero { margin-top: 0; padding-block: 2.5rem 0.5rem; display: grid; gap: 2rem 3.5rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
-@media (min-width: 62rem) { .hero { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); padding-block: 3.25rem 0.5rem; } }
+@media (min-width: 62rem) { .hero { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); padding-block: 1.75rem 0.5rem; } }
 .hero-copy { min-width: 0; }
-h1 { font: 600 clamp(2rem, 4.3vw, 3.4rem)/1.07 var(--serif); letter-spacing: -0.02em; margin: 0; }
+h1 { font: 600 clamp(2rem, 3.7vw, 3rem)/1.07 var(--serif); letter-spacing: -0.02em; margin: 0; }
 h1 span { display: block; }
 h1 .h1-second { color: var(--ink2); font-style: italic; font-weight: 500; }
-.now-plain { max-width: 34em; margin: 1.5rem 0 0; font-size: clamp(1.1rem, 1.7vw, 1.35rem); line-height: 1.5; color: var(--ink); }
+.now-plain { max-width: 34em; margin: 1.1rem 0 0; font-size: clamp(1.1rem, 1.7vw, 1.35rem); line-height: 1.5; color: var(--ink); }
 .now-plain .fig { font: 700 1.12em/1 var(--serif); font-variant-numeric: lining-nums; color: var(--accent); border-bottom: 2px solid var(--brass); }
 .hero-verified { margin: 0.9rem 0 0; }
 .hero-verified a { display: inline-flex; text-decoration: none; }
 @media (min-width: 62rem) { .hero-verified { display: none; } } /* beside the sentence the whole card, mark included, is on the first screen */
-.hero-do { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 1.75rem 0 0; }
+.hero-do { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 1.25rem 0 0; }
 .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 3.1rem; padding: 0.6rem 1.4rem; font: 600 1rem/1.2 var(--text); text-decoration: none; color: var(--ink); background: transparent; border: 2px solid var(--ink); border-radius: 3px; transition: background-color 0.15s, color 0.15s, transform 0.15s; }
 .btn:hover { background: var(--ink); color: var(--bg); }
 .btn-main { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
@@ -135,6 +135,9 @@ h1 .h1-second { color: var(--ink2); font-style: italic; font-weight: 500; }
 .ai-line::before { content: none; } .ai-line .m-own-line::before { content: open-quote; }
 .minutes-paper .plain-line.ai-line { font: 600 clamp(1.3rem, 2.2vw, 1.75rem)/1.25 var(--serif); margin: 0.2rem 0 0.5rem; }
 .minutes-paper .said-k { margin: 0 0 0.2rem; }
+.said-why { margin: 0 0 0.2rem; color: var(--muted); font-size: 0.85rem; line-height: 1.4; max-width: 62ch; }
+.m-stat { margin: 0.7rem 0 0; padding: 0.5rem 0.75rem; border-left: 4px solid var(--brass); background: var(--hair); color: var(--ink); font-size: 0.92rem; line-height: 1.4; }
+.m-stat strong { font-variant-numeric: lining-nums tabular-nums; } .m-stat a { white-space: nowrap; }
 .m-full { margin-top: 0.4rem; border: 0; padding: 0; }
 .m-full > summary { min-height: 2.5rem; padding: 0.3rem 0; border: 0; color: var(--accent); font-size: 0.95rem; }
 .m-full .reasoning { margin-top: 0.4rem; font-size: 1rem; line-height: 1.5; font-style: italic; max-height: 22rem; overflow: auto; }
@@ -209,7 +212,7 @@ dd, .v { margin: 0.1rem 0 0; font-size: 1.1rem; font-variant-numeric: tabular-nu
 .corridor-h { margin: 0 0 0.25rem; font: italic 1rem/1.3 var(--serif); color: var(--ink2); }
 .corridor-svg { width: 100%; height: auto; display: block; }
 @media (min-width: 48rem) { .corridor { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 0 2rem; align-items: center; } .corridor-h { grid-column: 1 / -1; } }
-.bounds { fill: var(--rule); } .reach { fill: var(--accent); } .zero { stroke: var(--ink); stroke-width: 1.5; } .corridor .tickline { stroke: var(--muted); } .tick { fill: var(--ink2); font-size: 13px; }
+.bounds { fill: var(--rule); } .reach { fill: var(--accent); } .zero { stroke: var(--ink2); stroke-width: 1; stroke-dasharray: 2 3; opacity: 0.7; } .needle { stroke: var(--ink); stroke-width: 3; } .needle-halo { stroke: var(--bg); stroke-width: 7; } .corridor .tickline { stroke: var(--muted); } .tick { fill: var(--ink2); font-size: 13px; }
 .marker { fill: var(--ink); stroke: var(--bg); stroke-width: 2; } .marker-label { fill: var(--ink); font-size: 14px; font-weight: 700; }
 .key { list-style: none; margin: 0.5rem 0 0; padding: 0; display: grid; gap: 0.35rem; color: var(--ink2); font-size: 0.92rem; }
 .sw { display: inline-block; width: 1.6rem; height: 0.7rem; border-radius: 2px; margin-right: 0.6rem; vertical-align: 0.05em; }
@@ -352,7 +355,7 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 /* The press conference. */
 .press-grid { display: grid; gap: 2rem 3rem; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: start; }
 .press-col, .record { min-width: 0; }
-.ask-form label { display: block; margin-bottom: 0.4rem; color: var(--ink2); font-size: 0.95rem; }
+.ask-form label { display: block; margin-bottom: 0.4rem; color: var(--ink2); font-size: 0.95rem; overflow-wrap: anywhere; }
 .ask-form textarea { display: block; width: 100%; min-height: 6.5rem; resize: vertical; padding: 0.8rem 0.9rem; font: 1.2rem/1.45 var(--serif); color: var(--ink); background: var(--panel); border: 2px solid var(--ink2); border-radius: 3px; }
 .ask-form textarea:disabled { border-color: var(--rule); color: var(--muted); cursor: not-allowed; }
 .ask-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 0.6rem; }
@@ -409,8 +412,9 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
   .m-proof > div { grid-template-columns: minmax(0, 1fr); }
   .top { position: static; }
   .bar { gap: 0.25rem 0.5rem; }
-  .bar nav { order: 3; flex: 1 0 100%; flex-wrap: wrap; white-space: normal; overflow: visible; gap: 0 1.1rem; justify-content: flex-start; }
-  .bar nav a { padding: 0.3rem 0; font-size: 0.9rem; }
+  .bar nav { order: 3; flex: 1 0 100%; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; gap: 0 1.1rem; justify-content: flex-start; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 1.5rem), transparent); } /* one row that swipes; the fade says there is more */
+  .bar nav::-webkit-scrollbar { display: none; }
+  .bar nav a { padding: 0.3rem 0; font-size: 0.9rem; flex: none; }
   .bar .gh { margin-left: auto; }
   main > section, main > .band { margin-top: 2.5rem; } .band { gap: 2.5rem; }
   .quips { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 0; border-bottom: 0; margin-inline: -1rem; padding-inline: 1rem; scroll-padding-inline: 1rem; }
@@ -421,7 +425,8 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 /* Phone: the guarantees and the hall of refusals are swipe rows (as the best lines are), and the four numbers sit two across, so the page stays short without dropping anything. */
 @media (max-width: 40rem) {
   .guarantees, .log.hall tbody { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 0.75rem; margin-inline: -1rem; padding: 0 1rem 0.6rem; scroll-padding-inline: 1rem; }
-  .guarantees > li, .log.hall tr:not([hidden]) { flex: 0 0 84%; min-width: 0; scroll-snap-align: start; }
+  .guarantees > li, .log.hall tr:not([hidden]) { flex: 0 0 min(84%, 20rem); min-width: 0; scroll-snap-align: start; }
+  .log.hall td { overflow-wrap: anywhere; }
   .now-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
   .now-grid > div { padding: 0.7rem 0.75rem; }
   .now-grid .v { font-size: 1.5rem; }
@@ -434,7 +439,7 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 .skel { display: block; height: 0.9rem; margin: 0.7rem 0; border-radius: 3px; background: var(--hair); animation: skel 1.6s ease-in-out infinite; }
 .skel-short { width: 55%; }
 @keyframes skel { 50% { opacity: 0.45; } }
-.now-slot { min-height: 7rem; margin-top: 1.5rem; }
+.now-slot { min-height: 7rem; margin-top: 1.1rem; }
 .now-slot .now-plain { margin-top: 0; }
 /* The room held for the minutes: about the height of a card that leads with the AI's line (the numbers are one small line, the whole text is folded); a longer line or an open fold grows past it. */
 .hero-slot { --hero-h: 27rem; min-height: var(--hero-h); min-width: 0; }
@@ -459,6 +464,7 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 .hold { background: var(--panel); border: 1px solid var(--rule); border-top: 3px solid var(--brass); border-radius: 2px; padding: 0.9rem 1rem; min-width: 0; }
 .hold > span { display: block; }
 .hold .k { color: var(--muted); font-size: 0.88rem; }
+.hold .role { font: 400 0.9rem/1.4 var(--text); color: var(--ink2); }
 .hold .hv { margin: 0.2rem 0 0.35rem; font: 600 1.9rem/1.15 var(--serif); font-variant-numeric: lining-nums tabular-nums; overflow-wrap: anywhere; }
 .hold .hv .acct { display: block; font: 600 1.05rem/1.3 var(--mono); padding-block: 0.3rem; }
 .hold .s { margin-top: 0.4rem; color: var(--ink2); font-size: 0.92rem; }
@@ -500,9 +506,9 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 @keyframes beat { 50% { opacity: 0.35; transform: scale(0.8); } }
 
 /* The newest refusal on the chain, as the red stamp it is, under the buttons: the first thing a visitor learns is that the contract says no. */
-.hero-stamp-slot { margin-top: 1.6rem; }
+.hero-stamp-slot { margin-top: 1.1rem; }
 .hero-stamp { max-width: 34rem; }
-.hero-stamp .or-stamp { display: inline-block; margin: 0.2rem 0 0.7rem; padding: 0.3rem 0.9rem; border: 3px solid var(--stamp); outline: 1px solid var(--stamp); outline-offset: 3px; border-radius: 3px; color: var(--stamp); background: rgb(255 130 102 / 0.08); font: 700 clamp(0.95rem, 1.7vw, 1.2rem)/1.2 var(--serif); letter-spacing: 0.07em; text-transform: uppercase; transform: rotate(-2deg); animation: stamp-in 0.5s cubic-bezier(0.2, 1.3, 0.4, 1) both; }
+.hero-stamp .or-stamp { display: inline-block; margin: 0.35rem 0 1rem; padding: 0.3rem 0.9rem; border: 3px solid var(--stamp); outline: 1px solid var(--stamp); outline-offset: 3px; border-radius: 3px; color: var(--stamp); background: rgb(255 130 102 / 0.08); font: 700 clamp(0.95rem, 1.7vw, 1.2rem)/1.2 var(--serif); letter-spacing: 0.07em; text-transform: uppercase; transform: rotate(-2deg); animation: stamp-in 0.5s cubic-bezier(0.2, 1.3, 0.4, 1) both; }
 .hs-why { margin: 0; color: var(--ink); font-size: 1rem; line-height: 1.45; }
 .hs-who { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.92rem; }
 
@@ -515,9 +521,9 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 .try .tablist button[hidden] { display: none; }
 #try.try-on .tabpanel:not(.on) { display: none; }
 @media (max-width: 40rem) {
-  .try .tablist { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 0.4rem; } /* one row, whichever tabs are shown */
+  .try .tablist { display: grid; grid-template-columns: repeat(auto-fit, minmax(10.5rem, 1fr)); gap: 0.4rem; } /* a label never wraps: a third tab takes a row of its own */
   .try .tablist[hidden] { display: none; }
-  .try .tablist button { font-size: 0.85rem; line-height: 1.15; min-height: 2.9rem; padding: 0.4rem 0.45rem; border-radius: 14px; text-align: center; }
+  .try .tablist button { font-size: 0.92rem; line-height: 1.15; min-height: 2.9rem; padding: 0.4rem 0.6rem; border-radius: 999px; text-align: center; white-space: nowrap; }
 }
 .try .tabpanel + .tabpanel { margin-top: 1.5rem; }
 .try-on .tabpanel + .tabpanel { margin-top: 0; }

@@ -33,15 +33,15 @@ export const GUARANTEES = [
     tests: [["sandbox-tests/tests/impeachment.rs", "enough_backing_replaces_the_chair_at_the_next_boundary"], ["sandbox-tests/tests/impeachment.rs", "backing_must_also_exceed_five_percent_of_the_supply_to_seat_a_chair"], ["sandbox-tests/tests/policy.rs", "function_call_key_can_set_policy_but_cannot_transfer"]],
   },
   {
-    plain: "Check the no-admin claim yourself: one command runs it against the real contract.",
-    text: "From a clone of the repo, the command runs the real contract in a local NEAR sandbox and fails if any administrative method exists. For a deployed account, anyone can also ask any RPC node for its access keys: the answer must be an empty list, which the supply ledger shows too.",
+    plain: "Check the no-admin claim yourself: one command reads the live testnet token and prints PASS or FAIL for each check.",
+    text: "Run it from the root of a clone of the repo (it needs Git, Make and Node 22.22.2 or newer, no key and no wallet). It only reads: it asks public NEAR nodes about the real token and checks, among other things, that the token account holds no access key at all and that the code on chain is the recorded code. It prints 12 checks, plus a 13th on the Chair's recorded minutes when the transaction index answers, and takes about 5 to 20 seconds (the first run also installs the packages). The test linked below checks the same claim against a local build in a sandbox, which needs a Rust build of 5 to 13 minutes: cargo test -p sandbox-tests --test no_admin.",
     spec: ["No admin, no owner", "no-admin-no-owner"],
     tests: [["sandbox-tests/tests/no_admin.rs", "the_exported_surface_has_no_admin_and_nothing_the_deployer_can_use"]],
     command: true,
   },
 ];
 
-export const VERIFY_COMMAND = "cargo test -p sandbox-tests --test no_admin";
+export const VERIFY_COMMAND = "make -C deploy verify";
 
 export function renderGuarantees(doc, config) {
   const base = `${config.repoUrl}/blob/${config.repoRef}`;

@@ -8,7 +8,7 @@ import { fakeDoc, host, walk } from "./fakedom.mjs";
 const root = join(fileURLToPath(import.meta.url), "..", "..");
 const site = (f) => import(join(root, "site", "js", f));
 const { backingNeeded, holdersModel, renderHolders, renderHoldersUnavailable } = await site("holders.js");
-const { newestAnswer, setPullQuote, linkFallback } = await site("pullquote.js");
+const { setPullQuote, linkFallback, setBestOf } = await site("pullquote.js");
 const { loadLog, parseCandidates, parseParams } = await site("loadlog.js");
 const { SourceError } = await site("sources.js");
 const { UNIT } = await site("amounts.js");
@@ -51,15 +51,14 @@ test("the panel says the live figures in plain words and the past impeachment wi
   assert.equal(fold.length, 1, "the challenger list and the past replacement sit in one phone fold");
   assert.match(text(fold[0]), /Challengers right now.*It has already happened once/);
   assert.doesNotMatch(text(fold[0]), /Who holds the seat/, "the figures above the fold stay outside it");
-  assert.match(t, /Who holds the seat.*challenger\.chair-coin-3\.testnet.*Took the seat at meeting 10, when stakers voted out the first Chair\..*654 meetings in office\./, "the seat says how it was won");
+  assert.match(t, /Who holds the seat.*challenger\.chair-coin-3\.testnet.*\(sitting Chair\).*Took the seat when stakers voted out chair\.chair-coin-3\.testnet, the first Chair, at meeting 10\..*654 meetings in office\./, "the seat says how it was won");
   assert.match(t, /600 000 of 1 600 000 coins\. Every coin the Chair prints is shared among these\./);
   assert.match(t, /654 meetings in office\./);
   assert.match(t, /180 000 coins/);
   assert.match(t, /more than 30% of the staked coins and 5% of all coins behind them/);
   assert.match(t, /Nobody is challenging the Chair right now\./);
-  assert.match(t, /At meeting 10, stakers backing 400,000 of the 400,000 staked coins replaced the first Chair/);
-  assert.doesNotMatch(t, /scripted/, "who the voters were is told under the honest limits");
-  assert.match(t, /Holders do not set the rate\. The Chair does/);
+  assert.match(t, /At meeting 10, stakers backing 400,000 of the 400,000 staked coins replaced the first Chair.*Those stakers were my own demo accounts \(alice and bob\), not a crowd/);
+    assert.match(t, /Holders do not set the rate\. The Chair does/);
   assert.match(t, /How a holder does it/);
   assert.deepEqual(find(el, (n) => n.tag === "a").map((n) => n.attrs.href), ["https://explorer.example/txns/6Wd6BQSZ7GdNYcD2sXkaubK86y4DSnAYeVWnT2SWE7Cn", "https://repo.example/SPEC.md"]);
   assert.doesNotMatch(t, /—|–|NaN|undefined/);
@@ -146,31 +145,54 @@ test("loadLog hands over the four quick views without waiting for the slow index
   assert.deepEqual(ok.candidates, [{ candidate: "a.testnet", backing: 7n }]);
 });
 
-test("the pull quote: the newest answer is the last line of the newest decision; a bad list is no answer", () => {
-  assert.equal(newestAnswer([]), null);
-  assert.equal(newestAnswer(null), null);
-  const list = [{ answer: "second line", tx: "A", epoch: 9 }, { answer: "first line", tx: "A", epoch: 9 }, { answer: "older", tx: "B", epoch: 8 }];
-  assert.equal(newestAnswer(list).answer, "first line", "within one decision the lines come in the order written, so the last is the newest");
+const TX = "GuLkS2VJmnxq9gL6tJH7PD2tMRUnqv7FV721cbw2Fo2a";
+const EXP = "https://explorer.example";
+/** A figure or list item with the same child lookups the page's section gives (a blockquote, a figcaption, links and spans to replace). */
+const piece = (doc, tag, quote, data = {}) => {
+  const node = doc.createElement(tag);
+  const q = doc.createElement("blockquote");
+  q.textContent = quote;
+  const cap = doc.createElement("figcaption");
+  node.append(q, tag === "figure" ? cap : []);
+  node.dataset = data;
+  node.querySelector = (sel) => (sel === "blockquote" ? q : cap);
+  node.querySelectorAll = () => node.children.filter((c) => c.tag === "a" || c.tag === "span").map((c) => Object.assign(c, { remove: () => node.removeChild(c) }));
+  node.quote = q;
+  node.cap = cap;
+  return node;
+};
+const sectionOf = (doc, fig, lis) => ({ querySelector: () => fig, querySelectorAll: () => lis });
+
+test("the pull quote's caption says which meeting closed with it and links its transaction only when the hash and an explorer are real", () => {
+  const doc = fakeDoc();
+  const fig = piece(doc, "figure", "x");
+  setPullQuote(doc, fig, { text: "A new line.\u202e", epoch: 700, tx: TX }, { explorer: EXP });
+  assert.equal(text(fig.quote), "A new line.\\u{202e}");
+  assert.equal(text(fig.cap), "Closing sentence of the minutes of meeting 700, written by the AI. On chain");
+  assert.equal(find(fig.cap, (n) => n.tag === "a")[0].attrs.href, `${EXP}/txns/${TX}`);
+  setPullQuote(doc, fig, { text: "x", epoch: null, tx: "not a hash" }, { explorer: EXP });
+  assert.equal(text(fig.cap), "Closing sentence of the minutes of a meeting, written by the AI. ");
+  setPullQuote(doc, fig, { text: "x", epoch: 5, tx: TX }, { explorer: null });
+  assert.equal(find(fig.cap, (n) => n.tag === "a").length, 0);
 });
 
-const figure = (doc, data = {}) => {
-  const quote = doc.createElement("blockquote");
-  quote.textContent = "The Chair is neither up nor down. The Chair is seated.";
-  const caption = doc.createElement("figcaption");
-  return { quote, caption, dataset: data, querySelector: (s) => (s === "blockquote" ? quote : caption) };
-};
-
-test("the caption says which line it is: the fallback, then the chain's newest answer; links only for a real transaction", () => {
+test("the static fallback is read as data and linked; the chain's four newest closings replace it only when there are four", () => {
   const doc = fakeDoc();
-  const tx = "GuLkS2VJmnxq9gL6tJH7PD2tMRUnqv7FV721cbw2Fo2a";
-  const fig = figure(doc, { tx, epoch: "525" });
-  linkFallback(doc, fig, "https://explorer.example");
-  assert.equal(text(fig.caption), "A line the Chair gave the press on the earlier token, meeting 525. On chain");
-  assert.equal(find(fig.caption, (n) => n.tag === "a")[0].attrs.href, `https://explorer.example/txns/${tx}`);
-  setPullQuote(doc, fig, { answer: "A new line.‮", epoch: 700, tx }, { explorer: "https://explorer.example", live: true });
-  assert.equal(text(fig.quote), "A new line.\\u{202e}");
-  assert.equal(text(fig.caption), "The Chair's newest answer to the press, meeting 700. On chain");
-  setPullQuote(doc, fig, { answer: "x", epoch: null, tx: "not a hash" }, { explorer: "https://explorer.example", live: true });
-  assert.equal(text(fig.caption), "The Chair's newest answer to the press. ");
-  linkFallback(doc, figure(doc, { tx, epoch: "525" }), null);
+  const fig = piece(doc, "figure", "fallback pull", { tx: TX, epoch: "658" });
+  const lis = [1, 2, 3].map((i) => piece(doc, "li", `fallback ${i}`, { tx: TX, epoch: String(650 + i) }));
+  const section = sectionOf(doc, fig, lis);
+  linkFallback(doc, section, EXP);
+  assert.equal(text(fig.cap), "Closing sentence of the minutes of meeting 658, written by the AI. On chain");
+  assert.equal(text(lis[0]), "fallback 1Meeting 651, on chain");
+  assert.equal(find(lis[0], (n) => n.tag === "a")[0].attrs.href, `${EXP}/txns/${TX}`);
+  const entry = (i) => ({ text: `live ${i}`, epoch: 900 - i, tx: TX });
+  setBestOf(doc, section, [entry(0), entry(1), entry(2)], { explorer: EXP });
+  assert.equal(text(fig.quote), "fallback pull", "three lines are not enough: the recorded four stay, whole");
+  setBestOf(doc, section, [0, 1, 2, 3].map(entry), { explorer: EXP });
+  assert.equal(text(fig.quote), "live 0");
+  assert.equal(text(fig.cap), "Closing sentence of the minutes of meeting 900, written by the AI. On chain");
+  assert.equal(text(lis[2]), "live 3Meeting 897, on chain");
+  assert.equal(find(lis[2], (n) => n.tag === "a").length, 1, "the old link is replaced, never stacked");
+  linkFallback(doc, section, null);
+  assert.equal(find(lis[0], (n) => n.tag === "a").length, 0);
 });
