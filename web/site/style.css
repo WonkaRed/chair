@@ -79,6 +79,11 @@ h3 { font: 600 1.25rem/1.3 var(--serif); margin: 1.5rem 0 0.5rem; }
 .fold > summary:hover { color: var(--accent); }
 .fold > :not(summary) { margin-inline: 0; }
 .fold[open] { padding-bottom: 1rem; }
+/* What the page reads is the newest transactions (js/loadlog.js); the list's own count line says "in all", so a windowed list shows the scope line under it instead (js/earlier.js). */
+#minutes-body.windowed .m-count { display: none; }
+.earlier:empty { display: none; }
+.earlier { margin-top: 0.8rem; }
+.earlier-note { max-width: 62ch; }
 /* A phone fold (js/phonefold.js) is only a fold on a phone; wider, it is open and says nothing. */
 @media (min-width: 40.01rem) { .fold.phone-fold { border: 0; margin-top: 0; padding: 0; } .phone-fold > summary { display: none; } }
 @supports selector(::details-content) {

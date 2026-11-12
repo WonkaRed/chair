@@ -11,7 +11,7 @@ import { fakeDoc, host } from "./fakedom.mjs";
 const root = join(fileURLToPath(import.meta.url), "..", "..");
 const js = (f) => import(join(root, "site", "js", f));
 const { rpcTransport, fixtureTransport } = await js("sources.js");
-const { loadLog } = await js("loadlog.js");
+const { loadEarlier, loadLog } = await js("loadlog.js");
 const { decisionsOfTxs, refusalsOfTxs } = await js("decisions.js");
 const { buildEntries } = await js("ledger.js");
 const { renderHero, resolveTexts } = await js("minutes.js");
@@ -51,7 +51,7 @@ class MemStore {
  * A chain and an index that answer from the recorded run. `txs` is what the index holds; `up` false makes every index call a network error (a 429
  * without CORS headers looks like that); `script` is a list of replies (or null for "answer normally") for the next /v0/transactions calls.
  */
-function world({ txs = FULL, store = new MemStore(), peek = true, pageLimit } = {}) {
+function world({ txs = FULL, store = new MemStore(), peek = true, pageLimit, supplyAt = null } = {}) {
   const w = { up: true, script: [], batches: [], accountCalls: 0, slept: [], store };
   const fetchImpl = async (url, init) => {
     const body = JSON.parse(init.body);
@@ -72,7 +72,7 @@ function world({ txs = FULL, store = new MemStore(), peek = true, pageLimit } = 
     }
     const p = body.params;
     if (p.request_type === "view_access_key_list") return ok({ result: { keys: [] } });
-    const view = { get_params: fixture.params, get_policy: w.policy ?? fixture.policyNow, get_supply: p.block_id === undefined ? fixture.supplyNow : fixture.supplyAtLastTx, get_candidates: [] }[p.method_name];
+    const view = { get_params: fixture.params, get_policy: w.policy ?? fixture.policyNow, get_supply: p.block_id === undefined ? fixture.supplyNow : supplyAt === null ? fixture.supplyAtLastTx : supplyAt(p.block_id), get_candidates: [] }[p.method_name];
     return ok({ jsonrpc: "2.0", result: { result: bytes(view), logs: [] } });
   };
   w.transport = () => {
@@ -376,28 +376,6 @@ test("loadLog never offers the latest decision after it has returned", async () 
   assert.equal(offered.length, 0);
 });
 
-test("the index is read newest first across several pages: the full list is complete, oldest first, with no hash twice", async () => {
-  const oldestFirst = FULL.map(hashOf);
-  for (const pageLimit of [7, 8, 20, 21, 500]) {
-    const w = world({ pageLimit });
-    const hashes = await w.transport().txHashes();
-    assert.deepEqual(hashes, oldestFirst, `page size ${pageLimit}`);
-    assert.equal(new Set(hashes).size, hashes.length);
-    // A page that fills exactly asks once more (the index may hold more), so 21 rows at 7 a page is four calls, and at 21 a page is two.
-    assert.equal(w.accountCalls, Math.floor(oldestFirst.length / pageLimit) + 1, `page size ${pageLimit}: calls`);
-  }
-});
-
-test("the read-ahead is the true newest twenty even when the index comes in several pages, and the whole log still reads the same", async () => {
-  const w = world({ pageLimit: 20 });
-  const d = await w.load();
-  const newest = FULL.map(hashOf).slice(-20).reverse();
-  assert.deepEqual(w.batches[0], newest, "the first request asks for the newest twenty, newest first");
-  assert.deepEqual(w.batches.slice(1).flat(), [hashOf(FULL[0])], "only the one older hash is left for the full read");
-  assert.equal(d.status, "complete");
-  assert.deepEqual(d.entries, (await world().load()).entries, "paged and unpaged reads give the same log");
-});
-
 test("nothing the read-ahead or the caller's drawing does can surface as an unhandled rejection", async () => {
   const strays = [];
   const stray = (e) => strays.push(e);
@@ -414,4 +392,96 @@ test("nothing the read-ahead or the caller's drawing does can surface as an unha
   } finally {
     process.off("unhandledRejection", stray);
   }
+});
+
+/** A transaction the token ran that changes nothing: the long history behind the recorded run, for the tests of a token that has run for days. */
+const filler = (i) => whole({
+  transaction: { hash: `${[...String(i)].map((c) => "ABCDEFGHIJ"[c]).join("").padStart(43, "A")}K`, signer_id: "someone.test.near", receiver_id: TOKEN, actions: [{ FunctionCall: { method_name: "ft_transfer", args: "e30=", gas: 1, deposit: "1" } }] },
+  receipts: [{ execution_outcome: { block_height: String(2 + (i % 9)), block_timestamp: "1794300000000000000", outcome: { executor_id: TOKEN, logs: [], status: { SuccessValue: "" } } } }],
+}, 5000 + i);
+const withHistory = (n) => [...Array.from({ length: n }, (_, i) => filler(i)), ...FULL];
+const indexCalls = (w) => w.accountCalls + w.batches.length;
+
+test("a token that has run for days: a cold load costs a small fixed number of index requests, reads the newest window, and never throws", async () => {
+  const txs = withHistory(30_000);
+  for (const visit of [1, 2]) {
+    const w = world({ txs });
+    const d = await w.load();
+    assert.equal(w.accountCalls, 1, `visit ${visit}: one page of hashes, however long the history`);
+    assert.ok(indexCalls(w) <= 12, `visit ${visit}: ${indexCalls(w)} index requests`);
+    assert.equal(d.partial, true);
+    assert.equal(d.txCount, 200, "the newest 200 transactions are the window");
+    assert.notEqual(d.window.next, null, "older ones are still there to ask for");
+    assert.ok(d.decisions.length > 0, "the Chair's newest decisions are in the window");
+  }
+});
+
+test("a warm cold load asks the index for one page of hashes and nothing it already holds", async () => {
+  const txs = withHistory(30_000);
+  const store = new MemStore();
+  await world({ txs, store }).load();
+  const warm = world({ txs, store });
+  await warm.load();
+  assert.equal(warm.accountCalls, 1);
+  assert.ok(warm.batches.length <= 1, "only the pinned test refusals, which are never kept");
+});
+
+test("Show earlier: each page of older transactions joins the log with no hash twice and none missing, until the history is whole", async () => {
+  const txs = withHistory(120);
+  const everyHash = txs.map(hashOf);
+  const w = world({ txs, pageLimit: 50 });
+  const transport = w.transport();
+  let d = await loadLog(transport);
+  assert.equal(d.partial, true);
+  assert.deepEqual(d.window.hashes, everyHash.slice(-50), "the newest page, oldest first");
+  const pages = [d.window.hashes.length];
+  while (d.window.next !== null) {
+    d = await loadEarlier(transport, d);
+    pages.push(d.window.hashes.length);
+    assert.deepEqual(d.window.hashes, everyHash.slice(-d.window.hashes.length), "a contiguous run of the newest ones");
+    assert.equal(d.txCount, d.window.hashes.length);
+  }
+  assert.deepEqual(pages, [50, 100, 141]);
+  assert.deepEqual(d.window.hashes, everyHash, "the whole history, oldest first");
+  assert.equal(d.partial, false, "everything read: the log makes its whole-ledger claim again");
+  const asked = w.batches.flat();
+  assert.equal(new Set(asked).size, asked.length, "no transaction asked of the index twice");
+  assert.equal(await loadEarlier(transport, d), d, "nothing earlier: the same data");
+});
+
+test("a history that ends exactly on a page: the next press finds nothing and the window is whole", async () => {
+  const txs = withHistory(29); // 50 in all
+  const transport = world({ txs, pageLimit: 50 }).transport();
+  const d = await loadLog(transport);
+  assert.notEqual(d.window.next, null, "a full page may have more behind it");
+  const all = await loadEarlier(transport, d);
+  assert.equal(all.window.next, null);
+  assert.equal(all.txCount, 50);
+  assert.equal(all.partial, false);
+});
+
+test("the log of the newest transactions is checked against the change in the chain's ledger over its blocks, and a wrong change is a mismatch", async () => {
+  const entries = buildEntries(FULL.map((t) => slim(t, TOKEN)), TOKEN, fixture.params).entries;
+  const at = (height, skew = 0n) => {
+    const upTo = entries.filter((e) => e.height <= height);
+    const total = (kind) => upTo.filter((e) => e.kind === kind).reduce((a, e) => a + e.amount, 0n);
+    return { ...fixture.supplyAtLastTx, minted: String(total("mint") + skew), burned: String(total("burn")) };
+  };
+  const good = await world({ pageLimit: 10, supplyAt: (h) => at(h) }).load();
+  assert.equal(good.partial, true);
+  assert.equal(good.status, "complete");
+  assert.deepEqual(good.reconcile.lines.map((l) => l.name), ["minted", "burned"], "no launch line: a launch is not inside a stretch");
+  assert.ok(good.pinnedFrom > 0 && good.pinnedFrom < good.pinnedHeight);
+  const bad = await world({ pageLimit: 10, supplyAt: (h) => at(h, h === good.pinnedFrom ? 1n : 0n) }).load();
+  assert.equal(bad.status, "mismatch");
+});
+
+test("a window with no decision in it is widened, and when none is in reach the hero is told the newest decision is out of reach, never that there is none", async () => {
+  const quiet = Array.from({ length: 300 }, (_, i) => filler(i));
+  const widened = await world({ txs: [...FULL.slice(0, 1), ...quiet], pageLimit: 50 }).load().catch((e) => e);
+  assert.equal(widened instanceof Error, false);
+  assert.equal(widened.status, "incomplete", "no decision within the pages it is willing to read");
+  assert.match(widened.reasons[0], /latest decision is older than the transactions read/);
+  const reachable = await world({ txs: [...FULL.slice(0, 1), ...quiet.slice(0, 120), ...FULL.slice(1)], pageLimit: 50 }).load();
+  assert.ok(reachable.decisions.length > 0, "a decision a page or two back is found");
 });

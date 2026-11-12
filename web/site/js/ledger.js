@@ -86,3 +86,16 @@ export function reconcile(entries, supply) {
   ].map((l) => ({ ...l, ok: l.logged === l.chain }));
   return { lines, ok: lines.every((l) => l.ok) };
 }
+
+/**
+ * Event sums against the change in the chain's ledger over a stretch of blocks, for a log that holds only the newest transactions: `from` and `to` are
+ * `get_supply` at the first and the last block of the stretch, and `entries` are the logged events after `from`. A launch is never in the middle
+ * of a stretch, so there are two lines, each exact. `ok` is true only when both are equal.
+ */
+export function reconcileWindow(entries, from, to) {
+  const lines = [
+    { name: "minted", logged: sum(entries, (e) => e.kind === "mint"), chain: to.minted - from.minted },
+    { name: "burned", logged: sum(entries, (e) => e.kind === "burn"), chain: to.burned - from.burned },
+  ].map((l) => ({ ...l, ok: l.logged === l.chain }));
+  return { lines, ok: lines.every((l) => l.ok) };
+}

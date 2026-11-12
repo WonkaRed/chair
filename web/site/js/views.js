@@ -188,14 +188,23 @@ const STATUS = {
   unverified: { cls: "warn", mark: "!", text: "Unverified. The log was read but cannot be pinned to the chain's state at its last block." },
 };
 
+/** What the verdict says. A log of the newest transactions only is checked over the blocks it covers, and says so: it never claims the whole ledger. */
+function statusOf(d) {
+  if (!d.partial) return STATUS[d.status];
+  if (d.status === "complete") return { cls: "ok", mark: "✓", text: `Complete for the blocks the log covers. Every mint and burn from block ${d.pinnedFrom} to block ${d.pinnedHeight} is in the log below, and the sums are equal. Older ones are read when you ask.` };
+  if (d.status === "mismatch") return { cls: "bad", mark: "✗", text: "Mismatch. The events found do not add up to the change in the chain's ledger over the blocks the log covers; the log is not complete." };
+  return STATUS[d.status];
+}
+
 export function renderReconcile(doc, host, d, { onRetry }) {
   clear(host);
-  const st = STATUS[d.status];
+  const st = statusOf(d);
+  const chainLabel = d.partial ? "Change in get_supply" : "get_supply";
   host.append(h(doc, "p", { class: `verdict ${st.cls}`, role: "status" }, h(doc, "span", { class: "mark", "aria-hidden": "true" }, st.mark), ` ${st.text}`));
   for (const r of d.reasons) host.append(h(doc, "p", { class: "note" }, safeText(r, 400)));
   if (d.reconcile !== null) {
-    const rows = d.reconcile.lines.map((l) => h(doc, "tr", {}, h(doc, "th", { scope: "row" }, l.name), h(doc, "td", { "data-label": "Logged events", title: formatExact(l.logged) }, formatTokens(l.logged)), h(doc, "td", { "data-label": "get_supply", title: formatExact(l.chain) }, formatTokens(l.chain)), h(doc, "td", { "data-label": "Result", class: l.ok ? "good" : "badtext" }, l.ok ? "equal" : "differs")));
-    host.append(h(doc, "table", { class: "recon" }, h(doc, "caption", {}, d.pinnedHeight === null ? "Event sums against get_supply" : `Event sums against get_supply at block ${d.pinnedHeight}, the last block with a logged transaction`), h(doc, "thead", {}, h(doc, "tr", {}, h(doc, "th", { scope: "col" }, ""), h(doc, "th", { scope: "col" }, "Sum of logged events"), h(doc, "th", { scope: "col" }, "get_supply"), h(doc, "th", { scope: "col" }, ""))), h(doc, "tbody", {}, rows)));
+    const rows = d.reconcile.lines.map((l) => h(doc, "tr", {}, h(doc, "th", { scope: "row" }, l.name), h(doc, "td", { "data-label": "Logged events", title: formatExact(l.logged) }, formatTokens(l.logged)), h(doc, "td", { "data-label": chainLabel, title: formatExact(l.chain) }, formatTokens(l.chain)), h(doc, "td", { "data-label": "Result", class: l.ok ? "good" : "badtext" }, l.ok ? "equal" : "differs")));
+    host.append(h(doc, "table", { class: "recon" }, h(doc, "caption", {}, d.partial ? `Event sums against the change in get_supply from block ${d.pinnedFrom} to block ${d.pinnedHeight}, the last block with a logged transaction` : d.pinnedHeight === null ? "Event sums against get_supply" : `Event sums against get_supply at block ${d.pinnedHeight}, the last block with a logged transaction`), h(doc, "thead", {}, h(doc, "tr", {}, h(doc, "th", { scope: "col" }, ""), h(doc, "th", { scope: "col" }, "Sum of logged events"), h(doc, "th", { scope: "col" }, chainLabel), h(doc, "th", { scope: "col" }, ""))), h(doc, "tbody", {}, rows)));
   }
   if (d.pending !== null) host.append(h(doc, "p", { class: "note" }, `${formatTokens(d.pending.minted)} more is minted in views right now: an epoch boundary has passed and its mint is due. The contract applies it, and logs it, with the next transaction.`));
   for (const a of d.anomalies.slice(0, 5)) host.append(h(doc, "p", { class: "note warnnote" }, safeText(a, 160)));
@@ -247,7 +256,7 @@ export function renderLog(doc, host, d, state, { explorer, indexerUrl = null, re
       ),
     );
   }
-  host.append(h(doc, "table", { class: "log" }, h(doc, "caption", {}, `Showing ${shown.length} of ${filtered.length} ${state.filter === "all" ? "supply changes" : state.filter === "mint" ? "mints" : "burns"}`), h(doc, "thead", {}, h(doc, "tr", {}, ["Epoch", "Change", "Reason", "Transaction"].map((t) => h(doc, "th", { scope: "col" }, t)))), body));
+  host.append(h(doc, "table", { class: "log" }, h(doc, "caption", {}, `Showing ${shown.length} of ${filtered.length} ${state.filter === "all" ? "supply changes" : state.filter === "mint" ? "mints" : "burns"}${d.partial ? ` in the latest ${d.txCount} transactions` : ""}`), h(doc, "thead", {}, h(doc, "tr", {}, ["Epoch", "Change", "Reason", "Transaction"].map((t) => h(doc, "th", { scope: "col" }, t)))), body));
   if (ordered.length > shown.length) {
     const more = h(doc, "button", { type: "button", class: "chip more" }, `Show ${Math.min(LOG_PAGE, ordered.length - shown.length)} more`);
     more.addEventListener("click", () => ((state.shown += LOG_PAGE), rerender()));

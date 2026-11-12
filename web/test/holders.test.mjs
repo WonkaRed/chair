@@ -128,16 +128,16 @@ test("loadLog hands over the four quick views without waiting for the slow index
       return views[m];
     },
     accessKeys: async () => 0,
-    txHashes: async () => {
+    hashPage: async () => {
       await new Promise((done) => setTimeout(done, 5)); // the index is asked at once, beside the views, and answers later than they do
-      order.push("txHashes");
-      return [];
+      order.push("hashPage");
+      return { newest: [], next: null };
     },
     transactions: async () => [],
   };
   let seen = null;
   const d = await loadLog(transport, { onViews: (v) => { order.push("onViews"); seen = v; } });
-  assert.ok(order.indexOf("onViews") < order.indexOf("txHashes"), "the page has its numbers before the index has answered");
+  assert.ok(order.indexOf("onViews") < order.indexOf("hashPage"), "the page has its numbers before the index has answered");
   assert.deepEqual(Object.keys(seen).sort(), ["candidates", "params", "policy", "supply"]);
   assert.equal(seen.candidates, null);
   assert.equal(d.candidates, null);

@@ -2,9 +2,10 @@ import { formatTokens } from "./amounts.js";
 import { renderBound } from "./bound.js";
 import { lineChart } from "./charts.js";
 import { clear, h } from "./dom.js";
+import { renderEarlier } from "./earlier.js";
 import { renderGuarantees, VERIFY_COMMAND } from "./guarantees.js";
 import { holdersModel, renderHolders, renderHoldersUnavailable } from "./holders.js";
-import { loadLog } from "./loadlog.js";
+import { loadEarlier, loadLog } from "./loadlog.js";
 import { createJoin } from "./join.js";
 import { createMine, SEND_TIMEOUT_MS } from "./mine.js";
 import { loadTexts, renderHero, renderMinutes, resolveTexts } from "./minutes.js";
@@ -70,6 +71,13 @@ function showViews({ params, policy, supply, candidates }, made) {
   renderBound(doc, $("bound-body"), { ...params, launchSupply: supply.launchSupply }, { explorer: made.fixture ? null : config.explorerUrl });
 }
 
+/** The minutes list shows a few cards and more on each press of its own button (js/minutes.js) and starts over when it is drawn again: this shows as many as were showing. */
+function reopenCards(host, count) {
+  const rows = host.querySelector(".m-rows");
+  const more = host.querySelector("button.more");
+  while (rows && more && !more.hidden && rows.children.length < count) more.click();
+}
+
 async function showChain() {
   const state = { filter: "all", newestFirst: true, shown: LOG_PAGE };
   let made;
@@ -92,11 +100,11 @@ async function showChain() {
   const explorer = made.fixture ? null : config.explorerUrl;
   const indexerUrl = made.fixture ? null : config.indexerUrl;
   const contextFor = (bundled, resolved, params) => ({ texts: bundled, resolved, explorer, indexerUrl, repoBase: `${config.repoUrl}/blob/${config.repoRef}`, network: made.fixture ? null : config.network, unit: printUnit(params) });
+  const drawHero = (d, ctx) => keepFoldsOpen($("hero-minutes"), () => renderHero(doc, $("hero-minutes"), d, ctx)); // every read redraws it: its silence line follows the meeting, and an open proof stays open
   const run = async () => {
     let data;
     let over = false; // the whole read has ended: its own hero draw is the last word
     let early = false; // the read-ahead drew the hero in this read
-    const drawHero = (d, ctx) => keepFoldsOpen($("hero-minutes"), () => renderHero(doc, $("hero-minutes"), d, ctx)); // every read redraws it: its silence line follows the meeting, and an open proof stays open
     /** The newest decision, read ahead of the rest of the log: the hero is drawn from it as soon as it is known. */
     const showLatest = async ({ decision, policy, params }) => {
       const bundled = await texts;
@@ -127,16 +135,35 @@ async function showChain() {
       return;
     }
     over = true;
+    await paint(data, { earlier: false, early });
+  };
+  /** Everything that is drawn from the transactions read. A read of older ones (`earlier`) draws only what they can change, so the rest of the page stays as the visitor left it. */
+  const paint = async (data, { earlier, early = false }) => {
     shown = data;
     showSource();
     const bundled = await texts;
     const ctx = contextFor(bundled, await resolveTexts([...data.decisions, ...data.remembered], bundled), data.params);
-    // What the read-ahead drew stands when the index failed part-way and the whole read has no decision to say.
-    if (data.decisions.length > 0 || !early) drawHero(data, ctx);
-    renderMinutes(doc, $("minutes-body"), data, ctx);
-    renderRefusals(doc, $("refusals-body"), data, { explorer, indexerUrl });
     chainData = data;
     resolvedTexts = ctx.resolved;
+    const more = async () => paint(await loadEarlier(made.transport, shown), { earlier: true });
+    const minutes = $("minutes-body");
+    minutes.classList.toggle("windowed", data.partial === true); // the list's own count says "in all": see style.css
+    const cardsBefore = minutes.querySelector(".m-rows")?.children.length ?? 0;
+    const atEnd = minutes.querySelector("button.more")?.hidden !== false; // every card read so far was showing: the visitor asked for what comes next
+    keepFoldsOpen(minutes, () => {
+      renderMinutes(doc, minutes, data, ctx);
+      reopenCards(minutes, earlier && atEnd ? cardsBefore + 1 : cardsBefore); // one press of the list's own button past the end
+    });
+    renderEarlier(doc, $("minutes-earlier"), data, { what: "decisions", label: "Show earlier meetings", more });
+    renderRefusals(doc, $("refusals-body"), data, { explorer, indexerUrl });
+    renderEarlier(doc, $("refusals-earlier"), data, { what: "refusals", label: "Show earlier refusals", more });
+    renderReconcile(doc, $("reconcile"), data, { onRetry: run });
+    const draw = () => renderLog(doc, $("log-body"), data, state, { explorer, indexerUrl, rerender: draw });
+    draw();
+    renderEarlier(doc, $("log-earlier"), data, { what: "mints and burns", label: "Show earlier mints and burns", more });
+    if (earlier) return;
+    // What the read-ahead drew stands when the index failed part-way and the whole read has no decision to say.
+    if (data.decisions.length > 0 || !early) drawHero(data, ctx);
     overreach.refresh();
     committee.refresh();
     mine?.refresh();
@@ -146,9 +173,6 @@ async function showChain() {
     if (newest !== null) setPullQuote(doc, $("pull"), newest, { explorer, live: true });
     renderNow(doc, $("now"), data);
     renderLedger(doc, $("ledger-body"), data);
-    renderReconcile(doc, $("reconcile"), data, { onRetry: run });
-    const draw = () => renderLog(doc, $("log-body"), data, state, { explorer, indexerUrl, rerender: draw });
-    draw();
   };
   let reading = null; // one read at a time: the join panel asks again while it waits for the Chair's minutes
   reloadChain = () => (reading ??= run().finally(() => (reading = null)));

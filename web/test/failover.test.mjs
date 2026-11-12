@@ -125,18 +125,18 @@ test("the access-key list and the views share the one failover", async () => {
 test("an indexer that is throttled is retried after the pause; the page's list degrades alone when it stays down", async () => {
   const rows = () => ok({ account_txs: [] });
   const once = transport({ [`${IDX}/v0/account`]: [() => status(429), rows] });
-  assert.deepEqual(await once.t.txHashes(), []);
+  assert.deepEqual(await once.t.hashPage(), { newest: [], next: null });
   assert.deepEqual(once.slept, [400]);
 
   const x = transport({ [`${IDX}/v0/account`]: [() => status(429)] });
-  await assert.rejects(x.t.txHashes(), (e) => e instanceof SourceError && e.source === "indexer" && e.retryable && e.status === 429);
+  await assert.rejects(x.t.hashPage(), (e) => e instanceof SourceError && e.source === "indexer" && e.retryable && e.status === 429);
   assert.equal(x.calls.filter((u) => u.startsWith(IDX)).length, 2, "one endpoint: two attempts with a pause between");
 });
 
 test("a failed index leaves the chain's own numbers on screen and says only the transaction log is incomplete", async () => {
   const fixture = JSON.parse(await readFile(join(root, "fixtures", "sandbox-run.json"), "utf8"));
   const t = fixtureTransport(fixture);
-  t.txHashes = async () => {
+  t.hashPage = async () => {
     throw new SourceError("indexer", "all 1 endpoints failed", { retryable: true, status: 429 });
   };
   const d = await loadLog(t);

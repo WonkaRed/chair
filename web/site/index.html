@@ -96,10 +96,11 @@
   <div class="band">
   <section id="minutes" class="reveal" aria-labelledby="minutes-h">
     <h2 id="minutes-h">What the Chair has decided</h2>
-    <p class="note">Every decision the Chair has put on chain, newest first, each with a line in plain words. The latest is at the top of this page.</p>
+    <p class="note">The Chair's recent decisions, newest first, each with a line in plain words. The latest is at the top of this page. Earlier ones are read when you ask.</p>
     <details class="fold phone-fold" open>
-    <summary>Show every decision the Chair has made</summary>
+    <summary>Show the Chair's recent decisions</summary>
     <div id="minutes-body" class="slot">Loading…</div>
+    <div id="minutes-earlier" class="earlier"></div>
     <details class="assumptions">
       <summary>How the check works, and what it does not show</summary>
       <ul class="plain">
@@ -114,10 +115,11 @@
 
   <section id="refusals" class="reveal" aria-labelledby="refusals-h">
     <h2 id="refusals-h">Times the contract told the Chair no</h2>
-    <p class="note">Every <code>set_policy</code> call the contract turned down, with the reason it gave. A refused call changes nothing and logs no event, so it is not among the minutes. Refusals marked as forced by a visitor were sent by the press desk at a visitor's request, from the chair account.</p>
+    <p class="note">The <code>set_policy</code> calls the contract turned down in recent transactions, and the test refusals made on purpose, each with the reason it gave. A refused call changes nothing and logs no event, so it is not among the minutes. Refusals marked as forced by a visitor were sent by the press desk at a visitor's request, from the chair account.</p>
     <details class="fold phone-fold" open>
     <summary>Show the times the contract said no</summary>
     <div id="refusals-body" class="slot">Loading…</div>
+    <div id="refusals-earlier" class="earlier"></div>
     </details>
   </section>
   </div>
@@ -129,17 +131,18 @@
     <div id="now" class="slot">Loading…</div>
     </details>
     <details class="fold" id="ledger-fold">
-      <summary>Show the ledger and every mint and burn</summary>
+      <summary>Show the ledger and the recent mints and burns</summary>
       <section id="ledger" aria-labelledby="ledger-h">
         <h3 id="ledger-h">The supply ledger</h3>
         <p class="scripted"><strong>Scripted test activity.</strong> The three holders behind these stakes, transfers and claims are test accounts I run, not users. Test accounts funded by the faucet for page visitors may appear here too.</p>
         <div id="ledger-body" class="slot">Loading…</div>
       </section>
       <section id="log" aria-labelledby="log-h">
-        <h3 id="log-h">Every mint and burn</h3>
+        <h3 id="log-h">Recent mints and burns</h3>
         <p class="scripted"><strong>Scripted test activity.</strong> The three holders whose stakes and transfers move these numbers are test accounts I run, not users. Test accounts funded by the faucet for page visitors may appear here too.</p>
         <div id="reconcile" class="slot"></div>
         <div id="log-body" class="slot"></div>
+        <div id="log-earlier" class="earlier"></div>
       </section>
     </details>
   </section>

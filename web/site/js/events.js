@@ -60,17 +60,21 @@ export function eventsOfTx(tx, token) {
   return out;
 }
 
-/** The highest block in which the token executed anything in these transactions, or null. */
-export function lastTokenHeight(txs, token) {
-  let max = null;
+/** The first and last block in which the token executed anything in these transactions, and the time of the first (null throughout when it executed nothing). */
+export function tokenSpan(txs, token) {
+  let first = null;
+  let last = null;
+  let firstMs = null;
   for (const tx of txs) {
     if (!isObj(tx) || !Array.isArray(tx.receipts)) continue;
     for (const r of tx.receipts) {
       const h = Number(r?.execution_outcome?.block_height);
-      if (r?.execution_outcome?.outcome?.executor_id === token && Number.isSafeInteger(h) && (max === null || h > max)) max = h;
+      if (r?.execution_outcome?.outcome?.executor_id !== token || !Number.isSafeInteger(h)) continue;
+      if (first === null || h < first) (first = h, firstMs = nsToMs(r.execution_outcome.block_timestamp));
+      if (last === null || h > last) last = h;
     }
   }
-  return max;
+  return { first, last, firstMs };
 }
 
 /** `ft_mint` / `ft_burn` items of a NEP-141 event: `{owner_id, amount, memo}` with a valid amount, else null per item. */

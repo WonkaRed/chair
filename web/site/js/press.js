@@ -213,7 +213,7 @@ export function createPress(doc, host, { discoveryUrl = "", discoveryApiUrl = ""
     if (fromChain && source.length === 0) return;
     const shown = source.filter((x) => x.id !== own[0]?.id).slice(0, SHOW_RECORD);
     record.append(h(doc, "h3", {}, "The public record"), h(doc, "p", { class: "note" }, fromChain
-      ? "The press desk cannot be reached, so these are the answers already entered in the Chair's on-chain minutes, read from the chain and checked against each decision's hash. Answers not yet entered are not shown."
+      ? "The press desk cannot be reached, so these are the answers entered in the Chair's recent on-chain minutes, read from the chain and checked against each decision's hash. Answers not yet entered are not shown."
       : "Answers only. Each is listed with the start of its question's hash: the record never holds the question. Questions you asked from this browser are marked \u201cYou asked\u201d, because this browser remembers them; your newest one is in the panel above, not in this list."));
     if (shown.length === 0) return record.append(h(doc, "p", { class: "empty" }, "No other answer has been entered into the record yet."));
     const rows = shown.map((x) => {

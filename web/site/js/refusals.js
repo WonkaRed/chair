@@ -38,7 +38,7 @@ export const humanReason = (panic) => HUMAN.find(([re]) => re.test(panic))?.[1] 
  * visitor forced through the press desk, and, only when those two account for every refusal, that the AI chair never chose a refused rate.
  * Null when none is a known test.
  */
-function summary(refusals) {
+function summary(refusals, partial) {
   const tests = refusals.filter((r) => PROJECT_TEST_CALLS.has(r.tx));
   if (tests.length === 0) return null;
   const forced = refusals.filter((r) => r.byVisitor && !PROJECT_TEST_CALLS.has(r.tx)).length;
@@ -47,7 +47,7 @@ function summary(refusals) {
   const signers = [...bySigner].map(([who, n]) => `${showAccount(who)} (${n})`).join(" and ");
   const lead = tests.length === refusals.length ? `All ${tests.length} were` : `${tests.length} of the ${refusals.length} were`;
   const visitors = forced === 0 ? "" : `; ${forced} ${forced === 1 ? "was" : "were"} forced by visitors through the press desk`;
-  const clean = tests.length + forced === refusals.length ? " In none of them did the AI chair choose a rate the contract refused." : "";
+  const clean = tests.length + forced === refusals.length ? ` In none of ${partial ? "the refusals read here" : "them"} did the AI chair choose a rate the contract refused.` : "";
   return `${lead} deliberate test calls that I made to show the bounds hold, signed by ${signers}${visitors}.${clean}`;
 }
 
@@ -55,8 +55,8 @@ function summary(refusals) {
 export function renderRefusals(doc, host, d, { explorer, indexerUrl = null }) {
   clear(host);
   if (d.status === "incomplete") return host.append(h(doc, "p", { class: "empty" }, "The refusals come from the transaction index, which could not be read. See the status under the log."));
-  if (d.refusals.length === 0) return host.append(h(doc, "p", { class: "empty" }, "The contract has refused no set_policy call yet."));
-  const lead = summary(d.refusals);
+  if (d.refusals.length === 0) return host.append(h(doc, "p", { class: "empty" }, d.partial ? "The contract has refused no set_policy call in the transactions read." : "The contract has refused no set_policy call yet."));
+  const lead = summary(d.refusals, d.partial);
   if (lead !== null) host.append(h(doc, "p", { class: "m-status" }, lead));
   const rows = d.refusals.map((r) => {
     const link = explorer && isTxHash(r.tx) ? h(doc, "a", { href: `${explorer}/txns/${r.tx}`, rel: "noopener noreferrer", target: "_blank" }, shortHash(r.tx)) : h(doc, "span", { title: safeText(r.tx, 64) }, isTxHash(r.tx) ? shortHash(r.tx) : safeText(r.tx, 20));
@@ -70,9 +70,9 @@ export function renderRefusals(doc, host, d, { explorer, indexerUrl = null }) {
     );
   });
   rows.forEach((tr, i) => (tr.hidden = i >= HALL));
-  host.append(h(doc, "table", { class: "log hall" }, h(doc, "caption", {}, `${rows.length} refused set_policy ${rows.length === 1 ? "call" : "calls"}, newest first${d.refusals.some((r) => r.byVisitor) ? `; ${d.refusals.filter((r) => r.byVisitor).length} forced by visitors through the press desk` : ""}`), h(doc, "thead", {}, h(doc, "tr", {}, ["Asked for", "Why the contract said no", "Signed by", "Transaction"].map((t) => h(doc, "th", { scope: "col" }, t)))), h(doc, "tbody", {}, rows)));
+  host.append(h(doc, "table", { class: "log hall" }, h(doc, "caption", {}, `${rows.length} refused set_policy ${rows.length === 1 ? "call" : "calls"}${d.partial ? ` read (the latest ${d.txCount} transactions, and the test calls made on purpose)` : ""}, newest first${d.refusals.some((r) => r.byVisitor) ? `; ${d.refusals.filter((r) => r.byVisitor).length} forced by visitors through the press desk` : ""}`), h(doc, "thead", {}, h(doc, "tr", {}, ["Asked for", "Why the contract said no", "Signed by", "Transaction"].map((t) => h(doc, "th", { scope: "col" }, t)))), h(doc, "tbody", {}, rows)));
   if (rows.length > HALL) {
-    const more = h(doc, "button", { type: "button", class: "chip more" }, `Show all ${rows.length} refusals`);
+    const more = h(doc, "button", { type: "button", class: "chip more" }, `Show all ${rows.length}${d.partial ? " read" : " refusals"}`);
     more.addEventListener("click", () => {
       for (const tr of rows) tr.hidden = false;
       more.hidden = true;
