@@ -7,7 +7,7 @@
 //   status "mismatch"    the indexer answered, and its events do not add up to the chain's ledger
 //   status "incomplete"  the indexer could not be read (down, rate limited): no sum is claimed. `remembered` then holds the
 //                        newest decision an earlier visit kept (at most one), so the page has something true to show; `decisions` stays empty
-//   status "unverified"  the log was read but the state at its last block could not be, so the sums cannot be pinned
+//   status "unverified"  the log was read but could not be checked against the chain's ledger (the state at the blocks it covers could not be read, the transactions are still running, or they cover too few blocks); `reasons` says which
 // `outOfReach` is not a status: the index was read, and no decision is in the transactions read (the newest is older). `unreadTestCalls` lists the known test
 // refusals (refusals.js) that a windowed read could not get, which the page says instead of claiming them.
 // RPC views failing is a different failure: nothing can be shown, `loadLog` throws.
@@ -153,7 +153,7 @@ async function older(transport, data) {
 /**
  * Everything the page shows from the transactions read so far. `window` is `{ hashes (oldest first), next, pinned }`: `next` null means the whole
  * history is in `txs`, anything else means older transactions exist and every figure here is about the ones read. `pin` is the chain's ledger at the
- * newest logged block when an earlier call already read it.
+ * newest logged block (`{supply, ok, height}`) when an earlier call already read it: it is reused only for that same block.
  */
 async function assemble(transport, base, txs, window, pin) {
   const { params, policy, supply } = base;
@@ -164,7 +164,7 @@ async function assemble(transport, base, txs, window, pin) {
   if (unreadable > 0) anomalies.push(`${unreadable} policy_set event${unreadable === 1 ? "" : "s"} could not be read and ${unreadable === 1 ? "is" : "are"} not listed in the chair minutes`);
   const read = new Set(window.hashes);
   const listed = [...window.pinned.filter((tx) => !read.has(tx.transaction.hash)), ...txs];
-  const out = { ...base, entries, decisions, refusals: refusalsOfTxs(listed, transport.token, [policy.chair, ...decisions.map((d) => d.chair)]), anomalies, txCount: txs.length, window, partial, sinceMs: span.firstMs, unreadTestCalls: partial ? [...PROJECT_TEST_CALLS].filter((h) => !read.has(h) && !window.pinned.some((tx) => tx.transaction.hash === h)) : [], outOfReach: partial && decisions.length === 0 };
+  const out = { ...base, entries, decisions, refusals: refusalsOfTxs(listed, transport.token, [policy.chair, ...decisions.map((d) => d.chair)]), anomalies, txCount: txs.length, window, partial, sinceMs: span.firstMs, unreadTestCalls: partial ? [...PROJECT_TEST_CALLS].filter((h) => !read.has(h) && !window.pinned.some((tx) => tx.transaction.hash === h)) : [], outOfReach: partial && decisions.length === 0 && (policy.lastSetEpoch ?? -1) > -1 };
 
   // Pin the chain's ledger to the block of the last logged event, so a mint that is due but not yet applied (views project it, no event exists until a
   // transaction that rolls the epochs runs) is not mistaken for a missing event. Only a block in which the token logged an event is such a block: a
@@ -173,9 +173,12 @@ async function assemble(transport, base, txs, window, pin) {
   const settled = blocks.filter((b) => b <= settledThrough(txs));
   const height = settled.at(-1) ?? null;
   const unsettled = height === null && blocks.length > 0; // events are read but none is yet known whole
-  let pinned = pin?.supply ?? supply;
-  let pinnedOk = pin?.ok ?? (height === null && !unsettled);
-  if (pin === null && height !== null) {
+  let pinned = supply;
+  let pinnedOk = height === null && !unsettled;
+  if (height !== null && pin?.ok && pin.height === height) {
+    pinned = pin.supply;
+    pinnedOk = true;
+  } else if (height !== null) {
     try {
       pinned = parseSupply(await transport.view("get_supply", { blockHeight: height }));
       pinnedOk = true;
@@ -185,16 +188,18 @@ async function assemble(transport, base, txs, window, pin) {
   }
   out.pinnedHeight = height;
   out.pinnedSupply = pinned;
-  out.pin = { supply: pinned, ok: pinnedOk };
+  out.pin = { supply: pinned, ok: pinnedOk, height };
   out.pending = pinnedOk && pinned.minted !== supply.minted ? { minted: supply.minted - pinned.minted } : null;
   const upTo = entries.filter((e) => e.height <= (height ?? Infinity));
   // A log of the newest transactions only is checked against the change in the chain's ledger over the blocks it covers, not against the totals: from
   // the first event block at least SETTLE_BLOCKS after the oldest block read (a transaction just older than the window may still have a receipt running
   // before it) up to the pinned block, both blocks in which the contract rolled, so neither ledger reading holds a mint the log has not yet written.
   let from = null;
+  let tooFew = false;
   if (!partial) out.reconcile = reconcile(upTo, pinned);
   else if (pinnedOk && height !== null && span.first !== null) {
     from = settled.find((b) => b >= span.first + SETTLE_BLOCKS && b < height) ?? null;
+    tooFew = from === null;
     if (from !== null) {
       try {
         out.reconcile = reconcileWindow(upTo.filter((e) => e.height > from), parseSupply(await transport.view("get_supply", { blockHeight: from })), pinned);
@@ -214,6 +219,7 @@ async function assemble(transport, base, txs, window, pin) {
   if (out.reconcile?.ok) return settle({ ...out, status: "complete" });
   if (partial && blocks.length === 0) return settle({ ...out, status: "unverified", reasons: ["No mint, burn or decision was logged in the transactions read, so there is nothing in them to check against the chain's ledger."] });
   if (unsettled) return settle({ ...out, status: "unverified", reasons: ["The newest transactions are still being processed, so the event sums cannot be pinned to the chain's state yet. Load the page again in a minute."] });
+  if (tooFew) return settle({ ...out, status: "unverified", reasons: ["The transactions read cover too few blocks to check against the chain's ledger: every mint or burn in them is within a few blocks of the oldest one read. Earlier transactions are read when you ask."] });
   if (!pinnedOk || out.reconcile === null) return settle({ ...out, status: "unverified", reasons: ["The chain's state at the blocks the log covers could not be read (a non-archival RPC node drops old blocks), so the event sums cannot be pinned to it. A difference may be a mint that is due and not yet applied."] });
   return settle({ ...out, status: "mismatch", reasons: ["The events found do not add up to the chain's ledger. The log below is not complete."] });
 }

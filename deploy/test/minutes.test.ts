@@ -171,3 +171,17 @@ test("an index that keeps handing back the same page token is a failure, not a q
   assert.deepEqual(m.decisions, []);
   assert.equal(m.error, "indexer: the index repeated a page token: history not read to the end");
 });
+
+test("an index that never ends is a failure after the page cap, not a hang and not a truncated audit", async () => {
+  const rows = Array.from({ length: 200 }, (_, i) => ({ transaction_hash: b58Hash(i) }));
+  let pages = 0;
+  const endless: typeof fetch = async (url) => {
+    if (new URL(String(url)).pathname !== "/v0/account") return new Response("unexpected", { status: 404 });
+    pages++;
+    return Response.json({ account_txs: rows, resume_token: `page:${pages}` });
+  };
+  const m = await gatherMinutes(["https://rpc.invalid"], TOKEN, join(root, "does-not-exist"), endless);
+  assert.deepEqual(m.decisions, []);
+  assert.equal(m.error, "indexer: more than 10000 pages: history not read to the end");
+  assert.equal(pages, 10_000);
+});

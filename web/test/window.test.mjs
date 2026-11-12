@@ -42,6 +42,14 @@ test("the verdict over the newest transactions says which blocks it covers and n
   assert.equal(find(out, (n) => n.attrs["data-label"] === "get_supply").length, 0);
 });
 
+test("an unverified window never says the chain's state at its last block could not be read when the reason is another one", () => {
+  const out = host();
+  renderReconcile(fakeDoc(), out, { ...base, partial: true, status: "unverified", reconcile: null, reasons: ["The transactions read cover too few blocks to check against the chain's ledger."] }, { onRetry: null });
+  assert.match(out.textContent, /Unverified\. The log was read, but it could not be checked against the chain's ledger; the reason is below\./);
+  assert.match(out.textContent, /too few blocks/);
+  assert.doesNotMatch(out.textContent, /cannot be pinned/);
+});
+
 test("a mismatch over the newest transactions says so for those blocks", () => {
   const out = host();
   const lines = reconcileWindow([], { minted: 0n, burned: 0n }, { minted: 9n, burned: 0n });

@@ -193,6 +193,7 @@ function statusOf(d) {
   if (!d.partial) return STATUS[d.status];
   if (d.status === "complete") return { cls: "ok", mark: "✓", text: `Complete for the blocks the log covers. Every mint and burn after block ${d.pinnedFrom}, up to and including block ${d.pinnedHeight}, is in the log below, and the sums are equal. Older ones are read when you ask.` };
   if (d.status === "mismatch") return { cls: "bad", mark: "✗", text: "Mismatch. The events found do not add up to the change in the chain's ledger over the blocks the log covers; the log is not complete." };
+  if (d.status === "unverified") return { cls: "warn", mark: "!", text: "Unverified. The log was read, but it could not be checked against the chain's ledger; the reason is below." };
   return STATUS[d.status];
 }
 

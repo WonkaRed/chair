@@ -583,7 +583,8 @@ test("a window with no decision in it is widened, and when none is in reach the 
   const quiet = Array.from({ length: 300 }, (_, i) => filler(i));
   const d = await world({ txs: [...FULL.slice(0, 1), ...quiet], pageLimit: 50 }).load();
   assert.equal(d.outOfReach, true, "the index was read; the newest decision is further back");
-  assert.notEqual(d.status, "incomplete", "never the sentence that says the index could not be read");
+  assert.equal(d.status, "unverified", "never the sentence that says the index could not be read: this window logged nothing to check");
+  assert.match(d.reasons[0], /No mint, burn or decision was logged/);
   assert.equal(d.retryable, undefined);
   assert.equal(d.window.hashes.length, 200, "the window and three older pages");
   assert.equal(d.partial, true);
@@ -637,4 +638,83 @@ test("a lookup of the known test refusals that fails does not fail the page, and
   assert.equal(d.partial, true);
   assert.equal(d.status === "incomplete", false);
   assert.equal(d.unreadTestCalls.length, PROJECT_TEST_CALLS.size);
+});
+
+test("a callback that lands between the first read and 'Show earlier' moves the pinned block, and the ledger is read again there: still complete, nothing distrusted", async () => {
+  const base = Array.from({ length: 200 }, (_, i) => ({ at: 100 + i * 3, kind: "transfer" }));
+  const pending = history([...base, { at: 700, kind: "transfer", callback: 790, seen: false }, { at: 800, kind: "transfer" }]);
+  const landed = history([...base, { at: 700, kind: "transfer", callback: 790 }, { at: 800, kind: "transfer" }]);
+  const store = new MemStore();
+  const w = world({ txs: pending.txs, pageLimit: 30, store, supplyNow: modelSupply(1500), supplyAt: modelSupply });
+  const transport = w.transport();
+  const first = await loadLog(transport);
+  assert.deepEqual([first.status, first.pinnedHeight], ["complete", 700]);
+  pending.txs.splice(0, pending.txs.length, ...landed.txs); // the index now has the callback
+  const second = await loadEarlier(transport, first);
+  assert.equal(second.pinnedHeight, 800, "the newest block with a settled event is now the last transfer");
+  assert.equal(second.status, "complete", "the figure for block 700 is not carried to block 800");
+  assert.notEqual(store.getItem(KEY), null, "a healthy chain does not wipe what was kept");
+});
+
+test("a newest page with no token event, widened by older pages, checks the ledger at the block of the events it reaches, not the current projection", async () => {
+  const early = Array.from({ length: 100 }, (_, i) => ({ at: 100 + i * 23, kind: "transfer" }));
+  const late = Array.from({ length: 80 }, (_, i) => ({ at: 2500 + i * 23, kind: "deposit" }));
+  const h = history([...early, ...late]);
+  const d = await windowed(h, { supplyAt: modelSupply }).load();
+  assert.equal(d.partial, true);
+  assert.ok(d.txCount > 100 && d.txCount < 180, "the window was widened into the transfers without a press");
+  assert.equal(d.pinnedHeight, early.at(-1).at, "the last block in which anything was logged");
+  assert.notEqual(d.pinnedSupply.minted, d.supply.minted, "not the current projected figure");
+  assert.equal(d.status, "complete");
+});
+
+test("a first read whose events are all unsettled does not leave a stale failure to be reused by the next page", async () => {
+  const h = history(Array.from({ length: 200 }, (_, i) => ({ at: 100 + i * 23, kind: "transfer" })));
+  const oldest = h.txs[80]; // the oldest transaction of the window (three older pages are read when it holds no decision): one receipt of it has not run
+  const ids = oldest.execution_outcome.outcome.receipt_ids;
+  oldest.execution_outcome.outcome.receipt_ids = [...ids, "still-to-run"];
+  const w = world({ txs: h.txs, pageLimit: 30, supplyNow: modelSupply(6000), supplyAt: modelSupply });
+  const transport = w.transport();
+  const first = await loadLog(transport);
+  assert.equal(first.pinnedHeight, null, "every event is at or after the unfinished receipt");
+  assert.equal(first.status, "unverified");
+  assert.match(first.reasons[0], /still being processed/);
+  oldest.execution_outcome.outcome.receipt_ids = ids;
+  const next = await loadEarlier(transport, first);
+  assert.equal(next.status, "complete");
+  assert.equal(next.pinnedHeight, h.receipts.at(-1).block);
+});
+
+test("a window whose events all sit within a few blocks of its oldest says it covers too few blocks, never that the chain could not be read", async () => {
+  const older = Array.from({ length: 150 }, (_, i) => ({ at: 100 + i * 23, kind: "deposit" }));
+  const dense = Array.from({ length: 120 }, (_, i) => ({ at: 10_000 + Math.floor(i / 6), kind: "transfer" }));
+  const h = history([...older, ...dense]);
+  const d = await windowed(h, { supplyAt: modelSupply }).load();
+  assert.equal(d.partial, true);
+  assert.equal(d.status, "unverified");
+  assert.match(d.reasons[0], /too few blocks/);
+  assert.doesNotMatch(d.reasons.join(" "), /non-archival|could not be read/);
+});
+
+test("a window with no decision does not claim one exists when the chair has never decided", async () => {
+  const quiet = Array.from({ length: 300 }, (_, i) => filler(i));
+  const w = world({ txs: quiet, pageLimit: 50 });
+  w.policy = { ...fixture.policyNow, last_set_epoch: null };
+  assert.equal((await w.load()).outOfReach, false);
+  assert.equal((await world({ txs: quiet, pageLimit: 50 }).load()).outOfReach, true, "and does when the chain says it has");
+});
+
+test("a refund burn counts once: the contract's plain 'Account @x burned N' line is ignored, the standard's ft_burn event with memo refund is the burn", () => {
+  // contract/src/token.rs ft_resolve_transfer logs the plain line after near-contract-standards 5.30.1 (core_impl.rs internal_ft_resolve_transfer) has emitted FtBurn with memo "refund".
+  const refund = whole({
+    transaction: { hash: "R".repeat(43), signer_id: "alice.test.near", receiver_id: TOKEN, actions: [{ FunctionCall: { method_name: "ft_transfer_call", args: "e30=", gas: 1, deposit: "1" } }] },
+    receipts: [{ execution_outcome: { block_height: "500", block_timestamp: "1794300500000000000", outcome: { executor_id: TOKEN, status: { SuccessValue: "" }, logs: [
+      "The account of the sender was deleted",
+      logOf({ standard: "nep141", version: "1.0.0", event: "ft_burn", data: [{ owner_id: "bob.test.near", amount: "7", memo: "refund" }] }),
+      "Account @alice.test.near burned 7",
+    ] } } }],
+  }, 77);
+  const { entries, anomalies } = buildEntries([refund], TOKEN, { epochMs: fixture.params.epoch_ms, startMs: fixture.params.start_ms });
+  assert.deepEqual(entries.map((e) => [e.kind, e.amount, e.memo]), [["burn", 7n, "refund"]]);
+  assert.deepEqual(anomalies, []);
 });

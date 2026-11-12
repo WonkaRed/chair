@@ -48,22 +48,25 @@ interface Resolved extends Bundled {
   readonly verdict: Verdict;
 }
 
+const MAX_PAGES = 10_000; // 2 million transactions: far past any real history, so a cap that is reached means a broken index, never a truncated audit
+
 /**
  * The hash of every transaction that touched the token, oldest first: this audit must read the whole history, so it asks for older pages until the
- * index says there are none, with no page cap. A token the index hands back twice would loop for ever, so that is a failure, not a silent end.
+ * index says there are none. An index that hands a page token back twice, or never ends, is a failure and not a quiet end of the history.
  */
 async function everyHash(transport: ReturnType<typeof rpcTransport>): Promise<string[]> {
   const hashes = new Set<string>();
   const asked = new Set<string>();
   let resume: string | null = null;
-  do {
+  for (let pages = 0; ; pages++) {
+    if (pages >= MAX_PAGES) throw new SourceError("indexer", `more than ${MAX_PAGES} pages: history not read to the end`);
     const page: { newest: string[]; next: string | null } = await transport.hashPage({ resume });
     for (const hash of page.newest) hashes.add(hash);
     resume = page.next;
-    if (resume !== null && asked.has(resume)) throw new SourceError("indexer", "the index repeated a page token: history not read to the end");
-    if (resume !== null) asked.add(resume);
-  } while (resume !== null);
-  return [...hashes].reverse();
+    if (resume === null) return [...hashes].reverse();
+    if (asked.has(resume)) throw new SourceError("indexer", "the index repeated a page token: history not read to the end");
+    asked.add(resume);
+  }
 }
 
 /** `fetchImpl` is the network boundary (a stub in tests). `docsDir` holds the `testnet-run-agent-*` records. */
