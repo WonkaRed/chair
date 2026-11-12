@@ -3,7 +3,8 @@
 //
 //   status "complete"    the log's sums equal the chain's ledger at the block of the last logged transaction
 //   status "mismatch"    the indexer answered, and its events do not add up to the chain's ledger
-//   status "incomplete"  the indexer could not be read (down, rate limited, truncated): no sum is claimed
+//   status "incomplete"  the indexer could not be read (down, rate limited, truncated): no sum is claimed. `remembered` then holds the
+//                        newest decision an earlier visit kept (at most one), so the page has something true to show; `decisions` stays empty
 //   status "unverified"  the log was read but the state at its last block could not be, so the sums cannot be pinned
 // RPC views failing is a different failure: nothing can be shown, `loadLog` throws.
 import { parseU128 } from "./amounts.js";
@@ -79,13 +80,14 @@ export async function loadLog(transport, { onViews } = {}) {
   onViews?.({ params, policy, supply, candidates });
   const keys = await transport.accessKeys().then((n) => n, () => null);
 
-  const base = { params, policy, supply, candidates, identity: identity(supply), accessKeys: keys, entries: [], decisions: [], refusals: [], anomalies: [], reconcile: null, pending: null, txCount: 0, reasons: [] };
+  const base = { params, policy, supply, candidates, identity: identity(supply), accessKeys: keys, entries: [], decisions: [], remembered: [], refusals: [], anomalies: [], reconcile: null, pending: null, txCount: 0, reasons: [] };
   let txs;
   try {
     txs = await transport.transactions(await transport.txHashes());
   } catch (e) {
     if (!(e instanceof SourceError)) throw e;
-    return { ...base, status: "incomplete", reasons: [`The transaction index could not be read to its end (${e.source}: ${e.message}). Totals above come from the chain; no event total is claimed.`], retryable: e.retryable };
+    const remembered = decisionsOfTxs(transport.remembered?.() ?? [], transport.token).decisions.slice(0, 1);
+    return { ...base, remembered, status: "incomplete", reasons: [`The transaction index could not be read to its end (${e.source}: ${e.message}). Totals above come from the chain; no event total is claimed.`], retryable: e.retryable };
   }
   const { entries, anomalies } = buildEntries(txs, transport.token, params);
   const height = lastTokenHeight(txs, transport.token);
@@ -109,7 +111,12 @@ export async function loadLog(transport, { onViews } = {}) {
   out.reconcile = reconcile(entries, pinned);
   out.pinnedSupply = pinned;
   out.pending = pinnedOk && pinned.minted !== supply.minted ? { minted: supply.minted - pinned.minted } : null;
-  if (out.reconcile.ok) return { ...out, status: "complete" };
-  if (!pinnedOk) return { ...out, status: "unverified", reasons: ["The chain's state at the last logged block could not be read (a non-archival RPC node drops old blocks), so the event sums cannot be pinned to it. A difference may be a mint that is due and not yet applied."] };
-  return { ...out, status: "mismatch", reasons: ["The events found do not add up to the chain's ledger. The log below is not complete."] };
+  const settle = (verdict) => {
+    // What was kept from an earlier visit must never outlive a sign that it is wrong: a log that does not add up, or one whose newest decision is older than the chain's last (a decision it hides), is read afresh next time. (A newer one only means the views were read first.)
+    if (verdict.status === "mismatch" || (decisions[0]?.epoch ?? -1) < (policy.lastSetEpoch ?? -1)) transport.distrust?.();
+    return verdict;
+  };
+  if (out.reconcile.ok) return settle({ ...out, status: "complete" });
+  if (!pinnedOk) return settle({ ...out, status: "unverified", reasons: ["The chain's state at the last logged block could not be read (a non-archival RPC node drops old blocks), so the event sums cannot be pinned to it. A difference may be a mint that is due and not yet applied."] });
+  return settle({ ...out, status: "mismatch", reasons: ["The events found do not add up to the chain's ledger. The log below is not complete."] });
 }

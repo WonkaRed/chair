@@ -497,6 +497,9 @@ test("the whole flow: a key made in the browser, coins from the faucet, then sta
   assert.deepEqual([sent.method, sent.args, sent.deposit], ["ft_transfer", { receiver_id: "alice.chair-coin-3.testnet", amount: String(2n * COIN) }, 1n]);
   assert.match(text(ui.el), /Sent 2 coins to alice\.chair-coin-3\.testnet\./);
   assert.deepEqual(nums(), ["33.003", "15", "0"]);
+  assert.equal(ui.mine.elements.receiver.value, "", "a payment that went through clears the receiver, so a second press cannot repeat it");
+  assert.equal(ui.mine.elements.send.disabled, true);
+  assert.equal(ui.mine.elements.amount.value, "2", "the amount stays: it is also what Stake and Unstake use");
   assertInert(ui.el);
   assert.equal(new Set(ui.chain.sent.map((s) => s.nonce)).size, 5, "no nonce is used twice");
 });
@@ -514,6 +517,7 @@ test("a send to an account the token does not know is refused by the contract: t
   assert.match(out, /The contract's words The account stranger\.testnet is not registered/);
   assert.ok(links(ui.el).some((l) => l === `${EXPLORER}/txns/${ui.chain.sent[0].hash}`));
   assert.equal(ui.chain.wallet, 50n * COIN, "a refused call moves nothing");
+  assert.equal(ui.mine.elements.receiver.value, "stranger.testnet", "a refused send keeps the receiver, to be corrected");
   assert.equal(find(ui.el, (x) => x.attrs.class?.includes("mn-card refused")).length, 1);
   assertInert(ui.el);
 });
@@ -974,7 +978,7 @@ test("a chain that never shows the change is waited on for about ten seconds, an
   assert.ok(waited >= 10_000 && waited <= 11_000, `waited ${waited} ms`);
   assert.deepEqual(find(ui.el, (x) => x.tag === "strong").map(text), ["40", "0", "0"], "what the node says");
   assert.equal(ui.mine.state().busy, null);
-  assert.equal(ui.mine.elements.send.disabled, false, "and the visitor can go on");
+  assert.equal(ui.mine.elements.stake.disabled, false, "and the visitor can go on (Send waits for a new receiver: the payment was accepted)");
   ui.mine.stop();
 });
 

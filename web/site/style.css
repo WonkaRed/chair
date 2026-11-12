@@ -128,8 +128,8 @@ h1 .h1-second { color: var(--ink2); font-style: italic; font-weight: 500; }
 .seal summary::after { content: ""; width: 0.45rem; height: 0.45rem; border: solid var(--muted); border-width: 0 2px 2px 0; transform: translateY(-0.12rem) rotate(45deg); transition: transform 0.15s; }
 .seal[open] summary::after { transform: translateY(0.1rem) rotate(225deg); }
 .seal .stamp { width: 2.1rem; height: 2.1rem; color: var(--mint); flex: none; }
-.seal.mismatch .stamp { color: var(--burn); } .seal.unchecked .stamp { color: var(--warn); } .seal.absent .stamp { color: var(--muted); }
-.seal summary .verdict { background: transparent; padding: 0; font-size: 1rem; }
+.seal.mismatch .stamp { color: var(--burn); } .seal.unchecked .stamp { color: var(--warn); } .seal.absent .stamp, .seal.kept .stamp { color: var(--muted); }
+.seal summary .verdict { background: transparent; border: 0; padding: 0; font-size: 1rem; }
 .seal-body { margin-top: 1rem; padding-top: 0.9rem; border-top: 1px solid var(--hair); max-width: 68ch; }
 .seal-body > :first-child { margin-top: 0; }
 .m-meta { margin: 0.9rem 0 0; color: var(--muted); font-size: 0.85rem; overflow-wrap: anywhere; } .m-meta span { display: block; }
@@ -237,7 +237,14 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 .bounds { font-family: var(--mono); }
 .verify { margin: 1.5rem 0 0; max-width: 60rem; }
 .cmd { display: flex; gap: 0.5rem; align-items: stretch; flex-wrap: wrap; }
-.cmd code { flex: 1 1 18rem; background: var(--ink); color: var(--bg); padding: 0.6rem 0.9rem; border-radius: 3px; overflow-x: auto; white-space: nowrap; }
+/* A command that is wider than its box scrolls inside it, and says so: an edge fades in on the side that has more (phones hide scrollbars). */
+.cmd code { flex: 1 1 18rem; min-width: 0; color: var(--bg); padding: 0.6rem 0.9rem; border-radius: 3px; overflow-x: auto; white-space: nowrap; scrollbar-width: thin;
+  background:
+    linear-gradient(to right, var(--ink) 25%, transparent) left / 1.5rem 100% no-repeat local,
+    linear-gradient(to left, var(--ink) 25%, transparent) right / 1.5rem 100% no-repeat local,
+    linear-gradient(to right, color-mix(in srgb, var(--bg) 40%, transparent), transparent) left / 1rem 100% no-repeat scroll,
+    linear-gradient(to left, color-mix(in srgb, var(--bg) 40%, transparent), transparent) right / 1rem 100% no-repeat scroll,
+    var(--ink); }
 .foot { padding-block: 1.5rem 3rem; color: var(--muted); font-size: 0.9rem; }
 .foot .source { margin-top: 0; }
 
@@ -394,10 +401,11 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 @keyframes skel { 50% { opacity: 0.45; } }
 .now-slot { min-height: 8.5rem; margin-top: 1.5rem; }
 .now-slot .now-plain { margin-top: 0; }
-.hero-slot { min-height: 30rem; min-width: 0; }
-.hero-slot .minutes-paper.skeleton { min-height: 30rem; }
+.hero-slot { min-height: 40rem; min-width: 0; }
+.hero-slot .minutes-paper.skeleton { min-height: 40rem; }
 .hero-empty { margin: 0; }
-@media (max-width: 40rem) { .hero-slot, .hero-slot .minutes-paper.skeleton { min-height: 32rem; } }
+.hero-slot .hero-empty { display: grid; align-content: center; min-height: 40rem; } /* the sentence fills the box the placeholder held, so the page below does not move when the hero resolves */
+@media (max-width: 40rem) { .hero-slot, .hero-slot .minutes-paper.skeleton, .hero-slot .hero-empty { min-height: 42rem; } }
 
 /* The Chair's line, big, right under the hero. */
 .pull { margin: 2.25rem 0 0; padding: 1.25rem 0 1rem; border-top: 4px double var(--ink); border-bottom: 1px solid var(--rule); min-height: 11rem; }

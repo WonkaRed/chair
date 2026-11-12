@@ -83,6 +83,8 @@ const MARKS = {
   mismatch: { cls: "bad", mark: "✗", short: "Mismatch", long: "The SHA-256 of this text does not equal the reasoning_hash on chain. Do not trust this text." },
   unchecked: { cls: "warn", mark: "!", short: "Not checked", long: "This browser cannot compute SHA-256 on this page (it needs a secure context such as https), so the text was not checked." },
   absent: { cls: "none", mark: "-", short: "No text", long: null },
+  // A saved copy's text and hash both come from this browser's storage: nothing was read from the chain on this load, so the check proves consistency, not what the chain says.
+  kept: { cls: "none", mark: "•", short: "Matches the saved hash", long: "The SHA-256 of this text, computed in your browser, equals the reasoning_hash saved with it. Both come from this browser's saved copy, not from the chain on this load." },
 };
 const KIND = { llm: "an AI model", rule: "a rule-based chair" };
 
@@ -158,10 +160,10 @@ function proof(doc, d, ctx) {
 /** The page's own plain line is only for a decision whose text is not already plain: no text, or a text still in basis points and epochs. */
 const needsPlain = (p) => !p.rec || /basis points|bps|epoch/i.test(p.prose);
 
-/** The pieces of one decision: its state, the prose to lead with, the boilerplate as metadata, and the notes that belong with the proof. */
-function parts(doc, d, ctx) {
+/** The pieces of one decision: its state, the prose to lead with, the boilerplate as metadata, and the notes that belong with the proof. `saved` is a decision that was not read from the chain on this load. */
+function parts(doc, d, ctx, saved = false) {
   const rec = ctx.resolved.get(d.tx);
-  const state = rec ? rec.verdict : "absent";
+  const state = !rec ? "absent" : saved && rec.verdict === "verified" ? "kept" : rec.verdict;
   if (!rec) {
     const lead = h(doc, "p", { class: "m-absent" }, ctx.texts === null ? "The bundled reasoning texts could not be loaded, so no text is shown for this decision." : "no reasoning text for this decision: its transaction carries none and none was saved");
     return { state, rec, lead, fallback: null, prose: "", meta: null, notes: [] };
@@ -185,17 +187,22 @@ function parts(doc, d, ctx) {
   };
 }
 
+const HOW_SAVED = "Your browser computed the SHA-256 of the exact text above and compared it with the reasoning_hash saved with it. The text and the hash were read from the chain on an earlier visit and kept in this browser; neither was read from the chain on this load. A match shows the saved copy is intact. It does not show what the chain says now.";
 const HOW = "Your browser computed the SHA-256 of the exact text above and compared it with the reasoning_hash the contract logged for this decision. A match shows the text was not edited after the decision. It does not show the Chair was right, or that an AI wrote the text: the contract stores only the hash the chair sends.";
 
 /** The mark's words: what was checked, and where. A recorded sandbox run is never called testnet. */
 const verdictLabel = (state, ctx) => (state === "verified" ? (ctx.network ? `Verified on NEAR ${safeText(ctx.network, 12)}` : "Verified against the recorded sandbox run") : MARKS[state].short);
 
-/** The latest decision as the page's pull-quote: the prose large, the epoch, the rate as a percent with bps second, and the proof folded behind the mark. */
-function heroCard(doc, d, ctx, silent) {
-  const p = parts(doc, d, ctx);
-  return h(doc, "figure", { class: `minutes-paper ${p.state}`, "aria-label": `Latest minutes, meeting ${d.epoch}` },
+/**
+ * A decision as the page's pull-quote: the prose large, the epoch, the rate as a percent with bps second, and the proof folded behind the mark.
+ * `note` is a line of status under the rate. `saved` is a decision from this browser's saved copy, not read just now: it is never called the latest.
+ */
+function heroCard(doc, d, ctx, { note = null, saved = false } = {}) {
+  const p = parts(doc, d, ctx, saved);
+  const title = saved ? "Saved minutes of the Committee of One" : "Latest minutes of the Committee of One";
+  return h(doc, "figure", { class: `minutes-paper ${p.state}`, "aria-label": `${saved ? "Saved" : "Latest"} minutes, meeting ${d.epoch}` },
     svg(doc, "svg", { class: "watermark", "aria-hidden": "true" }, svg(doc, "use", { href: "#seal" })),
-    h(doc, "p", { class: "paper-head" }, h(doc, "span", {}, "Latest minutes of the Committee of One"), h(doc, "span", { class: "paper-epoch", title: `Epoch ${d.epoch}` }, `Meeting ${d.epoch}`)),
+    h(doc, "p", { class: "paper-head" }, h(doc, "span", {}, title), h(doc, "span", { class: "paper-epoch", title: `Epoch ${d.epoch}` }, `Meeting ${d.epoch}`)),
     p.fallback,
     needsPlain(p) ? [h(doc, "p", { class: "plain-line" }, plainDecision(d.rateBps, d.previousRateBps, ctx.unit)), h(doc, "p", { class: "said-k" }, "In the Chair's words")] : null,
     p.lead,
@@ -205,12 +212,12 @@ function heroCard(doc, d, ctx, silent) {
       h(doc, "span", { class: "rate-effect" }, effect(d.rateBps, ctx.unit)),
       h(doc, "span", { class: "rate-prev" }, `Before: ${plainSigned(d.previousRateBps)}.`),
     ),
-    silent ? h(doc, "p", { class: "m-status warn" }, silent) : null,
+    note ? h(doc, "p", { class: "m-status warn" }, note) : null,
     h(doc, "details", { class: `seal ${p.state}` },
       h(doc, "summary", {}, svg(doc, "svg", { class: "stamp", "aria-hidden": "true" }, svg(doc, "use", { href: "#seal" })), pill(doc, p.state, verdictLabel(p.state, ctx))),
       h(doc, "div", { class: "seal-body" },
         p.meta,
-        p.rec ? h(doc, "p", { class: "note" }, HOW) : null,
+        p.rec ? h(doc, "p", { class: "note" }, saved ? HOW_SAVED : HOW) : null,
         who(doc, d, p.rec),
         p.notes,
         proof(doc, d, ctx),
@@ -219,13 +226,33 @@ function heroCard(doc, d, ctx, silent) {
   );
 }
 
-/** `d` is `loadLog`'s result; `ctx` as for `renderMinutes`. Fills the hero's slot with the latest decision. */
+/** What to say over a saved decision: where it comes from, and what the chain itself says about whether a newer one exists. */
+function savedNote(policy, d) {
+  const why = "Read from this browser's saved copy because the transaction index is not answering.";
+  if (policy.lastSetEpoch === d.epoch) return `${why} The chain confirms this was the last decision.`;
+  return `${why} It may not be the newest decision${policy.lastSetEpoch === null ? "" : `: the chain says the last one was in meeting ${policy.lastSetEpoch}`}.`;
+}
+
+/** The hero when no decision can be shown at all: only what the chain's own views say, in a sentence. The numbers are the chain's, never a guess. */
+function chainOnly(doc, d, ctx) {
+  const { policy } = d;
+  return h(doc, "p", { class: "empty hero-empty" }, h(doc, "span", {}, "The Chair's minutes could not be read just now. The chain itself says the rate in force is ", rateLabel(policy.rateBps, ctx.unit), ` (meeting ${policy.epoch}) and that `, h(doc, "span", { class: "acct" }, showAccount(policy.chair)), " is the Chair. See the status under the log."));
+}
+
+/**
+ * `d` is `loadLog`'s result; `ctx` as for `renderMinutes`. Fills the hero's slot, and never leaves it empty: the latest decision, else (index not
+ * readable) the newest one this browser saved, labelled as such, else what the chain's views say.
+ */
 export function renderHero(doc, host, d, ctx) {
   while (host.firstChild) host.removeChild(host.firstChild);
   const [latest] = d.decisions;
-  if (latest === undefined) return host.append(h(doc, "p", { class: "empty" }, d.status === "incomplete" ? "The decisions come from the transaction index, which could not be read. See the status under the log." : "No decision has been recorded on chain yet."));
-  const s = silence(d.policy, latest);
-  host.append(heroCard(doc, latest, ctx, s.cls === "warn" ? s.text : null));
+  if (latest !== undefined) {
+    const s = silence(d.policy, latest);
+    return host.append(heroCard(doc, latest, ctx, { note: s.cls === "warn" ? s.text : null }));
+  }
+  if (d.status !== "incomplete") return host.append(h(doc, "p", { class: "empty hero-empty" }, "No decision has been recorded on chain yet."));
+  const [saved] = d.remembered;
+  host.append(saved === undefined ? chainOnly(doc, d, ctx) : heroCard(doc, saved, ctx, { note: savedNote(d.policy, saved), saved: true }));
 }
 
 function card(doc, d, ctx) {

@@ -567,6 +567,7 @@ export function createMine(doc, host, { section = null, link = null, request, po
     } catch (e) {
       result = describeFailure(e, isTxHash(e.tx) ? e.tx : null);
     }
+    if (action === "send" && result.tone === "ok") receiver.value = ""; // sent: Send waits for a new receiver instead of standing ready to repeat the payment
     // A call that ran must show in the wallet, and in the stake for the two calls that move it; one that did not run changes nothing, so one read is enough.
     await settle(result.tone === "ok" ? (a) => MOVED[action](a, before) : () => true);
   }

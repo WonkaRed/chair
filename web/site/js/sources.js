@@ -1,8 +1,11 @@
 // Where the numbers come from. Two transports with the same four methods, so the page has one code path:
 //   rpcTransport      NEAR JSON-RPC endpoints (source of truth for views; an ordered list, failed over) and FastNEAR's
-//                     transactions API (an index: which transactions touched the token, with their receipts and logs)
+//                     transactions API (an index: which transactions touched the token, with their receipts and logs), whose
+//                     complete results are kept in the browser (txcache.js) so a reload asks only for what it has not seen
 //   fixtureTransport  a recorded sandbox run, served from a file
 // Every failure is a SourceError saying which side failed and whether trying again may help.
+
+import { complete, slim, txCache } from "./txcache.js";
 
 export class SourceError extends Error {
   constructor(source, message, { retryable = false, status = null } = {}) {
@@ -79,9 +82,12 @@ export function failoverPoster(fetchImpl, source, urls, sleep = (ms) => new Prom
   return { post, inUse: () => urls[sticky] };
 }
 
-export function rpcTransport({ rpcUrls, indexerUrl, account, fetchImpl = globalThis.fetch.bind(globalThis), sleep }) {
+/** `store` is where complete transactions are kept between visits (a `Storage`; null keeps nothing). */
+export function rpcTransport({ rpcUrls, indexerUrl, account, fetchImpl = globalThis.fetch.bind(globalThis), sleep, store = null }) {
   const rpc = failoverPoster(fetchImpl, "rpc", rpcUrls, sleep);
   const indexer = failoverPoster(fetchImpl, "indexer", [indexerUrl], sleep);
+  const cache = txCache({ store, key: `chair-txs/1:${account}` });
+  let drewOnCache = false; // whether the last `transactions` call used anything kept
   const view = async (method, { blockHeight = null } = {}) => {
     const where = blockHeight === null ? { finality: "final" } : { block_id: blockHeight };
     const body = { jsonrpc: "2.0", id: "chair-web", method: "query", params: { request_type: "call_function", account_id: account, method_name: method, args_base64: "e30=", ...where } };
@@ -120,27 +126,54 @@ export function rpcTransport({ rpcUrls, indexerUrl, account, fetchImpl = globalT
     throw new SourceError("indexer", `more than ${MAX_PAGES * PAGE_LIMIT} transactions: not read to the end`);
   };
 
+  /**
+   * The transactions for `hashes`, in that order. Only the hashes not kept from an earlier visit are asked of the index, in batches of
+   * at most `TX_BATCH` (its limit), a few at a time; what arrives is kept as it arrives, so a failure part-way still saves the batches
+   * that succeeded. The first failed batch (after the poster's retries) stops the others and fails the call.
+   */
   const transactions = async (hashes) => {
+    const have = cache.read();
+    drewOnCache = have.size > 0;
+    const need = hashes.filter((h) => !have.has(h));
     const batches = [];
-    for (let i = 0; i < hashes.length; i += TX_BATCH) batches.push(hashes.slice(i, i + TX_BATCH));
-    const out = [];
+    for (let i = 0; i < need.length; i += TX_BATCH) batches.push(need.slice(i, i + TX_BATCH));
+    const fetched = new Map();
+    const fresh = new Map();
+    let failure = null;
     let next = 0;
     const worker = async () => {
-      while (next < batches.length) {
-        const batch = batches[next++];
-        const reply = await indexer.post("/v0/transactions", { tx_hashes: batch });
-        if (!Array.isArray(reply?.transactions)) throw new SourceError("indexer", "unexpected response shape");
-        out.push(...reply.transactions);
+      while (failure === null && next < batches.length) {
+        try {
+          const reply = await indexer.post("/v0/transactions", { tx_hashes: batches[next++] });
+          if (!Array.isArray(reply?.transactions)) throw new SourceError("indexer", "unexpected response shape");
+          for (const tx of reply.transactions) {
+            const kept = slim(tx, account);
+            if (kept === null) continue;
+            fetched.set(kept.transaction.hash, kept);
+            if (complete(tx)) fresh.set(kept.transaction.hash, kept);
+          }
+        } catch (e) {
+          failure ??= e;
+        }
       }
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, batches.length) }, worker));
-    const byHash = new Map(out.map((t) => [t?.transaction?.hash, t]));
-    const missing = hashes.filter((h) => !byHash.has(h));
+    if (fresh.size > 0) cache.write(hashes, new Map([...have, ...fresh]));
+    if (failure !== null) throw failure;
+    const missing = hashes.filter((h) => !have.has(h) && !fetched.has(h));
     if (missing.length > 0) throw new SourceError("indexer", `${missing.length} of ${hashes.length} transactions were not returned`);
-    return hashes.map((h) => byHash.get(h));
+    return hashes.map((h) => have.get(h) ?? fetched.get(h));
   };
 
-  return { kind: "live", token: account, rpcInUse: rpc.inUse, view, accessKeys, txHashes, transactions };
+  /** What an earlier visit kept (see `txcache.js`), for when the index cannot be read now: slim transactions, in no particular order. */
+  const remembered = () => [...cache.read().values()];
+
+  /** The caller found the log inconsistent with the chain. If the last read drew on what was kept, that is forgotten so the next read asks the index for everything; a read that did not is the index's own answer, which forgetting cannot change. */
+  const distrust = () => {
+    if (drewOnCache) cache.clear();
+  };
+
+  return { kind: "live", token: account, rpcInUse: rpc.inUse, view, accessKeys, txHashes, transactions, remembered, distrust };
 }
 
 /** `doc` is a parsed `chair-web-fixture/1` file (a recorded sandbox run). */

@@ -16,6 +16,7 @@ import { openFoldsAround, setupReveal } from "./reveal.js";
 import { BEHAVIOURS, simulate } from "./simview.js";
 import { failoverPoster, fixtureTransport, rpcTransport } from "./sources.js";
 import { isTxHash, safeText } from "./text.js";
+import { browserStore } from "./txcache.js";
 import { fmtRate, LOG_PAGE, printUnit, renderFailure, renderLedger, renderLog, renderNow, renderPlain, renderReconcile, renderSource } from "./views.js";
 import { config } from "../config.js";
 
@@ -40,7 +41,7 @@ function setupTheme() {
 }
 
 async function makeTransport() {
-  if (config.fixture === null) return { transport: rpcTransport(config), fixture: null };
+  if (config.fixture === null) return { transport: rpcTransport({ ...config, store: browserStore() }), fixture: null };
   let res;
   try {
     res = await fetch(config.fixture, { credentials: "omit" });
@@ -113,7 +114,7 @@ async function showChain() {
     const bundled = await texts;
     const explorer = made.fixture ? null : config.explorerUrl;
     const indexerUrl = made.fixture ? null : config.indexerUrl;
-    const ctx = { texts: bundled, resolved: await resolveTexts(data.decisions, bundled), explorer, indexerUrl, repoBase: `${config.repoUrl}/blob/${config.repoRef}`, network: made.fixture ? null : config.network, unit: printUnit(data.params) };
+    const ctx = { texts: bundled, resolved: await resolveTexts([...data.decisions, ...data.remembered], bundled), explorer, indexerUrl, repoBase: `${config.repoUrl}/blob/${config.repoRef}`, network: made.fixture ? null : config.network, unit: printUnit(data.params) };
     renderHero(doc, $("hero-minutes"), data, ctx);
     renderMinutes(doc, $("minutes-body"), data, ctx);
     renderRefusals(doc, $("refusals-body"), data, { explorer, indexerUrl });

@@ -446,9 +446,28 @@ test("the hero leads with the prose, the rate as a percent with bps second, what
   assert.match(rates(0), /0\.00%[\s\S]*Nothing minted, nothing burned\./);
 });
 
+test("a decision from the saved copy never claims to be verified on the chain: a neutral badge, and a fold-out that says where text and hash came from", async () => {
+  const text = "$CHAIR decision, epoch 408, chair local:qwen3.8-27b.\nRate in effect 0 bps; decision -15 bps.\nThe Chair cuts the rate by 15 basis points. The Chair has no further comment.";
+  const hash = sha(text);
+  const saved = decision({ hash, rateBps: -15, previousRateBps: 0, epoch: 408 });
+  const d = { decisions: [], remembered: [saved], policy: { ...policy, epoch: 409, lastSetEpoch: 408 }, status: "incomplete" };
+  const resolved = await resolveTexts([saved], new Map([[hash, { text, chair: "local:qwen3.8-27b", kind: "llm", source: null }]]));
+  const doc = fakeDoc();
+  const hero = host(doc);
+  renderHero(doc, hero, d, { ...ctx(null, resolved), network: "testnet" });
+  const all = [...walk(hero)];
+  const summary = textOf(all.find((n) => n.tag === "summary"));
+  assert.match(summary, /Matches the saved hash/);
+  assert.doesNotMatch(summary, /Verified|NEAR|testnet|\u2713/, "no verified words and no tick");
+  const page = textOf(hero);
+  assert.match(page, /neither was read from the chain on this load/);
+  assert.doesNotMatch(page, /the contract logged for this decision/, "the live-read explanation is not used");
+  assert.match(page, /saved copy/);
+});
+
 test("an unreadable index says so instead of claiming there is no decision; an empty chain says that", () => {
-  assert.match(textOf(render({ decisions: [], policy: { ...policy, lastSetEpoch: null }, status: "incomplete" }, ctx(new Map(), new Map()))), /index, which could not be read/);
-  assert.match(textOf(render({ decisions: [], policy: { ...policy, lastSetEpoch: null }, status: "complete" }, ctx(new Map(), new Map()))), /No decision has been recorded on chain yet/);
+  assert.match(textOf(render({ decisions: [], remembered: [], policy: { ...policy, lastSetEpoch: null }, status: "incomplete" }, ctx(new Map(), new Map()))), /index, which could not be read/);
+  assert.match(textOf(render({ decisions: [], remembered: [], policy: { ...policy, lastSetEpoch: null }, status: "complete" }, ctx(new Map(), new Map()))), /No decision has been recorded on chain yet/);
 });
 
 // ---- the text on the transaction ----
