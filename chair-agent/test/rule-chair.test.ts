@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mandateRate, ruleDecision, stakedShareBps } from "../src/rule-chair.js";
+import { formulaRate, mandateRate, ruleDecision, stakedShareBps, supplyMoved } from "../src/rule-chair.js";
 import type { DecisionInput } from "../src/types.js";
 import { snapshot } from "./helpers.js";
 
+const COIN = 10n ** 24n;
 const input = (s = snapshot(), history: DecisionInput["history"] = []): DecisionInput => ({ snapshot: s, history, window: { lo: -50, hi: 50 } });
 
 test("little staked: eases one step toward the wanted rate", () => {
@@ -23,15 +24,15 @@ test("near the target it holds inside the dead band, and settles the last bps wh
 });
 
 test("no brake: supply growth or shrinkage never changes the rate the mandate asks for, only what the minutes report", () => {
-  const s = snapshot({ epoch: 10, rate: 20, supply: 1_400_000n, staked: 100_000n });
-  const grown = ruleDecision(input(s, [{ epoch: 8, totalSupply: 1_000_000n }]));
+  const s = snapshot({ epoch: 10, rate: 20, supply: 1_400_000n * COIN, staked: 100_000n * COIN });
+  const grown = ruleDecision(input(s, [{ epoch: 8, totalSupply: 1_000_000n * COIN }]));
   assert.equal(grown.rateBps, 70); // 10% staked asks for +100, one step from 20 is 50 more
-  assert.match(grown.reasoning, /Supply is up 40\.00% over the last 2 meetings\./);
+  assert.match(grown.reasoning, /Supply is up 400,000 coins over the last 2 meetings\./);
   assert.doesNotMatch(grown.reasoning, /allows itself|no printing/);
-  const t = snapshot({ epoch: 10, rate: -20, supply: 600_000n, staked: 900_000n });
-  const shrunk = ruleDecision(input(t, [{ epoch: 8, totalSupply: 1_000_000n }]));
+  const t = snapshot({ epoch: 10, rate: -20, supply: 600_000n * COIN, staked: 540_000n * COIN });
+  const shrunk = ruleDecision(input(t, [{ epoch: 8, totalSupply: 1_000_000n * COIN }]));
   assert.equal(shrunk.rateBps, -70);
-  assert.match(shrunk.reasoning, /Supply is down 40\.00%/);
+  assert.match(shrunk.reasoning, /Supply is down 400,000 coins over the last 2 meetings\./);
 });
 
 test("history older than the lookback is ignored", () => {
@@ -118,16 +119,13 @@ test("the voice: the meeting length is the epoch length of the chain, in seconds
   assert.match(at(60_000), /a little at every 60-second meeting/, "one minute stays in seconds");
 });
 
-test("the voice: supply is named over the span the history covers", () => {
-  const s = snapshot({ epoch: 10, rate: 20, supply: 1_040_000n, staked: 100_000n });
-  const grown = rule(s, [{ epoch: 8, totalSupply: 1_000_000n }]);
-  assert.match(grown.reasoning, /Supply is up 4\.00% over the last 2 meetings\. 9\.61% of all coins/);
-  const shrunk = rule(snapshot({ epoch: 10, rate: -20, supply: 960_000n, staked: 900_000n }), [{ epoch: 9, totalSupply: 1_000_000n }]);
-  assert.match(shrunk.reasoning, /Supply is down 4\.00% since the last meeting\. 93\.75% of all coins/);
-  const calm = rule(snapshot({ epoch: 10, rate: 0, supply: 1_010_000n, staked: 500_000n }), [{ epoch: 4, totalSupply: 1_000_000n }]);
-  assert.match(calm.reasoning, /Supply is up 1\.00% over the last 6 meetings\. 49\.50% of all coins/);
-  const still = rule(snapshot({ epoch: 10, rate: 0, supply: 1_000_050n, staked: 500_000n }), [{ epoch: 4, totalSupply: 1_000_000n }]);
-  assert.match(still.reasoning, /Supply has moved less than 0\.01% over the last 6 meetings\./);
+test("the voice: supply is named in coins, since the latest logged meeting and over the span between", () => {
+  const grown = rule(snapshot({ epoch: 10, rate: 20, supply: 1_040_000n * COIN, staked: 100_000n * COIN }), [{ epoch: 8, totalSupply: 1_000_000n * COIN }]);
+  assert.match(grown.reasoning, /Supply is up 40,000 coins over the last 2 meetings\. 9\.61% of all coins/);
+  const shrunk = rule(snapshot({ epoch: 10, rate: -20, supply: 960_000n * COIN, staked: 900_000n * COIN }), [{ epoch: 9, totalSupply: 1_000_000n * COIN }]);
+  assert.match(shrunk.reasoning, /Supply is down 40,000 coins since the last meeting\. 93\.75% of all coins/);
+  const still = rule(snapshot({ epoch: 10, rate: 0, supply: 1_000_000n * COIN, staked: 500_000n * COIN }), [{ epoch: 4, totalSupply: 1_000_000n * COIN }]);
+  assert.match(still.reasoning, /Supply has not changed over the last 6 meetings\./);
   assert.doesNotMatch(rule(snapshot({ epoch: 10 })).reasoning, /Supply/, "no history, no supply sentence");
 });
 
@@ -228,4 +226,24 @@ test("the minutes for +35, -35 and 0 a day at a 90-second epoch, word for word",
     "The Committee of One has met. The Chair holds the rate: no coins are printed and none are burned. " +
       "50.00% of all coins are staked, and the Chair would like 50.00%. The more holders stake, the less the Chair prints. The Chair calls this leadership.",
   );
+});
+
+test("supply is told in the coins it really moved, exactly, since the latest logged meeting", () => {
+  const said = (supply: bigint, history: DecisionInput["history"]) => supplyMoved(input(snapshot({ epoch: 20, supply }), history))?.sentence ?? null;
+  assert.equal(said(1_001_563n * COIN, [{ epoch: 19, totalSupply: 1_000_000n * COIN }]), "Supply is up 1,563 coins since the last meeting.");
+  assert.equal(said(1_000_001n * COIN, [{ epoch: 19, totalSupply: 1_000_000n * COIN }]), "Supply is up 1 coin since the last meeting.");
+  assert.equal(said(1_000_000n * COIN + 5n, [{ epoch: 19, totalSupply: 1_000_000n * COIN }]), "Supply is up less than 1 coin since the last meeting.");
+  assert.equal(said(999_000n * COIN, [{ epoch: 17, totalSupply: 1_000_000n * COIN }]), "Supply is down 1,000 coins over the last 3 meetings.");
+  assert.equal(said(1_000_000n * COIN, [{ epoch: 19, totalSupply: 1_000_000n * COIN }]), "Supply has not changed since the last meeting.");
+  assert.equal(said(12_345_678n * COIN, [{ epoch: 14, totalSupply: 1n * COIN }, { epoch: 19, totalSupply: 2n * COIN }]), "Supply is up 12,345,676 coins since the last meeting.", "the latest logged meeting, not the oldest");
+  assert.equal(said(1n, [{ epoch: 13, totalSupply: 1n }]), null, "older than the lookback of 6 meetings");
+  assert.equal(said(1n, []), null, "no history");
+});
+
+test("the formula is the rule chair's rate, always inside the contract's step", () => {
+  for (const [rate, staked] of [[0, 100_000n], [3, 490_000n], [-50, 900_000n], [120, 0n], [200, 0n]] as const) {
+    const s = snapshot({ rate, supply: 1_000_000n, staked });
+    assert.equal(formulaRate(s), ruleDecision(input(s)).rateBps);
+    assert.ok(Math.abs(formulaRate(s) - rate) <= 50 && Math.abs(formulaRate(s)) <= 200);
+  }
 });

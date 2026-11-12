@@ -1,13 +1,11 @@
 import { RateWindow, type Rate } from "./bounds.js";
 import { pressSection } from "./press-section.js";
 import type { PressEntry } from "./press-store.js";
+import { bandFor, choiceFault, choiceLine } from "./choice.js";
 import { cleanReasoning, MAX_REASONING_CHARS, reasoningHash } from "./reasoning.js";
-import { bookLine, factFault, factOf, withoutClosing } from "./remark.js";
-import { DEADBAND_BPS, mandateRate, ruleChair, ruleDecision, supplyMoved } from "./rule-chair.js";
-import type { Chair, ChairKind, ChairMemory, Decision, DecisionInput, HistoryPoint, Proposal, Snapshot } from "./types.js";
-
-/** Longest chair-written body; the agent's own header and notes come on top of it. */
-const BODY_CHARS = 1500;
+import { bookLine, factFault, factOf, remarkBasis } from "./remark.js";
+import { formulaRate, mandateRate, ruleChair, ruleDecision, statement, supplyDrift } from "./rule-chair.js";
+import type { AnswerFault, Chair, ChairKind, ChairMemory, Decision, DecisionInput, HistoryPoint, Proposal, Snapshot } from "./types.js";
 
 /** Why the primary chair's answer was not used; a fixed label, never raw error text. */
 export type FallbackReason = "error" | "timeout" | "malformed" | "refusal";
@@ -20,11 +18,22 @@ const FALLBACK_WHY: Record<FallbackReason, string> = {
   error: "ran into an error",
 };
 
+/**
+ * Said instead of those when the model was not asked. That happens only when little of the meeting is left (a call then may land after the rollover, so
+ * the rates fit to ask for are those valid in both meetings) and that leaves no rate in the band of the formula. At most 60 characters: the page's `FALLBACK_NEW` takes no more.
+ */
+const NOT_ASKED_WHY = "was not asked: too little of the meeting was left to choose";
+
+/** Said when the model's answer no longer fits the chain as it is when the decision is made (a rollover or a stake moved the formula, the rate in effect or the facts a reason rests on). */
+const STALE_WHY = "gave an answer that no longer fit the chain when it arrived";
+
 /** Thrown by a chair that could not produce a usable proposal. */
 export class ChairFailure extends Error {
   constructor(
     readonly reason: FallbackReason,
     detail: string,
+    /** For a malformed answer: which check it failed, so the retry can say. */
+    readonly fault?: AnswerFault,
   ) {
     super(detail);
     this.name = "ChairFailure";
@@ -74,12 +83,22 @@ export interface Proposed {
   readonly used: Chair;
   readonly kind: ChairKind;
   readonly proposal: Proposal;
-  /** The model's own closing remark, already checked; null when there is none and the minutes close on the book. */
-  readonly remark: string | null;
+  /** The model's own closing remark, already checked, with the facts of the read it was written on (`remarkBasis`); null when there is none and the minutes close on the book. */
+  readonly remark: { readonly text: string; readonly basis: string } | null;
   readonly fallbackNote: string;
-  /** The read of the chain the chair saw: the text cites its figures, so the decision's figures are its figures. */
-  readonly basis: Snapshot;
+  /** The epoch of the read of the chain the chair was given; the decision's own epoch is the fresh read's. */
+  readonly readEpoch: number;
 }
+
+/** The rule chair deciding in place of an AI chair `ai` that cannot be used, for `why`; the minutes say so in a line of their own. */
+const ruledInstead = (ai: string, why: string, rateBps: number, readEpoch: number): Proposed => ({
+  used: ruleChair,
+  kind: "rule-fallback",
+  proposal: { rateBps, reason: "fallback" },
+  remark: null,
+  fallbackNote: `The AI chair (${ai}) ${why}, so the rule chair, the Chair's built-in fallback, decided this meeting.\n`,
+  readEpoch,
+});
 
 /** A malformed answer is asked for once more only while at least this much of the time limit is left. */
 const RETRY_MIN_MS = 10_000;
@@ -101,83 +120,91 @@ async function remarkWithin(chair: Chair, input: DecisionInput, rateBps: number,
 }
 
 /**
- * Ask the chair, within the time limit. A malformed answer is asked for once more with the time that remains;
- * any other failure, or a second malformed answer, of a non-rule chair falls back to the rule chair, which
- * cannot fail. The chair sees a window that stays valid across a rollover whenever the model's own time
- * allowance could carry the call past the epoch end.
+ * Ask the chair, within the time limit. A malformed answer is asked for once more with the time that remains, told which of our checks it failed;
+ * any other failure, or a second malformed answer, of a non-rule chair falls back to the rule chair, which cannot fail. The chair sees a window that
+ * stays valid across a rollover whenever the model's own time allowance could carry the call past the epoch end. When that window leaves no rate in the
+ * band of the formula, there is nothing to choose and the model is not asked.
  */
 export async function propose(snapshot: Snapshot, history: readonly HistoryPoint[], opts: DecideOptions, memory?: ChairMemory): Promise<Proposed> {
   const isRule = opts.chair === ruleChair;
   const w = windowFor(snapshot, opts.marginMs, isRule ? 0 : opts.timeoutMs);
   const input = { snapshot, history: before(history, snapshot.policy.epoch), window: { lo: w.lo, hi: w.hi }, ...(memory === undefined ? {} : { memory }) };
-  if (!isRule) {
-    const startedMs = Date.now();
-    const leftMs = () => opts.timeoutMs - (Date.now() - startedMs);
-    for (let attempt = 1; ; attempt++) {
-      try {
-        const proposal = await withTimeout(leftMs(), (signal) => opts.chair.propose(input, signal));
-        if (!Number.isSafeInteger(proposal.rateBps) || cleanReasoning(proposal.reasoning, BODY_CHARS) === null) {
-          throw new ChairFailure("malformed", "proposal is not an integer rate with text");
-        }
-        const remark = await remarkWithin(opts.chair, input, proposal.rateBps, leftMs());
-        return { used: opts.chair, kind: "llm", proposal, remark, fallbackNote: "", basis: snapshot };
-      } catch (err) {
-        const reason: FallbackReason = err instanceof ChairFailure ? err.reason : "error";
-        if (reason === "malformed" && attempt === 1 && leftMs() >= RETRY_MIN_MS) continue;
-        const fallbackNote = `The AI chair (${opts.chair.name}) ${FALLBACK_WHY[reason]}, so the rule chair, the Chair's built-in fallback, decided this meeting.\n`;
-        const proposal = await ruleChair.propose(input, new AbortController().signal);
-        return { used: ruleChair, kind: "rule-fallback", proposal, remark: null, fallbackNote, basis: snapshot };
+  const noSignal = new AbortController().signal;
+  if (isRule) return { used: ruleChair, kind: "rule", proposal: await ruleChair.propose(input, noSignal), remark: null, fallbackNote: "", readEpoch: snapshot.policy.epoch };
+  const byRule = async (why: string): Promise<Proposed> =>
+    ruledInstead(opts.chair.name, why, (await ruleChair.propose(input, noSignal)).rateBps, snapshot.policy.epoch);
+  const band = bandFor(formulaRate(snapshot), input.window);
+  if (band.lo > band.hi) return byRule(NOT_ASKED_WHY);
+  const startedMs = Date.now();
+  const leftMs = () => opts.timeoutMs - (Date.now() - startedMs);
+  let previous: AnswerFault | undefined;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const proposal = await withTimeout(leftMs(), (signal) => opts.chair.propose(input, signal, previous));
+      const fault = choiceFault(input, proposal.rateBps, proposal.reason);
+      if (fault !== null) throw new ChairFailure("malformed", `choice: ${fault}`, fault);
+      const text = await remarkWithin(opts.chair, input, proposal.rateBps, leftMs());
+      const remark = text === null ? null : { text, basis: remarkBasis(input, proposal.rateBps) };
+      return { used: opts.chair, kind: "llm", proposal, remark, fallbackNote: "", readEpoch: snapshot.policy.epoch };
+    } catch (err) {
+      const reason: FallbackReason = err instanceof ChairFailure ? err.reason : "error";
+      if (reason === "malformed" && attempt === 1 && leftMs() >= RETRY_MIN_MS) {
+        previous = err instanceof ChairFailure ? err.fault : undefined;
+        continue;
       }
+      return byRule(FALLBACK_WHY[reason]);
     }
   }
-  return { used: ruleChair, kind: "rule", proposal: await ruleChair.propose(input, new AbortController().signal), remark: null, fallbackNote: "", basis: snapshot };
 }
 
 /**
- * The read every figure of a decision comes from: the one the model was shown, because the text it wrote cites that read's staked share and
- * supply. The rule chair does not wait on anything, so it is simply decided again on the fresh read. The fresh read still rules the contract's
- * side of the call (the epoch, the rate in effect, the window), which only the chain's present state can say.
- */
-export const basisOf = (proposed: Proposed, fresh: Snapshot): Snapshot => (proposed.used === ruleChair ? fresh : proposed.basis);
-
-/**
- * Turns a proposal into a `Decision` against `fresh`, a snapshot read AFTER the proposal arrived: the
- * rate is clamped into the window of the epoch the call will actually land in, the epoch recorded is that
- * one, and the hash is taken of the exact text returned (and logged). The figures of the decision (the mandate and the supply change here, the logged
- * supply and stake in the caller) come from `basisOf`, the read the text cites, never from a later one that a stake may have moved. If the epoch
- * rolled over while the chair was thinking, a model's answer is only clamped. An LLM chair's minutes close on its own checked remark, else on the
- * book line of the meeting; the rule chair's text already closes itself.
+ * Turns a proposal into a `Decision` against `fresh`, a snapshot read AFTER the proposal arrived. Every figure and sentence of the decision comes from that read
+ * (the formula, the mandate, the supply change, the rate in effect and the silent meetings), never from the one the chair saw: the epoch may have rolled over while it
+ * thought, and the rate in effect decayed. An AI chair's answer is therefore checked again against the fresh read (`choiceFault`: the band around the fresh formula,
+ * a reason true of the fresh facts), and when it no longer fits the rule chair decides on the fresh read instead. The rate is then clamped into the window of the epoch
+ * the call will actually land in, the epoch recorded is that one, and the hash is taken of the exact text returned (and logged). The minutes are the agent's own sentences
+ * throughout: the statement of the rate set, the formula's number beside the Chair's and the reason, and a closing line: the AI chair's own checked remark, else the book
+ * line of the meeting; the rule chair's text closes itself.
  */
 export function finalize(
   fresh: Snapshot,
   history: readonly HistoryPoint[],
-  proposed: Proposed,
+  asked: Proposed,
   opts: Pick<DecideOptions, "marginMs">,
   press: readonly PressEntry[] = [],
 ): Decision {
-  const { policy } = fresh;
-  const basis = basisOf(proposed, fresh);
-  const rolled = policy.epoch !== basis.policy.epoch;
+  const { policy, params } = fresh;
+  const rolled = policy.epoch !== asked.readEpoch;
   const window = windowFor(fresh, opts.marginMs);
-  const input: DecisionInput = { snapshot: basis, history: before(history, basis.policy.epoch), window: { lo: window.lo, hi: window.hi } };
-  const proposal = proposed.used === ruleChair ? ruleDecision(input) : proposed.proposal;
-  const rate: Rate = window.pick(proposal.rateBps);
+  const input: DecisionInput = { snapshot: fresh, history: before(history, policy.epoch), window: { lo: window.lo, hi: window.hi } };
+  const formula = formulaRate(fresh);
+  // The window may still clamp an answer afterwards (shown as "asked for"), so the answer is held to the contract's own limits here, not to this call's window.
+  const limits = { lo: -params.maxRateBps, hi: params.maxRateBps };
+  const proposed =
+    asked.kind === "llm" && choiceFault({ ...input, window: limits }, asked.proposal.rateBps, asked.proposal.reason) !== null
+      ? ruledInstead(asked.used.name, STALE_WHY, formula, asked.readEpoch)
+      : asked;
+  const chosen = proposed.used === ruleChair ? formula : proposed.proposal.rateBps;
+  const rate: Rate = window.pick(chosen);
   const rolloverNote = rolled ? "\nThe epoch rolled over while the Chair was deliberating. Time does not wait for the Committee of One." : "";
+  // The window is what a call is sure to be accepted in: near the epoch end it holds only the rates valid in this meeting and the next, narrower than what this meeting alone accepts.
   const clampNote =
-    rate === proposal.rateBps
+    rate === chosen
       ? ""
-      : `\nThe Chair asked for ${proposal.rateBps} bps; the contract accepts ${window.lo}..${window.hi} bps here, so ${rate} bps is set. The Chair defers.`;
-  const mandate = mandateRate(basis);
-  const day = supplyMoved(input, basis.params.meetingsPerDay);
-  const written = cleanReasoning(proposal.reasoning, BODY_CHARS) ?? "";
-  // The model is told to write no closing line, but one that does gets only the agent's, so the minutes never close twice.
-  const said = proposed.kind === "llm" ? withoutClosing(written) : written;
-  // The remark was checked against the rate the model proposed and the rate in effect when it asked; the rate sent may differ (clamped, or the rate in effect decayed).
-  const remark = proposed.remark !== null && factFault(proposed.remark, factOf(rate, policy.rateBps)) === null ? proposed.remark : null;
-  const body = proposed.kind === "llm" ? `${said} ${remark ?? bookLine(policy.epoch)}` : said;
+      : `\nThe contract is sure to accept ${window.lo}..${window.hi} bps here, so ${rate} bps is set instead. The Chair defers.`;
+  const mandate = mandateRate(fresh);
+  const day = supplyDrift(input, params.meetingsPerDay);
+  // The remark was written on the read the model saw and checked against the rate it proposed: it is kept only when the facts it could lean on are the same on the fresh read
+  // and it is still true of the rate sent (clamped, or the rate in effect decayed); otherwise the minutes close on the book.
+  const remark =
+    proposed.remark !== null && proposed.remark.basis === remarkBasis(input, proposed.proposal.rateBps) && factFault(proposed.remark.text, factOf(rate, policy.rateBps)) === null
+      ? proposed.remark.text
+      : null;
+  const choice = { formulaBps: formula, chosenBps: chosen, reason: proposed.proposal.reason };
+  const body = proposed.kind === "llm" ? `${statement(input, rate)} ${remark ?? bookLine(policy.epoch)}` : ruleDecision(input, rate).reasoning;
   const base =
     `$CHAIR decision, epoch ${policy.epoch}, chair ${proposed.used.name}.\n${proposed.fallbackNote}` +
-    `Rate in effect ${policy.rateBps} bps; decision ${rate} bps.\n${body}${rolloverNote}${clampNote}`;
+    `Rate in effect ${policy.rateBps} bps; decision ${rate} bps.\n${choiceLine(choice, rate)}\n${body}${rolloverNote}${clampNote}`;
   // The press section only ever follows the decision text, and only in the room the 2000-character cap leaves.
   const text = cleanReasoning(`${base}${pressSection(press, MAX_REASONING_CHARS - base.length)}`);
   if (text === null) throw new Error("unreachable: decision text is never empty");
@@ -194,9 +221,8 @@ export function finalize(
       rateBps: mandate,
       supplyChangeBps: day === null ? null : Number(day.bps),
       supplyChangeMeetings: day === null ? null : day.meetings,
-      // The rule's own dead band is not a deviation: a rate within it of what the mandate allows counts as the mandate's.
-      followed: Math.abs(rate - window.pick(mandate)) < DEADBAND_BPS ? "mandate" : "judgment",
     },
+    choice,
   };
 }
 

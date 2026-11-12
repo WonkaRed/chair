@@ -3,7 +3,8 @@
 The chair: a small TypeScript program that, once per epoch, reads the $CHAIR token and calls
 `set_policy(rate_bps, reasoning_hash)`. It ships two chairs behind one interface: a deterministic
 rule-based chair that needs no API key, and an optional LLM chair that falls back to the rule chair
-on any failure. The contract, not this program, is the authority: it rejects any rate outside +-200 bps
+on any failure. The rule chair always sets the formula's rate (below); the LLM chair is given that rate as advice, may choose any
+rate within 25 bps either side of it, and says why from a short list of reasons written here. The minutes put the two side by side. The contract, not this program, is the authority: it rejects any rate outside +-200 bps
 or more than 50 bps from the rate in effect, and decays the rate when the chair is silent. The agent
 additionally never proposes a call the contract would reject.
 
@@ -14,7 +15,7 @@ in the code, the contract and the first lines of the on-chain text (`Rate in eff
 there a positive figure is basis points of supply per day and a negative one is basis points of each transfer.
 The voice changes only the wording of the reasoning text; the rate rules and the contract's bounds are untouched, and every
 sentence must stay true to the numbers the chair was given (it names no real person, institution or currency and says nothing about price).
-For example, from the rule chair: "The Committee of One has met. The Chair moves the rate from neither printing nor burning to printing 0.05% a day, a little at every 90-second meeting, for holders who staked. 48.00% of all coins are staked, and the Chair would like 50.00%. The Chair thanks itself for its service."
+For example, from the rule chair (the minutes open with the three lines of metadata described under "The Chair's choice"; this is the statement that follows them): "The Committee of One has met. The Chair moves the rate from neither printing nor burning to printing 0.05% a day, a little at every 90-second meeting, for holders who staked. 48.00% of all coins are staked, and the Chair would like 50.00%. The Chair thanks itself for its service."
 Decisions recorded before the voice keep their old text, because their hashes are on chain.
 
 This is a toy monetary experiment. Nothing here predicts or promises a price, a return, or any effect on
@@ -87,8 +88,9 @@ The units in [`../deploy/systemd/`](../deploy/systemd/) are how the live demo ru
 ## The rule chair (`rule-v1`)
 
 I want half of the supply staked, so I ask for `(5000 - staked share in bps) / 40` bps: thin staking
-eases (up to +125) and heavy staking tightens (down to -125). That rate is my mandate, "the more holders stake, the
-less the Chair prints", and every chair works to it. A positive rate is per day: +35 is 0.35% of supply a day, and
+eases (up to +125) and heavy staking tightens (down to -125). That rate is the mandate, "the more holders stake, the
+less the Chair prints". The formula is the mandate reached one contract step at a time (below), and it is what I always set. An AI chair is given
+the formula as advice, not an order. A positive rate is per day: +35 is 0.35% of supply a day, and
 the contract mints a 960th of that at each 90-second meeting. I move toward the wanted rate one contract
 step at a time, ignore gaps under 5 bps unless the wanted rate is 0, and with no staking figures at all I
 walk the rate back to 0. I read `get_params`, `get_policy`, `ft_total_supply` and `get_reward_pool` at one
@@ -98,8 +100,8 @@ Its text is in the chair's voice, from a small set of fixed sentences chosen by 
 step limit, nothing staked, no staking figures, and after silent meetings a line saying
 the Chair was silent for that many meetings and the contract moves the rate toward zero without asking). Each says what the rate does
 (prints a percent of new coins a day, a little at every meeting, for the holders who staked; burns a slice of every transfer; or neither), in percent, and the meeting length is the chain's own.
-Every figure in a sentence is an input or the computed rate, so the same inputs give the same text. When the model fails, the decision
-opens with `Chair <name> failed (<reason>). The rule chair decided instead. The Chair has no comment.` and then the rule chair's text.
+Every figure in a sentence is an input or the computed rate, so the same inputs give the same text. When the model fails, a line
+after the first says `The AI chair (<name>) <why>, so the rule chair, the Chair's built-in fallback, decided this meeting.` and the rule chair's text follows.
 
 ### The rate is per day
 
@@ -114,21 +116,53 @@ I read `meetings_per_day` from `get_params`. A token that does not report it is 
 run against it (as I do against one that reports a figure other than the day divided by its epoch), so the minutes never say "a day" of a
 token that prints every meeting.
 
-Each decision line in the log also carries `mandate_rate_bps` (what the mandate asks for, per day), `followed` (`mandate` when the rate set is
-the mandate's as near as the contract's step allows, within the rule's 5 bps dead band, and `judgment` when the chair chose its own),
-`supply_change_24h_bps` and `supply_change_24h_meetings` (supply over the last day, over the meetings the log really covers; null with no
-history). Lines written before this lack the four fields.
+Each decision line in the log also carries `mandate_rate_bps` (what the mandate asks for, per day), `formula_bps` (the formula's rate for that meeting),
+`chosen_bps` (the rate the chair asked for, before the agent fitted it to the contract's window) and `reason` (a reason id: one the model picked, `formula` when the
+rule chair took the formula's rate, `fallback` when the AI chair's answer could not be used), `supply_change_24h_bps` and `supply_change_24h_meetings`
+(supply over the last day, over the meetings the log really covers; null with no history). Lines written before this lack the fields.
 
 ## The LLM chair
 
-`LlmChair` sends the model only numbers (the rate in effect, the mandate rate and what it does, the bounds, the meeting length, the supply change and the staked share each as a finished sentence in percent, the meetings missed since the last decision and, when the agent has its decision log, how many meetings before this one the Chair itself set the rate now in effect and how many times the contract refused one of the Chair's own calls, as that log records them), asks for a JSON object
-`{rate_bps, reasoning}` through structured output, and uses model `claude-sonnet-5-5` via the official SDK (the chair name `llm:claude-sonnet-5-5` is reported by that client only; any other client is `llm:unlabelled-client` unless it names itself). The
-agent then clamps the rate into the bounds of the window read after the model answered (see below). Any error, timeout (`--llm-timeout-ms`, default 30000 on the command line; the live run (`scripts/run-chair.sh`) passes 60000, and that is the limit in force, the remark's included), refusal,
-truncated answer, wrong or duplicate keys, non-integer or out-of-range type falls back to the rule chair, and the reasoning
-text says so. A malformed answer (the truncated, wrong-key and wrong-type cases) is asked for once more when at least 10 seconds of the timeout remain; the second try has only the time that is left, and a second malformed answer falls back. The system prompt asks the model for the voice and fences it in: it may state the decision and the figures it was given and nothing the numbers do
-not show (no cause, purpose, forecast, price talk or real names), and it is told that a printing rate is per day, with the sentence to use ("printing 0.05% more coins a day, a little at every 90-second meeting, for holders who staked"), and how to read the silence and run fields. Every figure reaches it already converted to percent, so it copies; its text is refused, once asked again and then replaced by the rule chair's, when it says "basis points", "bps" or "epoch", writes a percent the numbers do not give (the rate it decided, the rate in effect, the staked share and the supply change are the only ones), writes a printing rate as a burn or the reverse, gives a printing rate without its day or ties it to each meeting or each stretch of seconds, claims a run of meetings the Chair may not, or leaves a rate without its unit. [`docs/chair-voice-probe.txt`](../docs/chair-voice-probe.txt) holds
-every answer of the probe runs against the local model, each checked sentence by sentence against its prompt, with the prompt rounds that tightened it. Model text is never used for anything but the logged reasoning: it does not reach a shell, a path,
-or a transaction field other than through the SHA-256 hash.
+`LlmChair` makes two separate model calls per meeting. The first is the decision; the second, described under "The Chair's own remark", is the one sentence of free text.
+
+**The decision call** sends the model only numbers and our own sentences: the rate in effect, `formula_bps`, `allowed_bps` (the band: 25 bps either side of the formula, cut to the rates the contract accepts now),
+the staked share and the share the mandate wants, the supply change as a finished sentence, the meetings missed since the last decision, when the agent has its log how many
+meetings in a row the Chair itself set the rate in effect, and `reasons`: the reasons that could be true of some rate in the band, each with the clause it will print and where the rate must lie for it. The system prompt gives the Chair a temperament (it
+distrusts a lurch, and presses on when staking is far from half) and says the formula is advice. The model answers with structured output `{rate_bps, reason}`, an integer and one id of the list
+(`src/choice.ts`), and nothing else, uses model `claude-sonnet-5-5` via the official SDK (the chair name `llm:claude-sonnet-5-5` is reported by that client only; any other client is `llm:unlabelled-client` unless it names itself).
+
+The agent validates the answer (`choiceFault`): a whole number inside the band, with a reason that is true of this meeting (staking below half for `stake_low`, supply grown for `supply_up`, and so on) and that points the way the rate
+does (`stake_low` never sits beside a rate below the formula; `smaller_move` and `larger_move` compare the rate's distance from the rate in effect with the formula's). Anything else, like an error, timeout (`--llm-timeout-ms`, default 30000 on the command line; the live run (`scripts/run-chair.sh`)
+passes 60000, and that is the limit in force, the remark's included), refusal, truncated answer, wrong or duplicate keys, or a non-integer, is a failure. A malformed answer (including a choice the check refuses) is asked for once more when at least 10 seconds of the timeout remain, with a `previous_answer_fault` line in the prompt naming which of our checks it failed (a label from a closed list, in our words, never the model's text);
+the second try has only the time that is left, and a second one falls back to the rule chair with the reason `fallback`, and the minutes say so. The agent then clamps the rate into the bounds of the window read after the model answered (see below).
+
+The model writes no free text in this call, so none of it can reach the chain: a reason on chain is always one of seven fixed clauses, chosen by id, and the agent writes the rest of the minutes. No text a visitor wrote (the press desk's questions) is ever in this prompt or the remark's
+(`test/remark-minutes.test.ts` carries a sentinel through both). Model text is never used for anything but the logged reasoning: it does not reach a shell, a path, or a transaction field other than through the SHA-256 hash.
+[`docs/chair-voice-probe.txt`](../docs/chair-voice-probe.txt) is the probe record from the days when the model wrote the whole text.
+
+### The Chair's choice, as the minutes say it
+
+After the header and the `Rate in effect R bps; decision D bps.` line, one line sets the formula's number beside the Chair's, in percent a day (`choiceLine` in `src/choice.ts`):
+
+- `The formula suggested printing 0.12% a day. The Chair chose printing 0.15% a day: fewer than half of all coins are staked.`
+- `The formula suggested printing 0.12% a day. The Chair agreed: fewer than half of all coins are staked.`
+- `The formula suggested printing 0.12% a day. The rule chair applied it.` (the rule chair, or a fallback)
+
+The line says no word about which way the rate went: the two rates beside it do, and "prints more" is false for a pair that burns or crosses zero. When the contract's window moved the rate after the choice, the line says
+so instead of claiming a rate that was not set, and the clamp line follows the statement:
+
+- `The formula suggested printing 0.12% a day. The Chair asked for printing 0.15% a day: fewer than half of all coins are staked.`
+- `The formula suggested printing 0.12% a day. The rule chair asked for it.`
+- `The contract is sure to accept 10..60 bps here, so 60 bps is set instead. The Chair defers.` (the range is the one a call is sure to be accepted in: close to the epoch end it holds only the rates valid in this meeting and the next)
+
+The supply reasons are worded for what they hold for: `supply has grown since the Chair's last decision` (the supply now against the supply at the last logged decision, which may be several meetings back; the supply sentence in the statement gives the span). When the
+window leaves no rate within the band of the formula that the call is sure to be taken (a call close to the epoch's end may land after a rollover), there is nothing to choose: the model is not asked, the rule chair decides,
+and the minutes say `The AI chair (<name>) was not asked: too little of the meeting was left to choose, so the rule chair, the Chair's built-in fallback, decided this meeting.`
+
+The page reads these lines back with strict patterns (`parseChoice` in `web/site/js/minutes.js`) and shows
+"Formula suggested X · Chair chose Y" (or "asked for Y") and the reason under the rate; `test/choice.test.ts` runs the page's reader over every form this module writes, and checks each against its numbers, so the two cannot drift. Minutes written before this have no such line and show no row.
+
+The supply sentence: `Supply is up 1,563 coins since the last meeting.` is the difference of two supplies the chain reported (net of any burn between them), cut down to whole coins, over the meetings the log really covers.
 
 ### A local model
 
@@ -173,10 +207,14 @@ The chain carries no flag, so the page (`web/site/js/minutes.js`) tells them apa
 
 A model can answer slowly, so the chain is read again after the chair answers: the agent re-checks that it is
 still the chair and that the policy is not yet set, builds the rate window from the fresh read, clamps against
-it, and logs the epoch the decision is actually for (a model answer is clamped and noted). Every figure of the decision comes from one read
-(`basisOf` in `src/decide.ts`): the text, the mandate and the supply and stake in the log are all of the read the model was shown, because its text cites that
-read's staked share, and a stake can move while the model thinks; the rule chair has no wait, so it is decided again on the fresh read. Only what the contract
-checks (the epoch, the rate in effect, the window) comes from the fresh read. The log files that supply under `supply_epoch`, the epoch it was read in, which differs from the decision's `epoch` when the epoch rolled over while the model thought. The decision is written to the log, then sent. A paid model call happens at
+it, and logs the epoch the decision is actually for (a model answer is clamped and noted). Every sentence of the decision is built on that fresh read
+(`finalize` in `src/decide.ts`): the formula it quotes, the rate in effect, the statement, the "silent for N meetings" sentence, the mandate and the supply and stake in the log.
+A model that answered while the epoch rolled over or a stake moved is checked again against the fresh read, with the formula, the band and the truth of its reason recomputed
+there (`choiceFault`); an answer that no longer fits (a "hold the rate" of a rate that has since decayed) is dropped, the rule chair decides on the fresh read, and the minutes say
+`The AI chair (<name>) gave an answer that no longer fit the chain when it arrived, so the rule chair, the Chair's built-in fallback, decided this meeting.` `propose` runs the same check on the
+model's answer before the contract window is known, so a chair that returns a bad rate or reason is retried once and then falls back; it cannot throw in `finalize` and skip a meeting.
+The model's closing remark is kept only when the facts it could lean on are the same on the fresh read (`remarkBasis` in `src/remark.ts`: the meeting, the rate in effect and the rate set, the side of half the staked share is on, which way the supply went); the filter bans digits, number words and ordinals, so a remark states no count or figure, but it can still say that most coins are staked, and when the read changed the minutes close on the book line instead.
+The log files the supply under `supply_epoch`, which now always equals the decision's `epoch`; it is kept for logs written before. The decision is written to the log, then sent. A paid model call happens at
 most once per epoch: after a failed send the agent re-sends the logged decision, with no new model call and no
 new log line, backing off 10 s then 20 s, at most 3 sends, then waits for the next epoch. If the contract
 rejects the call, or the logged rate has left the window, or the logged text no longer hashes to its hash, the
@@ -217,7 +255,7 @@ A judge types one question (at most 140 characters) on the page; the Chair answe
 
 CORS allows `https://wonkared.github.io` and loopback origins only. A question is cleaned (the minutes' text rules, then whitespace collapsed and trimmed) and must then be 1 to 140 characters; `question_hash` is the SHA-256 of that cleaned text in UTF-8, so anyone can recompute it from the words they typed. The store keeps the question text locally (that is what the hash is checked against) and no route ever returns it. Limits: 3 questions per IP per 10 minutes (the IP is Cloudflare's `CF-Connecting-IP`, read only on a loopback connection, IPv6 by /56; `X-Forwarded-For` is never read), 80 per hour overall (the two entries per 90 s epoch the chain carries), one model call at a time, at most 5 waiting, and at most 40 answered questions waiting to be entered (past that the desk says `press_full` until the agent has caught up). The record is `~/.local/state/chair-agent/press.jsonl` (mode 0600), appended to by the server and by the agent.
 
-**How a question reaches the chain.** `run --press <file>` (set by `run-chair.sh`) reads the questions not yet entered. At the next decision the reasoning gains a section after the decision text: "The press asked N question(s) since the last meeting." and, for the oldest up to 2, "A member of the press asked a question (3fa9c1d2e4b7). The Chair replied: ...", where the number is the first 12 hex characters of `question_hash`. The question text never goes on chain. The section is cut to fit the 2000-character cap (2 entries, then 1, then none; the rest wait for the next meeting, oldest first) and the final text passes the same sanitizer as any reasoning. The decision itself, its bounds and its fall-backs are untouched. When the transaction lands, the entries it carried are marked with its epoch and transaction hash, by exact match against the text that was sent, so a failed send, a dry run or a trimmed section marks nothing it did not carry. Two questions per epoch is 80 an hour, the overall limit, and the 40-question backlog bound means a stalled agent cannot grow the record without end; `/record` shows a question as waiting (`epoch` and `tx_hash` null) until it is entered.
+**How a question reaches the chain.** `run --press <file>` (set by `run-chair.sh`) reads the questions not yet entered. At the next decision the reasoning gains a section after the decision text: "The press has N question(s) waiting." and, when not all of them are entered, " The Chair enters K here; the rest wait." ("the other waits" for one); it says nothing of when the rest will be entered, or of when the questions were asked, and with no room for even one entry there is no section at all and, for the oldest up to 2, "A member of the press asked a question (3fa9c1d2e4b7). The Chair replied: ...", where the number is the first 12 hex characters of `question_hash`. The question text never goes on chain. The section is cut to fit the 2000-character cap (2 entries, then 1, then none; the rest wait for the next meeting, oldest first) and the final text passes the same sanitizer as any reasoning. The decision itself, its bounds and its fall-backs are untouched. When the transaction lands, the entries it carried are marked with its epoch and transaction hash, by exact match against the text that was sent, so a failed send, a dry run or a trimmed section marks nothing it did not carry. Two questions per epoch is 80 an hour, the overall limit, and the 40-question backlog bound means a stalled agent cannot grow the record without end; `/record` shows a question as waiting (`epoch` and `tx_hash` null) until it is entered.
 
 **The Chair speaks only from its approved statements.** The answer is never written by a model. `src/press-book.ts` is a reviewed book of 144 short in-voice statements, grouped by what they deflect (greetings, the Chair's mood, price and advice, the rate in general terms, the press, philosophy, orders, nonsense, compliments, complaints, and so on), each safe to sign whatever the question was. The question goes to a locally run model as untrusted data in a delimited block, with the numbered book in the system prompt; the model returns up to three line numbers, and the reply is the book line. Only the numbers are read: any other text, an out-of-range or fractional number, a failure or a timeout falls back to a line chosen by the question's hash from the matching group (the price group for a question about price or advice, which is answered only from that group). The Chair does not repeat any of its last 10 answers, unless every line of the group is among them. What is shown, stored and signed into the minutes is therefore always a line of the book, and a hostile question can only make the Chair say one of those lines in the wrong place. The public API does not say how a line was chosen (the JSONL does: `model` or `canned`). To add a line, put it in a group of the book and have it read by a person; the tests check the mechanical rules (clean, ASCII, at most 2 sentences, no promise, price, name, insult, rule or permanence words). `docs/press-and-memory-probe.txt` has the measurement with the real model.
 

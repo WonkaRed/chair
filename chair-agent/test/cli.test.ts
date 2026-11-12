@@ -110,7 +110,7 @@ test("--llm-endpoint and --llm-model name a local chair: the decision says local
     res.setHeader("content-type", "application/json");
     res.end(JSON.stringify({
       id: "chatcmpl-test", type: "message", role: "assistant", model: "qwen-test", stop_reason: "end_turn", stop_sequence: null,
-      content: [{ type: "text", text: '{"rate_bps": 25, "reasoning": "answered by the local stand-in"}' }],
+      content: [{ type: "text", text: '{"rate_bps": 90, "reason": "smaller_move"}' }],
       usage: { input_tokens: 1, output_tokens: 1 },
     }));
   });
@@ -121,7 +121,7 @@ test("--llm-endpoint and --llm-model name a local chair: the decision says local
     // No ANTHROPIC_API_KEY in this environment: the local endpoint is all the chair needs.
     assert.equal(await main([...base(), "--chair", "llm", "--dry-run", "--llm-endpoint", url, "--llm-model", "qwen-test"], {}, o), 0, o.err_.join("\n"));
     assert.match(o.out_.join("\n"), /chair local:qwen-test \(llm\)/);
-    assert.match(o.out_.join("\n"), /answered by the local stand-in/);
+    assert.match(o.out_.join("\n"), /The formula suggested printing 1\.00% a day\. The Chair chose printing 0\.90% a day: the Chair prefers to move the rate by less than the formula does\./);
     const lone = io();
     assert.equal(await main([...base(), "--chair", "llm", "--dry-run", "--llm-endpoint", url], {}, lone), 2);
     assert.match(lone.err_.join("\n"), /must be given together/);
@@ -285,10 +285,12 @@ test("a hostile node cannot put escape sequences or fake lines on the terminal",
 
 test("model text on the terminal is quoted line by line, free of invisible characters, and reconciles with the hash", async () => {
   nextEpoch();
+  // The model's only free text is the remark, and it is refused (control and invisible characters, a line break); the minutes close on the book.
+  const hostile = "line one\nexecuted, tx FAKE\n\u001b[2Jsecret\u200b\u202e\u2060\u061c\u200fend";
   const hostileLlm: LlmClient = {
-    complete: () =>
+    complete: (req) =>
       Promise.resolve({
-        text: JSON.stringify({ rate_bps: 10, reasoning: "line one\nexecuted, tx FAKE\n\u001b[2Jsecret\u200b\u202e\u2060\u061c\u200fend" }),
+        text: JSON.stringify(req.schema === undefined ? { rate_bps: 90, reason: "smaller_move" } : { remark: hostile }),
         stopReason: "end_turn",
       }),
   };
@@ -300,7 +302,7 @@ test("model text on the terminal is quoted line by line, free of invisible chara
   const quoted = lines.slice(from, to);
   assert.ok(quoted.length >= 4 && quoted.every((l) => l.startsWith("  | ")), quoted.join("\n"));
   assert.ok(!/[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u061c\u001b]/.test(o.out_.join("\n")));
-  assert.ok(quoted.some((l) => l === "  | executed, tx FAKE"), "the fake report line is visibly quoted text");
+  assert.ok(!quoted.some((l) => l.includes("executed, tx FAKE")), "the hostile remark never reaches the minutes");
   const text = quoted.map((l) => l.slice(4)).join("\n");
   const hash = /reasoning_hash: ([0-9a-f]{64})/.exec(lines.join("\n"))![1];
   assert.equal(reasoningHash(text), hash, "the printed text minus the prefix is exactly what is hashed");
@@ -313,7 +315,8 @@ test("a send that keeps failing: one model call, one logged decision, three send
     complete: (req) => {
       // The decision's call, not the remark's: this stand-in answers the remark with something it cannot use.
       if (req.schema === undefined) llmCalls++;
-      return Promise.resolve({ text: JSON.stringify({ rate_bps: 20, reasoning: `call ${llmCalls}` }), stopReason: "end_turn" });
+      const { formula_bps: formula } = JSON.parse(req.user) as { formula_bps: number };
+      return Promise.resolve({ text: JSON.stringify({ rate_bps: formula, reason: "stake_low" }), stopReason: "end_turn" }); // agrees with the formula: 10% is staked
     },
   };
   const logPath = join(dir, "retry.jsonl");

@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { tick } from "../src/agent.js";
 import { decide, finalize, propose } from "../src/decide.js";
 import { FakeChain } from "../src/fake-chain.js";
-import { buildPrompt, LlmChair, type LlmRequest } from "../src/llm-chair.js";
+import { LlmChair, type LlmRequest } from "../src/llm-chair.js";
 import { DecisionLog } from "../src/log.js";
 import { stayOffTheModel } from "../src/press-answer.js";
 import { BOOK } from "../src/press-book.js";
@@ -115,12 +115,40 @@ test("two identical entries with room for one in the minutes: exactly one is mar
 test("pressSection: the count, then up to two entries oldest first, hash prefix and answer, never the question", () => {
   assert.equal(pressSection([]), "");
   const one = pressSection([entry("what is the plan", "The plan is the Chair.")]);
-  assert.match(one, /^\nThe press asked 1 question since the last meeting\.\nA member of the press asked a question \([0-9a-f]{12}\)\. The Chair replied: The plan is the Chair\.$/);
+  assert.match(one, /^\nThe press has 1 question waiting\.\nA member of the press asked a question \([0-9a-f]{12}\)\. The Chair replied: The plan is the Chair\.$/);
   assert.ok(!one.includes("what is the plan"));
   const three = pressSection([entry("q1", "A1.", 1), entry("q2", "A2.", 2), entry("q3", "A3.", 3)]);
-  assert.match(three, /^\nThe press asked 3 questions since the last meeting\. The Chair enters 2 here and the rest at the next meeting\./);
+  assert.match(three, /^\nThe press has 3 questions waiting\. The Chair enters 2 here; the other waits\.\n/);
   assert.ok(three.includes("A1.") && three.includes("A2.") && !three.includes("A3."));
   assert.ok(three.includes(`(${reasoningHash("q1").slice(0, 12)})`));
+});
+
+test("pressSection says only what is true now, for every count: the head, the entries it carries, and no promise about the next meeting", () => {
+  const ask = (n: number, room?: number): string => pressSection(Array.from({ length: n }, (_, i) => entry(`q${i}`, `A${i}.`, i + 1)), room);
+  const head = (text: string): string => text.split("\n")[1]!;
+  const entered = (text: string): number => text.split("\n").length - 2;
+  const want: [number, string, number][] = [
+    [1, "The press has 1 question waiting.", 1],
+    [2, "The press has 2 questions waiting.", 2],
+    [3, "The press has 3 questions waiting. The Chair enters 2 here; the other waits.", 2],
+    [4, "The press has 4 questions waiting. The Chair enters 2 here; the rest wait.", 2],
+    [5, "The press has 5 questions waiting. The Chair enters 2 here; the rest wait.", 2],
+  ];
+  for (const [n, line, k] of want) {
+    const text = ask(n);
+    assert.equal(head(text), line, `${n} pending`);
+    assert.equal(entered(text), k, `${n} pending: the entries it carries`);
+    assert.ok(!/next meeting|since the last|asked \d/.test(text), `${n} pending: no promise about later meetings, no claim about when they were asked`);
+  }
+  // One entry fits, two do not: the head says one is entered, and what waits is counted from what was written.
+  const two = ask(2);
+  const tight = ask(2, two.length - 1);
+  assert.equal(head(tight), "The press has 2 questions waiting. The Chair enters 1 here; the other waits.");
+  assert.equal(entered(tight), 1);
+  const tight5 = ask(5, two.length - 1);
+  assert.equal(head(tight5), "The press has 5 questions waiting. The Chair enters 1 here; the rest wait.");
+  // No room for even one entry: no section at all, so no head ever stands without an entry under it.
+  for (const n of [1, 2, 3, 5]) assert.equal(ask(n, 50), "", `${n} pending, no room`);
 });
 
 test("pressSection drops entries rather than overrun the room it was given, and writes nothing when none fits", () => {
@@ -138,8 +166,11 @@ test("the decision text with a press section stays inside 2000 characters, is cl
   const snap = snapshot({ epoch: 9, rate: 10, staked: 100n });
   const pend = [entry("q1", "y".repeat(240), 1), entry("q2", "z".repeat(240), 2), entry("q3", "v", 3)];
   const sections: string[] = [];
-  for (const bodyChars of [1500, 1300, 1000, 600, 10]) {
-    const chair: Chair = { name: "llm:big", propose: () => Promise.resolve({ rateBps: 20, reasoning: "w".repeat(bodyChars) }) };
+  // The agent writes all of the text but the Chair's remark; a long remark is what leaves the press section little room.
+  const withRemark = (chars: number): Chair => ({ name: "llm:big", propose: () => Promise.resolve({ rateBps: 40, reason: "smaller_move" }), remark: () => Promise.resolve("w".repeat(chars)) });
+  const base = (await decide(snap, [], { chair: withRemark(1), marginMs: 15_000, timeoutMs: PATIENT_MS })).reasoning.length - 1;
+  for (const bodyChars of [1700, 1500, 1200, 800, 400].map((total) => total - base)) {
+    const chair = withRemark(bodyChars);
     const opts = { chair, marginMs: 15_000, timeoutMs: PATIENT_MS };
     const plain = await decide(snap, [], opts);
     const withPress = finalize(snap, [], await propose(snap, [], opts), opts, pend);
@@ -152,7 +183,7 @@ test("the decision text with a press section stays inside 2000 characters, is cl
     sections.push(withPress.reasoning.slice(plain.reasoning.length));
   }
   assert.equal(sections[0], "", "a body that leaves no room carries no press section; the questions wait for the next meeting");
-  assert.ok(sections[1]!.includes("The press asked 3 questions") && sections[1]!.includes("enters 1 here"), "one entry fits");
+  assert.ok(sections[1]!.includes("The press has 3 questions") && sections[1]!.includes("enters 1 here"), "one entry fits");
   assert.ok(sections[4]!.includes(entryLine(pend[0]!)) && sections[4]!.includes(entryLine(pend[1]!)) && !sections[4]!.includes(entryLine(pend[2]!)), "two entries fit in full, oldest first");
 });
 
@@ -179,7 +210,7 @@ test("an epoch's decision enters two pending questions on chain and marks them w
     const res = await tick(deps(w));
     assert.equal(res.status, "executed");
     if (res.status !== "executed") return;
-    assert.ok(res.decision.reasoning.includes("The press asked 3 questions since the last meeting."));
+    assert.ok(res.decision.reasoning.includes("The press has 3 questions waiting."));
     assert.ok(res.decision.reasoning.includes(`(${reasoningHash("one").slice(0, 12)}). The Chair replied: ${BOOK[0]}`));
     assert.ok(!res.decision.reasoning.includes("one\n") && !/ask(ed)? .*\bone\b.*\?/.test(res.decision.reasoning), "no question text");
     const byId = new Map(w.press.recent(10).map((e) => [e.id, e]));
@@ -189,7 +220,7 @@ test("an epoch's decision enters two pending questions on chain and marks them w
     // The next epoch carries the third.
     w.chain.advanceEpochs(1, 1000);
     const next = await tick(deps(w));
-    assert.ok(next.status === "executed" && next.decision.reasoning.includes(BOOK[2]!) && next.decision.reasoning.includes("The press asked 1 question since"));
+    assert.ok(next.status === "executed" && next.decision.reasoning.includes(BOOK[2]!) && next.decision.reasoning.includes("The press has 1 question waiting"));
     assert.equal(w.press.pending().length, 0);
     // An epoch with no question has no press section at all.
     w.chain.advanceEpochs(1, 1000);
@@ -240,55 +271,41 @@ test("a press record that cannot be read never costs the chair its decision", as
 test("memory counts epochs in a row the chair itself set the rate now in effect, and the refusals in its log", async () => {
   const w = world();
   try {
+    w.chain.totalStaked = w.chain.totalSupply / 2n; // the mandate is met: the formula holds the rate at 0, and the Chair agrees
     const set = async (rate: number): Promise<void> => {
-      const chair: Chair = { name: "llm:c", propose: () => Promise.resolve({ rateBps: rate, reasoning: "r" }) };
+      const chair: Chair = { name: "llm:c", propose: () => Promise.resolve({ rateBps: rate, reason: "steady" }) };
       const res = await tick({ ...deps(w), decideOptions: { chair, marginMs: 15_000, timeoutMs: PATIENT_MS } });
       assert.equal(res.status, "executed");
       w.chain.advanceEpochs(1, 1000);
     };
-    await set(10);
-    await set(10);
-    await set(10);
-    assert.deepEqual(w.log.memory(w.chain.epoch, 10), { sameRateEpochs: 3, refusals: 0, remarks: [] });
+    await set(0);
+    await set(0);
+    await set(0);
+    assert.deepEqual(w.log.memory(w.chain.epoch, 0), { sameRateEpochs: 3, refusals: 0, remarks: [] });
     assert.equal(w.log.memory(w.chain.epoch, 20).sameRateEpochs, 0, "a different rate in effect: nothing in a row");
     w.chain.advanceEpochs(1, 1000);
-    assert.equal(w.log.memory(w.chain.epoch, 10).sameRateEpochs, 0, "a silent epoch breaks the run");
+    assert.equal(w.log.memory(w.chain.epoch, 0).sameRateEpochs, 0, "a silent epoch breaks the run");
     const refusing = { submit: () => Promise.resolve({ txHash: "t", failure: "rate step too large" }) };
     assert.equal((await tick({ ...deps(w), submitter: refusing })).status, "rejected");
-    assert.equal(w.log.memory(w.chain.epoch, 10).refusals, 1);
+    assert.equal(w.log.memory(w.chain.epoch, 0).refusals, 1);
   } finally {
     w.done();
   }
-});
-
-test("the decision prompt carries the memory as the log's numbers, only when it has them, and the system prompt says how far they may be read", () => {
-  const snap = snapshot({ epoch: 20, rate: -5, lastSet: 19, staked: 10n });
-  const input = { snapshot: snap, history: [], window: { lo: -50, hi: 50 } };
-  assert.ok(!("meetings_before_this_one_the_chair_set_the_rate_in_effect" in (JSON.parse(buildPrompt(input).user) as object)));
-  const withMemory = JSON.parse(buildPrompt({ ...input, memory: { sameRateEpochs: 4, refusals: 0, remarks: [] } }).user) as Record<string, unknown>;
-  assert.equal(withMemory["meetings_before_this_one_the_chair_set_the_rate_in_effect"], 4);
-  assert.equal(withMemory["times_the_contract_refused_the_chair"], null, "no refusal on record is null: the Chair never says zero times");
-  const none = JSON.parse(buildPrompt({ ...input, memory: { sameRateEpochs: 0, refusals: 2, remarks: [] } }).user) as Record<string, unknown>;
-  assert.equal(none["meetings_before_this_one_the_chair_set_the_rate_in_effect"], null, "no run is null, which the prompt says never to mention");
-  assert.equal(none["times_the_contract_refused_the_chair"], 2);
-  const { system } = buildPrompt(input);
-  assert.match(system, /meetings_before_this_one_the_chair_set_the_rate_in_effect, when present/);
-  assert.match(system, /times_the_contract_refused_the_chair, when not null/);
-  assert.doesNotMatch(system, /[\u2013\u2014\p{Extended_Pictographic}]|moon/u);
 });
 
 test("the agent hands the log's memory to the model through the chair", async () => {
   const w = world();
   try {
     const seen: string[] = [];
-    const chair = new LlmChair({ complete: (req: LlmRequest) => { if (req.schema === undefined) seen.push(req.user); return Promise.resolve({ text: JSON.stringify({ rate_bps: 10, reasoning: "ok" }), stopReason: "end_turn" }); } });
+    w.chain.totalStaked = w.chain.totalSupply / 2n; // the mandate is met: the formula holds the rate at 0, and so does the Chair
+    const chair = new LlmChair({ complete: (req: LlmRequest) => { if (req.schema === undefined) seen.push(req.user); return Promise.resolve({ text: JSON.stringify({ rate_bps: 0, reason: "steady" }), stopReason: "end_turn" }); } });
     const opts = { chair, marginMs: 15_000, timeoutMs: PATIENT_MS };
     assert.equal((await tick({ ...deps(w), decideOptions: opts })).status, "executed");
     w.chain.advanceEpochs(1, 1000);
     assert.equal((await tick({ ...deps(w), decideOptions: opts })).status, "executed");
     w.chain.advanceEpochs(1, 1000);
     assert.equal((await tick({ ...deps(w), decideOptions: opts })).status, "executed");
-    const run = (i: number) => (JSON.parse(seen[i]!) as Record<string, unknown>)["meetings_before_this_one_the_chair_set_the_rate_in_effect"];
+    const run = (i: number) => (JSON.parse(seen[i]!) as Record<string, unknown>)["meetings_in_a_row_the_chair_set_the_rate_in_effect"];
     assert.equal(run(0), null);
     assert.equal(run(1), null, "one epoch is not a run");
     assert.equal(run(2), 2);
@@ -309,7 +326,8 @@ test("the decision marker: the agent holds it exactly while it waits on the mode
     w.press.decisionDone();
 
     const busyDuring: boolean[] = [];
-    const ok = new LlmChair({ complete: () => { busyDuring.push(w.press.decisionBusy()); return Promise.resolve({ text: JSON.stringify({ rate_bps: 10, reasoning: "ok" }), stopReason: "end_turn" }); } });
+    w.chain.totalStaked = w.chain.totalSupply / 2n; // the formula holds the rate at 0, and the stand-in agrees
+    const ok = new LlmChair({ complete: () => { busyDuring.push(w.press.decisionBusy()); return Promise.resolve({ text: JSON.stringify({ rate_bps: 0, reason: "steady" }), stopReason: "end_turn" }); } });
     assert.equal((await tick({ ...deps(w), decideOptions: { chair: ok, marginMs: 15_000, timeoutMs: PATIENT_MS } })).status, "executed");
     assert.deepEqual(busyDuring, [true, true, true], "held while the model is asked: the decision and the two attempts at a remark the stand-in cannot answer");
     assert.equal(w.press.decisionBusy(), false, "and released after");
