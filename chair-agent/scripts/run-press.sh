@@ -8,18 +8,18 @@
 #   CHAIR_RPC_URL, CHAIR_TOKEN, CHAIR_ACCOUNT   the chain, the token and the chair account (as run-chair.sh); only "Make the Chair overreach" and "Join the Committee" read them
 #   CHAIR_OVERREACH_KEY_FILE              the chair account's key file; set it (the unit does) to switch "Make the Chair overreach" on, unset it to switch it off
 #   CHAIR_VISITOR_ACCOUNT, CHAIR_VISITOR_KEY_FILE   the visitor pool account and its key file; both set (the unit does) switch "Join the Committee" on, unset it to switch it off. No defaults: the unit names the pool account
-#   CHAIR_STATE_DIR                       where press.jsonl lives (default ~/.local/state/chair-agent), shared with run-chair.sh
+#   CHAIR_STATE_DIR                       where press.jsonl lives (default ~/.local/state/chair3-agent), shared with run-chair.sh
 set -euo pipefail
 
 export CHAIR_LLM_ENDPOINT="${CHAIR_LLM_ENDPOINT:-http://127.0.0.1:18020}"
 export CHAIR_LLM_MODEL="${CHAIR_LLM_MODEL:-qwen3.8-27b}"
 export CHAIR_PRESS_PORT="${CHAIR_PRESS_PORT:-18790}"
 export CHAIR_RPC_URL="${CHAIR_RPC_URL:-https://test.rpc.fastnear.com}"
-export CHAIR_TOKEN="${CHAIR_TOKEN:-token.chair-coin-2.testnet}"
-export CHAIR_ACCOUNT="${CHAIR_ACCOUNT:-challenger.chair-coin-2.testnet}"
+export CHAIR_TOKEN="${CHAIR_TOKEN:-token.chair-coin-3.testnet}"
+export CHAIR_ACCOUNT="${CHAIR_ACCOUNT:-challenger.chair-coin-3.testnet}"
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-state="${CHAIR_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/chair-agent}"
+state="${CHAIR_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/chair3-agent}"
 
 if [ ! -f "$root/dist/src/main.js" ]; then
   echo "run-press: $root/dist/src/main.js is missing; run: npm ci && npm run build (in $root)" >&2

@@ -13,7 +13,7 @@ import { createPressServer, listen } from "./press-server.js";
 import { PressStore } from "./press-store.js";
 import { NearRpc } from "./rpc.js";
 import { ruleChair } from "./rule-chair.js";
-import { ChairSigner, PoolSigner, assertFullAccess, assertScoped, loadSecretKey, METHOD } from "./signer.js";
+import { ChairSigner, PoolSigner, assertFullAccess, assertScoped, loadKeyFile, loadSecretKey, METHOD } from "./signer.js";
 import { sanitize } from "./text.js";
 import { accountId, int } from "./validate.js";
 import type { Decision } from "./types.js";
@@ -41,7 +41,7 @@ run options (each also read from the environment variable in brackets):
 
 press options:
   --port <n>           listen on 127.0.0.1:<n> [CHAIR_PRESS_PORT]   default 18790
-  --press <file>       the press record, shared with the agent [CHAIR_PRESS]   default ~/.local/state/chair-agent/press.jsonl
+  --press <file>       the press record, shared with the agent [CHAIR_PRESS]   default ~/.local/state/chair3-agent/press.jsonl
   --llm-endpoint <url> --llm-model <id>   the model on this machine that answers (both required) [CHAIR_LLM_ENDPOINT, CHAIR_LLM_MODEL]
 
 The key: CHAIR_KEY (ed25519:...) or CHAIR_KEY_FILE (a file holding it). The LLM chair also needs
@@ -230,7 +230,7 @@ async function overreachFrom(env: NodeJS.ProcessEnv, io: Io): Promise<Overreach 
     const account = accountId(env["CHAIR_ACCOUNT"], "CHAIR_ACCOUNT");
     const rpc = new NearRpc(rpcUrl);
     if ((await rpc.chainId()) === "mainnet") throw new Error("refusing to run against mainnet: this is a test-network experiment");
-    const sender = new ChairSigner(loadSecretKey({ CHAIR_KEY_FILE: keyFile }, (m) => io.err(`WARNING: ${m}`)), account, token, rpc);
+    const sender = new ChairSigner(loadKeyFile(keyFile, "CHAIR_OVERREACH_KEY_FILE", (m) => io.err(`WARNING: ${m}`)), account, token, rpc);
     assertScoped(await rpc.accessKey(account, await sender.publicKey()), token);
     io.out(`overreach on: ${account} signs, the contract at ${token} decides`);
     return new Overreach({ reader: new ChainReader(rpc, token), chairAccount: account, sender, log: (line) => io.out(line) });
@@ -254,7 +254,7 @@ async function joinFrom(env: NodeJS.ProcessEnv, io: Io): Promise<Join | null> {
     const pool = accountId(env["CHAIR_VISITOR_ACCOUNT"], "CHAIR_VISITOR_ACCOUNT");
     const rpc = new NearRpc(rpcUrl);
     if ((await rpc.chainId()) === "mainnet") throw new Error("refusing to run against mainnet: this is a test-network experiment");
-    const sender = new PoolSigner(loadSecretKey({ CHAIR_KEY_FILE: keyFile }, (m) => io.err(`WARNING: ${m}`)), pool, token, rpc);
+    const sender = new PoolSigner(loadKeyFile(keyFile, "CHAIR_VISITOR_KEY_FILE", (m) => io.err(`WARNING: ${m}`)), pool, token, rpc);
     assertFullAccess(await rpc.accessKey(pool, await sender.publicKey()));
     io.out(`join on: ${pool} stakes and unstakes at the contract at ${token}`);
     return new Join({ reader: new ChainReader(rpc, token, pool), sender, poolAccount: pool, log: (line) => io.out(line) });
@@ -272,7 +272,7 @@ async function pressCommand(args: readonly string[], env: NodeJS.ProcessEnv, io:
     allowPositionals: false,
   });
   const port = int(Number(values.port ?? env["CHAIR_PRESS_PORT"] ?? DEFAULT_PRESS_PORT), "--port", 0, 65_535);
-  const file = values.press ?? env["CHAIR_PRESS"] ?? join(env["XDG_STATE_HOME"] ?? join(homedir(), ".local", "state"), "chair-agent", "press.jsonl");
+  const file = values.press ?? env["CHAIR_PRESS"] ?? join(env["XDG_STATE_HOME"] ?? join(homedir(), ".local", "state"), "chair3-agent", "press.jsonl");
   const endpoint = values["llm-endpoint"] ?? env["CHAIR_LLM_ENDPOINT"];
   const model = values["llm-model"] ?? env["CHAIR_LLM_MODEL"];
   let client = deps.llmClient;

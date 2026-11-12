@@ -34,6 +34,12 @@ export function parseRecord(j) {
   return { direction: j.direction, tx: j.tx_hash, shareBefore: j.share_before_bps, shareAfter: j.share_after_bps, epoch: j.epoch, meetingEpoch: j.meeting_epoch, meetingAtMs: j.meeting_at_ms, atMs: j.at_ms };
 }
 
+/** The desk's step (bps of the supply) and the number of steps the pool may hold, or null when they are not both there and the pool's whole cap is under the whole supply. */
+export function parseLimits(j) {
+  const ok = int(j.step_bps) && int(j.cap_steps) && j.step_bps > 0 && j.cap_steps > 0 && j.step_bps * j.cap_steps < 10_000;
+  return ok ? { stepBps: j.step_bps, capSteps: j.cap_steps } : null;
+}
+
 const toWire = (r) => ({ direction: r.direction, tx_hash: r.tx, share_before_bps: r.shareBefore, share_after_bps: r.shareAfter, epoch: r.epoch, meeting_epoch: r.meetingEpoch, meeting_at_ms: r.meetingAtMs, at_ms: r.atMs });
 
 /** The share the minutes state, in bps, and the words around it, or null: "11.00% of all coins are staked" (rule-chair.ts writes exactly that). */
@@ -46,6 +52,9 @@ export function minutesShare(text) {
 
 const chairOf = (text) => /^\$CHAIR decision, epoch \d+, chair (.+)\.$/m.exec(String(text))?.[1] ?? null;
 const rateWords = (bps) => (bps > 0 ? `${fmtPct(bps)} a day` : bps === 0 ? "nothing" : `a burn of ${fmtPct(bps)}`);
+/** A rate without its unit when it is a printing rate and the unit is said elsewhere in the sentence: "down from 0.29%". */
+const bare = (bps) => (bps > 0 ? fmtPct(bps) : rateWords(bps));
+const rangeWords = (a, b) => (a > 0 && b > 0 ? `${fmtPct(a)} to ${fmtPct(b)} a day` : `${rateWords(a)} to ${rateWords(b)}`);
 
 /** The rate the mandate asks for when `share` of the coins is staked, whoever the Chair is: rule-chair.ts `mandateRate`. */
 const mandate = (share, maxRateBps) => Math.max(-maxRateBps, Math.min(maxRateBps, Math.trunc((TARGET_BPS - share) / BPS_PER_RATE_BPS))) || 0;
@@ -60,14 +69,14 @@ function ruleRate(share, was, maxRateBps, maxStepBps) {
 
 /**
  * One plain sentence on what the press did to the Chair's rate, and whether the data supports saying it did. `record` is the press, `decision` the
- * Chair's next decision (the chain's rate before and after), `minutes` the verified text it signed or null. Cause is claimed only when the Chair is the
- * rule chair, the minutes state the share, and the rule applied to that share, without the step the press added, gives a different rate than the one chosen.
- * Any other Chair (a language model, which weighs more than the mandate) gets the part that is arithmetic: what the mandate asks for with and without the
- * press, and what the Chair then set, with no cause claimed. Anything else is said as what it is: other accounts moved the share too, the step was inside
- * the dead band, the step limit bound, or no cause can be shown.
+ * Chair's next decision (the chain's rate before and after), `minutes` the verified text it signed or null, `yours` whether the visitor looking made it.
+ * Cause is claimed only when the Chair is the rule chair, the minutes state the share, and the rule applied to that share, without the step the press
+ * added, gives a different rate than the one chosen. Any other Chair (a language model, which weighs more than the mandate) gets the part that is
+ * arithmetic: the mandate's target before and after the press, and what the Chair then set, with no cause claimed. Anything else is said as what it is:
+ * other accounts moved the share too, the step was inside the dead band, the step limit bound, or no cause can be shown.
  * @returns {{ sentence: string, cause: boolean }}
  */
-export function explainJoin({ record, decision, minutes = null, maxRateBps = 200, maxStepBps = 50 }) {
+export function explainJoin({ record, decision, minutes = null, yours = false, maxRateBps = 200, maxStepBps = 50 }) {
   const { rateBps: now, previousRateBps: was } = decision;
   const figures = `${rateWords(was)} before, ${rateWords(now)} now`;
   const moved = record.shareAfter - record.shareBefore;
@@ -83,8 +92,10 @@ export function explainJoin({ record, decision, minutes = null, maxRateBps = 200
   if (chairOf(minutes) !== RULE_CHAIR) {
     const asks = mandate(stated.bps, maxRateBps);
     const without = mandate(stated.bps - moved, maxRateBps);
-    const target = asks === without ? `At ${fmtPct(stated.bps)} staked the Chair's mandate asks for ${rateWords(asks)}, and it would have asked for the same without this press: one step is too small to move it.` : `At ${fmtPct(stated.bps)} staked the Chair's mandate asks for ${rateWords(asks)}; without this press it would have asked for ${rateWords(without)}.`;
-    return { sentence: `${target} The Chair then set ${rateWords(now)}, from ${rateWords(was)}. The Chair also uses its own judgment, so the press is not claimed as the cause.${others}`, cause: false };
+    const target = asks === without ? `At ${fmtPct(stated.bps)} staked the Chair's mandate asks for ${rateWords(asks)}, and it would have asked for the same without this press: one step is too small to move it.` : `${yours ? "Your" : "This"} press moved the Chair's target from ${rangeWords(without, asks)}.`;
+    const set = now === was ? `The Chair kept its rate at ${rateWords(now)}.` : `The Chair then set ${rateWords(now)}, ${now > was ? "up" : "down"} from ${bare(was)}.`;
+    const stepLimit = Math.abs(asks - was) > maxStepBps && Math.abs(now - was) === maxStepBps ? ` The contract lets the Chair move its rate ${fmtPct(maxStepBps)} a meeting at most.` : "";
+    return { sentence: `${target} ${set}${stepLimit}${others}`, cause: false };
   }
   const wouldBe = ruleRate(stated.bps - moved, was, maxRateBps, maxStepBps);
   const did = ruleRate(stated.bps, was, maxRateBps, maxStepBps);
@@ -131,6 +142,7 @@ export function createJoin(doc, host, { section = null, request, explorer = null
   let earlier = readStored(); // the latest press on record that is not this visitor's: from the desk, or kept from an earlier visit
   let next = "join";
   let pool = null;
+  let limits = null; // the desk's step and cap, as it reports them: { stepBps, capSteps }
   let skew = 0; // the desk's clock minus this one
   let tries = 0;
   let lastRead = 0;
@@ -149,10 +161,13 @@ export function createJoin(doc, host, { section = null, request, explorer = null
 
   function renderHow() {
     clear(how);
+    const step = limits === null ? null : fmtPct(limits.stepBps);
+    const cap = limits === null ? null : fmtPct(limits.stepBps * limits.capSteps);
+    const shift = limits === null ? "only slightly" : `by about ${fmtPct(limits.stepBps / BPS_PER_RATE_BPS)} a day`;
     how.append(h(doc, "summary", {}, "How this works, and its limits"),
-      h(doc, "p", { class: "note" }, "Each press has the press desk send one call to the token contract on NEAR testnet from a pool account the project funded: stake one step (1% of all coins) while the pool holds less than 4%, then unstake one step a press until it is empty, then start again. The staked share is what the Chair's mandate reads: it eases the rate by (50% minus the staked share) divided by 40 basis points a day."),
-      h(doc, "p", { class: "note" }, "The pool can only stake and unstake. It never backs a challenger and never transfers, and a stake of at most 4% cannot impeach the Chair, which needs a challenger with over 30% of the staked coins and over 5% of all coins. The desk reads the pool's stake from the chain before every press and sends nothing if the call would pass the limit or the read fails. The contract keeps a stake in for two meetings, so a step out right after a step in has to wait."),
-      h(doc, "p", { class: "note" }, "A press is not always a visible change: the Chair ignores a move of under 0.05% a day, and one step shifts its target by only about 0.025% a day, so a single press often changes nothing, and the minutes say so. Each address gets 3 presses an hour and the desk 20 an hour and 200 a day."),
+      h(doc, "p", { class: "note" }, `Each press has the press desk send one call to the token contract on NEAR testnet from a pool account the project funded: stake one step (${step === null ? "a small share" : step} of all coins) while the pool holds less than ${cap === null ? "its limit" : cap}, then unstake one step a press until it is empty, then start again. The staked share is what the Chair's mandate reads: it eases the rate by (50% minus the staked share) divided by 40 basis points a day.`),
+      h(doc, "p", { class: "note" }, `The pool can only stake and unstake. It never backs a challenger and never transfers, and a stake of ${cap === null ? "under 5%" : `at most ${cap}`} cannot impeach the Chair, which needs a challenger with over 30% of the staked coins and over 5% of all coins. The desk reads the pool's stake from the chain before every press and sends nothing if the call would pass the limit or the read fails. The contract keeps a stake in for two meetings, so a step out right after a step in has to wait.`),
+      h(doc, "p", { class: "note" }, `A press is not always a visible change: one step shifts the Chair's target ${shift}, the Chair ignores a difference of under ${fmtPct(DEADBAND_BPS)} a day, so a single press can change nothing, and the minutes say so. Each address gets 3 presses an hour and the desk 20 an hour and 200 a day.`),
       ...(pool === null ? [] : [h(doc, "p", { class: "note" }, "The pool account: ", explorer ? h(doc, "a", { href: `${explorer}/address/${pool}`, rel: "noopener noreferrer", target: "_blank" }, pool) : pool, ".")]));
   }
 
@@ -170,13 +185,13 @@ export function createJoin(doc, host, { section = null, request, explorer = null
   }
 
   /** The minutes for a press: the quote with the share marked, and the sentence the data supports. Null while they are not on the page. */
-  function minutesCard(record, found) {
+  function minutesCard(record, found, yours) {
     const { decision } = found;
     const params = chain().data?.params;
     const kids = [h(doc, "p", { class: "or-k" }, `The Chair's minutes, meeting ${decision.epoch}`)];
     if (found.text !== null) {
       kids.push(quote(found.text));
-      kids.push(h(doc, "p", { class: "jn-says" }, h(doc, "span", { class: "k" }, "In plain words"), " ", explainJoin({ record, decision, minutes: found.text, ...(params ? { maxRateBps: params.maxRateBps, maxStepBps: params.maxStepBps } : {}) }).sentence));
+      kids.push(h(doc, "p", { class: "jn-says" }, h(doc, "span", { class: "k" }, "In plain words"), " ", explainJoin({ record, decision, minutes: found.text, yours, ...(params ? { maxRateBps: params.maxRateBps, maxStepBps: params.maxStepBps } : {}) }).sentence));
     } else {
       kids.push(h(doc, "p", { class: "note" }, found.unverified ? "The text for these minutes does not match the fingerprint the chain holds, so it is not shown and nothing is claimed from it." : "The text of these minutes is not available on this page, so nothing is claimed from it."));
       kids.push(h(doc, "p", { class: "jn-says" }, h(doc, "span", { class: "k" }, "What the chain recorded"), ` The rate went from ${rateWords(decision.previousRateBps)} to ${rateWords(decision.rateBps)}.`));
@@ -208,7 +223,7 @@ export function createJoin(doc, host, { section = null, request, explorer = null
       h(doc, "p", { class: "or-tx" }, txLink(record.tx), " ", fmtTime(record.atMs)),
       h(doc, "p", { class: "or-plain" }, did),
       shares(record),
-      found === null ? (live ? wait : h(doc, "p", { class: "note" }, `The Chair's minutes for meeting ${record.meetingEpoch}, the first to count it, are not on this page.`)) : minutesCard(record, found));
+      found === null ? (live ? wait : h(doc, "p", { class: "note" }, `The Chair's minutes for meeting ${record.meetingEpoch}, the first to count it, are not on this page.`)) : minutesCard(record, found, live));
   }
 
   function renderResult() {
@@ -301,6 +316,7 @@ export function createJoin(doc, host, { section = null, request, explorer = null
       if (!isObj(j)) return;
       next = j.next === "step_down" ? "step_down" : "join";
       pool = isAccountId(j.pool) ? j.pool : null;
+      limits = parseLimits(j);
       sawLast(j.last);
     } catch {
       // Keep what was known.

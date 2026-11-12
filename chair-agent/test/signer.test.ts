@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { RateWindow, DEFAULT_BOUNDS, type RefusedRate } from "../src/bounds.js";
 import { MAX_REASONING_CHARS, reasoningHash } from "../src/reasoning.js";
 import { NearRpc } from "../src/rpc.js";
-import { ChairSigner, GAS, KeyError, POOL_GAS, PoolSigner, STAKE_DEPOSIT, UNSTAKE_DEPOSIT, assertFullAccess, assertScoped, loadSecretKey } from "../src/signer.js";
+import { ChairSigner, GAS, KeyError, POOL_GAS, PoolSigner, STAKE_DEPOSIT, UNSTAKE_DEPOSIT, assertFullAccess, assertScoped, loadKeyFile, loadSecretKey } from "../src/signer.js";
 
 const secret = KeyPair.fromRandom("ed25519").toString();
 const blockHash = baseEncode(createHash("sha256").update("block").digest());
@@ -102,7 +102,15 @@ test("loadSecretKey: env var, bare file, credentials JSON; errors never contain 
     );
     const big = join(dir, "big");
     writeFileSync(big, "x".repeat(5000));
-    assert.throws(() => loadSecretKey({ CHAIR_KEY_FILE: big }), /too large/);
+    assert.throws(() => loadSecretKey({ CHAIR_KEY_FILE: big }), /CHAIR_KEY_FILE is too large/);
+    // The toys' keys are named by their own variables, and an error names the one that was used.
+    assert.equal(loadKeyFile(bare, "CHAIR_VISITOR_KEY_FILE"), secret);
+    assert.throws(() => loadKeyFile(join(dir, "missing"), "CHAIR_VISITOR_KEY_FILE"), /^KeyError: CHAIR_VISITOR_KEY_FILE cannot be read$/);
+    assert.throws(() => loadKeyFile(big, "CHAIR_OVERREACH_KEY_FILE"), /CHAIR_OVERREACH_KEY_FILE is too large/);
+    const warned: string[] = [];
+    chmodSync(bare, 0o644);
+    loadKeyFile(bare, "CHAIR_VISITOR_KEY_FILE", (m) => warned.push(m));
+    assert.deepEqual(warned, ["CHAIR_VISITOR_KEY_FILE is readable by group or others; run chmod 600 on it"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

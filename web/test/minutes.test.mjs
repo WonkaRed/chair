@@ -376,6 +376,19 @@ test("the two boilerplate header lines are metadata, not the quote; a text witho
   assert.match(textOf(metas[0]), /^\$CHAIR decision, epoch 310, chair local:qwen3\.8-27b\.Rate in effect 190 bps; decision 190 bps\.$/);
 });
 
+test("a card says what its rate is measured over in the page's own words, beside the Chair's raw header line", async () => {
+  const lines = (rateBps, previousRateBps, c = ctx(null, new Map())) => {
+    const doc = fakeDoc();
+    const list = host(doc);
+    renderMinutes(doc, list, { decisions: [decision({ epoch: 6 }), decision({ rateBps, previousRateBps })], policy, status: "complete" }, c);
+    return [...walk(list)].filter((n) => n.attrs?.class === "m-line").map(textOf);
+  };
+  assert.match(lines(29, 25)[0], /^Meeting 5\+0\.29% a day \(\+29 bps\), up 0\.04% from \+0\.25%/);
+  assert.match(lines(-10, 0)[0], /\u22120\.10% of every transfer \(\u221210 bps\)/);
+  assert.match(lines(0, 0)[0], /0\.00% \(0 bps\), unchanged/);
+  assert.match(lines(50, 50, ctx(null, new Map()))[0], /\+0\.50% a day/);
+});
+
 test("the hero leads with the prose, the rate as a percent with bps second, what it does, and a verified mark that folds the proof", async () => {
   const text = "$CHAIR decision, epoch 408, chair local:qwen3.8-27b.\nRate in effect 0 bps; decision -15 bps.\nThe Chair cuts the rate by 15 basis points. The Chair has no further comment.";
   const hash = sha(text);

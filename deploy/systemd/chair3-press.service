@@ -8,15 +8,15 @@ ExecStart=%h/Desktop/Projects/Survival/chair-worktrees/runtime/chair-agent/scrip
 Environment=PATH=%h/.local/share/mise/installs/node/26/bin:%h/.local/share/mise/installs/gh/latest/gh_2.103.3_linux_amd64/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 # The overreach panel signs with the chair account's own function-call key (the only key it has; no second key can be added, the account holds no full-access key). Remove this line to switch the feature off.
 Environment=CHAIR_OVERREACH_KEY_FILE=%h/.claude/secrets/survival-testnet/chair3/challenger.chair-coin-3.testnet.key
-# run-press.sh still defaults to the previous token, so the chain is named here.
+# The chain this desk reads and the account that signs the overreach test, named here as well as in run-press.sh so the unit says what it serves.
 Environment=CHAIR_TOKEN=token.chair-coin-3.testnet
 Environment=CHAIR_ACCOUNT=challenger.chair-coin-3.testnet
 Environment=CHAIR_PRESS_PORT=18791
 # press.jsonl of this token only (the old token's is in ~/.local/state/chair-agent); chair3-agent reads the same file.
 Environment=CHAIR_STATE_DIR=%h/.local/state/chair3-agent
-# visitor pool key for the Join the Committee panel; absent = feature off
-# Environment=CHAIR_VISITOR_KEY_FILE=...
-# Environment=CHAIR_VISITOR_ACCOUNT=...
+# The Join the Committee panel: the visitor pool account and its full-access key (a stake needs an attached deposit). Remove both lines to switch the feature off.
+Environment=CHAIR_VISITOR_ACCOUNT=visitors.chair-coin-3.testnet
+Environment=CHAIR_VISITOR_KEY_FILE=%h/.claude/secrets/survival-testnet/chair3/visitors.chair-coin-3.testnet.key
 Restart=always
 RestartSec=5
 

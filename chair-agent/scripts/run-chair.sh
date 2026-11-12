@@ -9,7 +9,7 @@
 # Required: CHAIR_KEY_FILE, the path to the chair's function-call key file (its value is never read here).
 # Optional, with the values of the live testnet deployment as defaults:
 #   CHAIR_RPC_URL, CHAIR_TOKEN, CHAIR_ACCOUNT, CHAIR_LLM_ENDPOINT, CHAIR_LLM_MODEL
-#   CHAIR_STATE_DIR   where the logs and the decision log live (default ~/.local/state/chair-agent)
+#   CHAIR_STATE_DIR   where the logs and the decision log live (default ~/.local/state/chair3-agent)
 # Testnet only: the agent refuses a mainnet RPC, and the key can call set_policy on the token and nothing else.
 set -euo pipefail
 
@@ -27,7 +27,7 @@ RESTART_DELAY_S=60
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 agent="$root/dist/src/main.js"
-state="${CHAIR_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/chair-agent}"
+state="${CHAIR_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/chair3-agent}"
 
 if [ ! -r "$CHAIR_KEY_FILE" ]; then
   echo "run-chair: key file not readable: $CHAIR_KEY_FILE" >&2

@@ -16,7 +16,7 @@ const { UNIT } = await site("amounts.js");
 const coins = (n) => BigInt(n) * UNIT;
 const params = { epochMs: 90_000, startMs: 1, maxRateBps: 200, maxStepBps: 50, impeachThresholdBps: 3000, quorumBps: 500 };
 const supply = { totalSupply: coins(1_600_000), totalStaked: coins(600_000) };
-const policy = { chair: "challenger.chair-coin-2.testnet", streak: 654, rateBps: 25 };
+const policy = { chair: "challenger.chair-coin-3.testnet", streak: 654, rateBps: 25 };
 const text = (n) => n.textContent.replaceAll("\u202f", " "); // coins are grouped with a narrow no-break space
 const find = (n, pred) => [...walk(n)].filter((x) => x.tag !== undefined && pred(x));
 
@@ -53,7 +53,7 @@ test("the panel says the live figures in plain words and the past impeachment wi
   assert.match(t, /my own scripted test accounts voting, not a crowd/);
   assert.match(t, /Holders do not set the rate\. The Chair does/);
   assert.match(t, /How a holder does it/);
-  assert.deepEqual(find(el, (n) => n.tag === "a").map((n) => n.attrs.href), ["https://explorer.example/txns/CvqCjCU3ngrttKnZotBwPzczw6aVHTpkwPEZnYwwZqoD", "https://repo.example/SPEC.md"]);
+  assert.deepEqual(find(el, (n) => n.tag === "a").map((n) => n.attrs.href), ["https://explorer.example/txns/6Wd6BQSZ7GdNYcD2sXkaubK86y4DSnAYeVWnT2SWE7Cn", "https://repo.example/SPEC.md"]);
   assert.doesNotMatch(t, /—|–|NaN|undefined/);
   const again = renderHolders(doc, el, m, {});
   assert.equal(find(el, (n) => n.attrs?.class === "hold-grid").length, 1, "re-rendering replaces, never stacks");
@@ -156,7 +156,7 @@ test("the caption says which line it is: the fallback, then the chain's newest a
   const tx = "GuLkS2VJmnxq9gL6tJH7PD2tMRUnqv7FV721cbw2Fo2a";
   const fig = figure(doc, { tx, epoch: "525" });
   linkFallback(doc, fig, "https://explorer.example");
-  assert.equal(text(fig.caption), "A line the Chair gave the press, meeting 525. On chain");
+  assert.equal(text(fig.caption), "A line the Chair gave the press on the earlier token, meeting 525. On chain");
   assert.equal(find(fig.caption, (n) => n.tag === "a")[0].attrs.href, `https://explorer.example/txns/${tx}`);
   setPullQuote(doc, fig, { answer: "A new line.‮", epoch: 700, tx }, { explorer: "https://explorer.example", live: true });
   assert.equal(text(fig.quote), "A new line.\\u{202e}");

@@ -14,7 +14,7 @@ const { pressFromChain } = await import(join(root, "site", "js", "press.js"));
 const EXPLORER = "https://example.invalid";
 const RPC = "https://rpc.example.invalid";
 const TX = "5".repeat(44);
-const SIGNER = "challenger.chair-coin-2.testnet";
+const SIGNER = "challenger.chair-coin-3.testnet";
 const ID = "123e4567-e89b-42d3-a456-426614174000";
 const EVIL = "<img src=x onerror=alert(1)>\u202e\u2066\u200b\u0007 <script>alert(1)</script>";
 const HIDDEN = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/;

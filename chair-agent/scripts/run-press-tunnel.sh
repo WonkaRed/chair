@@ -8,13 +8,13 @@
 # which is published again) after three misses in a row or when cloudflared dies.
 #
 # Required: PRESS_GIST_ID, the id of a gist the logged-in `gh` may edit (see chair-agent/README.md, "Press conference").
-# Optional: CHAIR_PRESS_PORT (default 18790), CHAIR_STATE_DIR (default ~/.local/state/chair-agent; the tunnel log goes here).
+# Optional: CHAIR_PRESS_PORT (default 18790), CHAIR_STATE_DIR (default ~/.local/state/chair3-agent; the tunnel log goes here).
 # Nothing here reads a secret: cloudflared needs none, and `gh` uses its own stored login.
 set -euo pipefail
 
 : "${PRESS_GIST_ID:?set PRESS_GIST_ID to the id of the gist that publishes the tunnel address}"
 port="${CHAIR_PRESS_PORT:-18790}"
-state="${CHAIR_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/chair-agent}"
+state="${CHAIR_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/chair3-agent}"
 mkdir -p "$state"
 log="$state/press-tunnel.log"
 

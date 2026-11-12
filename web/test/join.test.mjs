@@ -9,12 +9,12 @@ import { join } from "node:path";
 import { fakeDoc, host, walk } from "./fakedom.mjs";
 
 const root = join(fileURLToPath(import.meta.url), "..", "..");
-const { createJoin, explainJoin, findMinutes, minutesShare, parseRecord, STORE_KEY, WATCH_TRIES } = await import(join(root, "site", "js", "join.js"));
+const { createJoin, explainJoin, findMinutes, minutesShare, parseLimits, parseRecord, STORE_KEY, WATCH_TRIES } = await import(join(root, "site", "js", "join.js"));
 
 const EXPLORER = "https://example.invalid";
 const TX = "5".repeat(44);
 const DTX = "7".repeat(44);
-const POOL = "visitors.chair-coin-2.testnet";
+const POOL = "visitors.chair-coin-3.testnet";
 const EVIL = "<img src=x onerror=alert(1)>\u202e\u2066\u200b\u0007 <script>alert(1)</script>";
 const HIDDEN = /[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u00ad\u061c\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff]/;
 const FORBIDDEN = new Set(["script", "img", "iframe", "style", "object", "embed", "link"]);
@@ -112,15 +112,50 @@ test("no cause is claimed from minutes that do not state the share, or from anot
   assert.equal(explain(110, 97, { before: 1100, after: 1100 }).cause, false, "a press that moved nothing moved nothing");
 });
 
-test("a Chair that is not the rule chair gets the arithmetic only: what the mandate asks for with and without the press, and no cause", () => {
-  const e = explain(110, 97, { chair: "local:qwen3.8-27b" });
-  assert.deepEqual(e, { sentence: "At 11.00% staked the Chair's mandate asks for 0.97% a day; without this press it would have asked for 1.00% a day. The Chair then set 0.97% a day, from 1.10% a day. The Chair also uses its own judgment, so the press is not claimed as the cause.", cause: false });
-  const small = explain(100, 100, { share: "11.01", before: 1100, after: 1101, chair: "local:qwen3.8-27b" });
-  assert.match(small.sentence, /it would have asked for the same without this press: one step is too small to move it\. The Chair then set 1\.00% a day, from 1\.00% a day\./);
-  const others = explain(110, 95, { share: "12.00", chair: "local:qwen3.8-27b" });
-  assert.match(others.sentence, /Other accounts moved the share the same way too\.$/);
-  const against = explain(110, 97, { share: "10.50", chair: "local:qwen3.8-27b" });
-  assert.match(against.sentence, /other coins moved the other way/);
+test("a Chair that is not the rule chair: the target before and after the press, what it set, and the word cause never", () => {
+  const model = (was, now, over = {}) => explain(was, now, { chair: "local:qwen3.8-27b", before: 3820, after: 4020, share: "40.20", ...over });
+  // The press moved the target from 0.29% to 0.24% a day and the Chair set it: said as that, with "up from" for the step the other way.
+  assert.deepEqual(model(29, 24), { sentence: "This press moved the Chair's target from 0.29% to 0.24% a day. The Chair then set 0.24% a day, down from 0.29%.", cause: false });
+  assert.equal(explainJoin({ record: record({ share_before_bps: 3820, share_after_bps: 4020 }), decision: decision(29, 24), minutes: minutesOf("40.20", "local:qwen3.8-27b"), yours: true }).sentence.slice(0, 10), "Your press");
+  assert.match(model(24, 29, { before: 4020, after: 3820, share: "38.20" }).sentence, /^This press moved the Chair's target from 0\.24% to 0\.29% a day\. The Chair then set 0\.29% a day, up from 0\.24%\.$/);
+  // Within a basis point of the target counts as landing on it, and a different rate is stated as it is.
+  assert.match(model(29, 25).sentence, /target from 0\.29% to 0\.24% a day\. The Chair then set 0\.25% a day, down from 0\.29%\.$/);
+  assert.match(model(29, 27).sentence, /The Chair then set 0\.27% a day, down from 0\.29%\.$/);
+  // Kept: said as kept. No apology sentence.
+  assert.match(model(29, 29).sentence, /target from 0\.29% to 0\.24% a day\. The Chair kept its rate at 0\.29% a day\.$/);
+  // The step limit, only when it is the true reason: the target is further than a meeting's step and the rate moved exactly that far.
+  const bound = model(100, 50, { before: 1100, after: 1200, share: "12.00" });
+  assert.match(bound.sentence, /target from 0\.97% to 0\.95% a day\./, "mandate(12%) is 95, without the press 97");
+  const limited = explainJoin({ record: record({ share_before_bps: 3600, share_after_bps: 3800 }), decision: decision(100, 50), minutes: minutesOf("38.00", "local:qwen3.8-27b"), maxRateBps: 200, maxStepBps: 50 });
+  assert.match(limited.sentence, /The Chair then set 0\.50% a day, down from 1\.00%\. The contract lets the Chair move its rate 0\.50% a meeting at most\.$/);
+  assert.doesNotMatch(model(29, 25).sentence, /meeting at most/);
+  // One step too small to move the target.
+  const small = model(100, 100, { share: "11.01", before: 1100, after: 1101 });
+  assert.match(small.sentence, /it would have asked for the same without this press: one step is too small to move it\. The Chair kept its rate at 1\.00% a day\./);
+  assert.match(model(29, 24, { share: "41.00" }).sentence, /Other accounts moved the share the same way too\.$/);
+  assert.match(model(29, 27, { share: "39.00" }).sentence, /other coins moved the other way/);
+  for (const e of [model(29, 24), model(29, 29), limited, small, bound]) assert.doesNotMatch(e.sentence, /cause|because of you|judgment|not claimed/i);
+});
+
+test("the desk's step and cap are taken only as two whole numbers whose pool stays under the whole supply", () => {
+  assert.deepEqual(parseLimits({ step_bps: 200, cap_steps: 2 }), { stepBps: 200, capSteps: 2 });
+  for (const bad of [{}, { step_bps: 200 }, { cap_steps: 2 }, { step_bps: 0, cap_steps: 2 }, { step_bps: 200, cap_steps: 0 }, { step_bps: 1.5, cap_steps: 2 }, { step_bps: "200", cap_steps: 2 }, { step_bps: 5000, cap_steps: 2 }, { step_bps: -1, cap_steps: 2 }]) {
+    assert.equal(parseLimits(bad), null, JSON.stringify(bad));
+  }
+});
+
+test("the how-it-works text states the step and cap the desk reports, and says nothing numeric when it reports none", async () => {
+  const p = await panel(() => assert.fail("nothing is sent"), { state: { next: "join", last: null, pool: POOL, step_bps: 200, cap_steps: 2 } });
+  const t = text(p.el);
+  assert.match(t, /stake one step \(2\.00% of all coins\) while the pool holds less than 4\.00%/);
+  assert.match(t, /a stake of at most 4\.00% cannot impeach the Chair/);
+  assert.match(t, /one step shifts the Chair's target by about 0\.05% a day, the Chair ignores a difference of under 0\.05% a day/);
+  const silent = await panel(() => assert.fail("nothing is sent"));
+  const u = text(silent.el);
+  assert.match(u, /stake one step \(a small share of all coins\) while the pool holds less than its limit/);
+  assert.match(u, /a stake of under 5% cannot impeach the Chair/);
+  assert.match(u, /one step shifts the Chair's target only slightly/);
+  assert.doesNotMatch(u + t, /\b1%|0\.025|—|–|NaN|undefined/);
 });
 
 test("burns and nothing are named as what they are", () => {

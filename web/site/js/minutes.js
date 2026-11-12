@@ -104,6 +104,9 @@ const move = (d) => {
   return delta === 0 ? `unchanged from ${fmtSignedPct(d.previousRateBps)}` : `${delta > 0 ? "up" : "down"} ${fmtPct(delta)} from ${fmtSignedPct(d.previousRateBps)}`;
 };
 
+/** A rate in the page's own words, with what it is measured over: "+0.29% a day". The Chair's header line beside it says "Rate in effect 29 bps" and is left as the chain has it. */
+const rateLabel = (bps, unit = "each round") => `${fmtSignedPct(bps)}${bps > 0 ? ` ${unit}` : bps < 0 ? " of every transfer" : ""}`;
+
 /** What a rate does, in the contract's terms (SPEC "Rollover"). */
 const effect = (bps, unit = "each round") => (bps > 0 ? `Mints ${fmtPct(bps)} of supply ${unit} for stakers.` : bps < 0 ? `Burns ${fmtPct(bps)} of every transfer.` : "Nothing minted, nothing burned.");
 
@@ -210,7 +213,7 @@ function card(doc, d, ctx) {
     p.lead,
     h(doc, "p", { class: "m-line" },
       h(doc, "strong", { title: `Epoch ${d.epoch}` }, `Meeting ${d.epoch}`),
-      h(doc, "span", {}, `${fmtSignedPct(d.rateBps)} (${fmtRate(d.rateBps)}), ${move(d)}`),
+      h(doc, "span", {}, `${rateLabel(d.rateBps, ctx.unit)} (${fmtRate(d.rateBps)}), ${move(d)}`),
       pill(doc, p.state),
     ),
     p.meta,

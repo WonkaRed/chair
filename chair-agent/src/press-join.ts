@@ -5,7 +5,7 @@
 // Why a visitor can never impeach the Chair with this: the only calls the pool's signer can build are `stake` and `unstake` (signer.ts `PoolSigner`), so
 // the pool backs no challenger, ever, and `plan` here also refuses to sign when the chain says the pool backs one. Impeachment needs a challenger with
 // more than the threshold share of the staked coins (30% at launch) and more than 5% of the whole supply (SPEC "Voting"); the pool's stake is capped at
-// `capSteps` steps of 1% of the supply, so even a pool that backed a challenger could never reach the 5%.
+// `capSteps` steps of `stepBps` (2% each, 4% at most), so even a pool that backed a challenger could never reach the 5%.
 //
 // The pool is capped against the chain, not against this process's memory: every click reads the pool's stake at the newest block and signs only if
 // the call keeps it within the cap. Direction is read off the chain too: join while there is room for another step, step down once there is not,
@@ -20,10 +20,10 @@ import type { PoolSender, SubmitResult } from "./signer.js";
 import type { PoolView } from "./types.js";
 
 export const DEFAULT_JOIN_LIMITS = {
-  /** One click moves this much of the total supply (floored): 100 bps is 1%. */
-  stepBps: 100,
+  /** One click moves this much of the total supply (floored): 200 bps is 2%. */
+  stepBps: 200,
   /** The pool holds at most this many steps staked. */
-  capSteps: 4,
+  capSteps: 2,
   /** Everything a visitor asks of this endpoint (each ask reads the chain), per address. */
   perIpRequests: 8,
   perIpRequestsWindowMs: 10 * 60_000,
@@ -133,7 +133,7 @@ export class Join {
 
   /** What the next click would do and the latest move that went through: memory only, no chain read, so a page can ask as often as it likes. */
   state(): Reply {
-    return { status: 200, body: { next: this.descending ? "step_down" : "join", last: this.last, pool: this.deps.poolAccount, now_ms: this.now() } };
+    return { status: 200, body: { next: this.descending ? "step_down" : "join", last: this.last, pool: this.deps.poolAccount, step_bps: this.limits.stepBps, cap_steps: this.limits.capSteps, now_ms: this.now() } };
   }
 
   /** A click that did not go through, with the latest real move beside it so the visitor still has something true to look at. */

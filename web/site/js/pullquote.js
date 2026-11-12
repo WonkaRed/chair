@@ -1,5 +1,5 @@
 // The one line near the top of the page. The static HTML holds a real fallback, a press answer the chain holds (it is also in the reviewed book);
-// once the chain is read, the newest press answer in the verified minutes replaces it. The caption always says which of the two is on screen.
+// once the chain is read, the newest press answer in the verified minutes replaces it. The caption always says which of the two is on screen: the fallback is from the earlier token, so it says so.
 import { clear, h } from "./dom.js";
 import { isTxHash, safeText } from "./text.js";
 
@@ -22,7 +22,7 @@ export function setPullQuote(doc, fig, entry, { explorer = null, live = false } 
   quote.textContent = safeText(entry.answer, QUOTE_CAP);
   clear(caption);
   const where = Number.isSafeInteger(entry.epoch) ? `, meeting ${entry.epoch}` : "";
-  caption.append(h(doc, "span", {}, `${live ? "The Chair's newest answer to the press" : "A line the Chair gave the press"}${where}. `));
+  caption.append(h(doc, "span", {}, `${live ? "The Chair's newest answer to the press" : "A line the Chair gave the press on the earlier token"}${where}. `));
   if (explorer !== null && isTxHash(entry.tx)) caption.append(h(doc, "a", { href: `${explorer}/txns/${entry.tx}`, rel: "noopener noreferrer", target: "_blank" }, "On chain"));
 }
 

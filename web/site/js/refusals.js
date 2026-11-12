@@ -14,11 +14,11 @@ const HALL = 3;
  * shown as a refusal and nothing more, so the page never claims intent it cannot back.
  */
 export const PROJECT_TEST_CALLS = new Set([
-  "GoEivE65x1HUgYnXLauMyshze3mKNtK81kiLtvXuGsQJ",
-  "2whKaAEFndEiGy3W8joAtyAJCX9i9ZqHBTgdWBfHfWDf",
-  "Efagw855yoDeJXjNyui9Bt9d4JXfhisMoTm9JCPkHWjf",
-  "AatG3PRYLteoyZ9iBuuKKLXH1pB8ju2sVz6sCsiSVN9m",
-  "4vRNYnRwu1GvHJ2XZWYN9xGo8GhardRaChbt9hVtn1Rz",
+  "4ezzLDqadCD7FHbKqSxa2MibL37iQRya15bM2eBF9Luz",
+  "Ci5327N2ZQTEkBeBDLypHfvckDkFdoEHvqHYLnHkHXvx",
+  "8AB8SGqGAfiWfPerFDPxv29DYg9FL2XrEbGzctZEHLMu",
+  "LQLdPaCKnWvx356ua1h6Zxc57RU8p4intMmswc2BRLQ",
+  "GpN9iZqJNqrUe1mZZFcyKVQnnxiGuYbhUMEvNt8EbTPh",
 ]);
 
 /** The contract's panic messages (contract/src/lib.rs, policy.rs) in plain words. The raw text stays on screen beside it. */

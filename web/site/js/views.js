@@ -126,7 +126,7 @@ export function renderPlain(doc, host, d) {
   const vote = " Holders who staked can vote it out.";
   host.append(h(doc, "p", { class: "now-plain" },
     r > 0 ? ["Right now the AI is printing ", fig(plainPct(r)), ` more coins ${unit} and giving them to holders who staked. The most the contract lets it print is `, limit, ` ${unit}.`, vote]
-      : r < 0 ? ["Right now the AI is burning ", fig(plainPct(r)), " of every transfer. The most the contract lets it burn is ", limit, ".", vote]
+      : r < 0 ? ["Right now the AI is burning ", fig(plainPct(r)), " of every transfer. The most the contract lets it burn is ", limit, " of every transfer.", vote]
         : ["Right now the AI is holding the supply still: nothing is being printed or burned. The most the contract lets it print is ", limit, ` ${unit}.`, vote]));
 }
 

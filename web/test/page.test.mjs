@@ -64,7 +64,7 @@ test("the sentence at the top of the page says what the AI is doing right now, i
   assert.equal(draw(5, oldParams), "Right now the AI is printing 0.05% more coins every 90 seconds and giving them to holders who staked. The most the contract lets it print is 2% every 90 seconds. Holders who staked can vote it out.", "a token without meetings_per_day is per meeting, and the page says so");
   assert.match(draw(0), /The most the contract lets it print is 2% a day\./);
   assert.doesNotMatch(draw(5), /each time|every 90 seconds/);
-  assert.match(draw(-5), /^Right now the AI is burning 0\.05% of every transfer\. The most the contract lets it burn is 2%\. Holders who staked can vote it out\.$/);
+  assert.match(draw(-5), /^Right now the AI is burning 0\.05% of every transfer\. The most the contract lets it burn is 2% of every transfer\. Holders who staked can vote it out\.$/);
   assert.match(draw(0), /^Right now the AI is holding the supply still: nothing is being printed or burned\./);
   for (const r of [5, -5, 0]) assert.doesNotMatch(draw(r), JARGON);
   const doc = fakeDoc();
@@ -241,7 +241,7 @@ test("the Chair's line sits right under the hero, is a real line from the review
   assert.ok(book.includes(`"${fig[3]}"`), "the fallback is a line of the reviewed book");
   assert.match(fig[1], /^[1-9A-HJ-NP-Za-km-z]{43,44}$/);
   assert.ok(html.includes(`data-tx="${fig[1]}" data-epoch="${fig[2]}"><blockquote lang="en">${fig[3]}</blockquote>`) , "the best-of strip holds the same answer, so the transaction is a recorded one");
-  assert.equal(fig[4], `A line the Chair gave the press, meeting ${fig[2]}.`, "labelled as a fallback until the chain's newest answer replaces it");
+  assert.equal(fig[4], `A line the Chair gave the press on the earlier token, meeting ${fig[2]}.`, "labelled as a fallback until the chain's newest answer replaces it");
   const at = (n) => html.indexOf(n);
   assert.ok(at('id="pull"') > at('id="hero-minutes"') && at('id="pull"') < at('id="overreach"'));
 });

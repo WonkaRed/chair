@@ -13,13 +13,13 @@ export const MAX_TOTAL_SUPPLY = ((1n << 128n) - 1n) / 10_000n;
  */
 export const LAUNCH = { maxRateBps: 200, maxStepBps: 50, epochMs: 90_000, launchSupply: 10n ** 30n, impeachThresholdBps: 3_000, quorumBps: 500 };
 
-/** The impeachment that already happened on the testnet: the first call after meeting 10 (event `impeached`, in this transaction). */
+/** The impeachment that already happened on the testnet: the first call that went through after meeting 10 (event `impeached`, in this transaction). */
 export const IMPEACHMENT = {
-  tx: "CvqCjCU3ngrttKnZotBwPzczw6aVHTpkwPEZnYwwZqoD",
+  tx: "6Wd6BQSZ7GdNYcD2sXkaubK86y4DSnAYeVWnT2SWE7Cn",
   epoch: 10,
   backing: "400,000",
   staked: "400,000",
-  newChair: "challenger.chair-coin-2.testnet",
+  newChair: "challenger.chair-coin-3.testnet",
 };
 
 /** A ramp of this many meetings is not the contract's (it takes `ceil(MAX_RATE_BPS / MAX_STEP_BPS)`); it only keeps a malformed `max_step_bps` of 0 from looping. */

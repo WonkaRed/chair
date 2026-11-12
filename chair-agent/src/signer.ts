@@ -23,30 +23,37 @@ export class KeyError extends Error {
 }
 
 /**
- * Finds the chair's secret key: `CHAIR_KEY` holds it, or `CHAIR_KEY_FILE` names a file with it (either the
- * bare `ed25519:...` string or a near-cli credentials JSON with `private_key`). Messages never contain
- * the key or any part of it.
+ * Finds the chair's secret key: `CHAIR_KEY` holds it, or `CHAIR_KEY_FILE` names a file with it (see `loadKeyFile`).
+ * Messages never contain the key or any part of it.
  */
 export function loadSecretKey(env: NodeJS.ProcessEnv, warn: (message: string) => void = () => undefined): string {
   const inline = env["CHAIR_KEY"];
   const path = env["CHAIR_KEY_FILE"];
   if (inline && path) throw new KeyError("set only one of CHAIR_KEY and CHAIR_KEY_FILE");
+  if (inline) return parseKey(inline);
+  if (path) return loadKeyFile(path, "CHAIR_KEY_FILE", warn);
+  throw new KeyError("no key: set CHAIR_KEY or CHAIR_KEY_FILE (a function-call key scoped to set_policy)");
+}
+
+/**
+ * Reads a key file: either the bare `ed25519:...` string or a near-cli credentials JSON with `private_key`. `envVar` is the variable
+ * that named the file (the chair's, the overreach toy's or the visitor pool's), so an error says which one to fix.
+ */
+export function loadKeyFile(path: string, envVar: string, warn: (message: string) => void = () => undefined): string {
   let raw: string;
-  if (inline) {
-    raw = inline;
-  } else if (path) {
-    try {
-      const st = statSync(path);
-      if (st.size > 4096) throw new KeyError("CHAIR_KEY_FILE is too large to be a key file");
-      if ((st.mode & 0o077) !== 0) warn("CHAIR_KEY_FILE is readable by group or others; run chmod 600 on it");
-      raw = readFileSync(path, "utf8");
-    } catch (err) {
-      if (err instanceof KeyError) throw err;
-      throw new KeyError("CHAIR_KEY_FILE cannot be read");
-    }
-  } else {
-    throw new KeyError("no key: set CHAIR_KEY or CHAIR_KEY_FILE (a function-call key scoped to set_policy)");
+  try {
+    const st = statSync(path);
+    if (st.size > 4096) throw new KeyError(`${envVar} is too large to be a key file`);
+    if ((st.mode & 0o077) !== 0) warn(`${envVar} is readable by group or others; run chmod 600 on it`);
+    raw = readFileSync(path, "utf8");
+  } catch (err) {
+    if (err instanceof KeyError) throw err;
+    throw new KeyError(`${envVar} cannot be read`);
   }
+  return parseKey(raw);
+}
+
+function parseKey(raw: string): string {
   let key = raw.trim();
   if (key.startsWith("{")) {
     try {
