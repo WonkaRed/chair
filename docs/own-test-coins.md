@@ -1,0 +1,14 @@
+# The faucet and your own test coins
+
+[Back to the README](../README.md)
+
+## Your own test coins
+
+A third section of the page, "Your own test coins", lets a visitor hold coins of their own. One button makes an ed25519 key in the browser (WebCrypto, kept in that browser's `localStorage`); the account is the key's public half written as 64 hex characters, so nobody has to create it, and only that public half goes to my press desk. The desk's faucet then sends three transactions from the faucet account `chair-faucet-3.testnet`: 0.05 NEAR for gas, the token's `storage_deposit` for the new account, and an `ft_transfer` of 50 CHAIR. After that the visitor stakes, unstakes, claims and sends with their own signature, each call signed in the browser and sent to a public testnet node; the desk never sees the key and has no part in it.
+
+- **Bounded:** 5 grants an hour and 20 a day over all visitors, 3 a day per network address (so a laptop and a phone on one wifi can each have one), and 200 in total: 200 x 50 = 10,000 coins, about 1% of the 1,000,000 launch supply. Seating a challenger takes backing over 5% of all coins (and over 30% of the staked ones), so visitors with the faucet's coins could never vote the Chair out. The totals are kept in a file, so a restart does not give the budget out again; the per-address count is in memory.
+- **The faucet can do three things:** its signer (`FaucetSigner` in `chair-agent/src/signer.ts`) builds only those three calls, with the amounts fixed in code. Each is saved as its signed bytes before it is sent, so a crash or a lost answer resends the same transaction instead of paying again. The account holds only the faucet's budget (200 grants x (50 CHAIR + about 0.06 NEAR), about 12 NEAR), and its key is a full-access key (the desk refuses to start the faucet with any other).
+- **Off, killed, dry or spent:** the faucet is off unless `CHAIR_FAUCET_KEY_FILE` is set, and a file named by `CHAIR_FAUCET_KILL_FILE` closes it the moment it exists. It also closes when the account runs low or the 200 are given, and the page then says it is closed. While the desk cannot be reached the panel says so and looks again by itself.
+- **The honest limit:** these are test coins with no value, from an account I control, and the desk runs on my workstation, so new grants stop whenever it is off. Accounts already funded keep working, since staking, claiming and sending go straight to the chain. There is no captcha: someone determined can use up the caps and keep the faucet closed for a while, and the caps and the kill file are the defence.
+
+Code: [`chair-agent/src/press-faucet.ts`](../chair-agent/src/press-faucet.ts), the page side in [`web/site/js/mine.js`](../web/site/js/mine.js); the details are in [`chair-agent/README.md`](../chair-agent/README.md).
