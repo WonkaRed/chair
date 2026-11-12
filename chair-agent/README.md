@@ -30,7 +30,7 @@ Needs Node 22.22.2 or newer and npm. Dependencies are pinned exactly in `package
 `@types/node` 26.6.6.
 
 ```sh
-make test   # typecheck, then 427 tests with node --test; no network except loopback fakes, no key; temp files go under out/test-tmp (override with CHAIR_TEST_TMP)
+make test   # typecheck, then 441 tests with node --test; no network except loopback fakes, no key; temp files go under out/test-tmp (override with CHAIR_TEST_TMP)
 make demo   # 16 epochs against an in-memory model of the token; prints a table, writes out/demo-decisions.jsonl
 ```
 

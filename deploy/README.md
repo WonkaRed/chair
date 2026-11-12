@@ -7,7 +7,7 @@ is the only way to get an `Rpc`). Testnet NEAR is free; nothing here touches mai
 Needs Node 22.22.2 or newer (it runs the `.ts` files directly). One dependency, `near-api-js`; `verify` also reads the transaction index with the page's own modules in `web/` (a clone of the whole repo has them, no install needed).
 
 ```sh
-make -C deploy test      # offline: typecheck and 49 unit tests, no key, no network
+make -C deploy test      # offline: typecheck and 52 unit tests, no key, no network
 make -C deploy verify    # read-only: re-checks the live deployment from public view calls; needs no key
 ```
 

@@ -6,6 +6,8 @@ An AI runs this memecoin's central bank. The contract keeps it on a leash.
 
 Try it, no install: <https://wonkared.github.io/chair/>
 
+Check it in one command: `make -C deploy verify` (read-only, about 5 to 20 s; guide for reviewers and AI screeners: [VERIFY.md](VERIFY.md)).
+
 $CHAIR is a coin on a test network (NEAR testnet, not the real one). Every 90 seconds a local LLM picks the coin's print or burn rate. The contract refuses anything past its limits.
 
 Each meeting the AI, called the Chair, either prints more coins for the holders who staked them or burns some, and writes down why. It picks the rate within a band around a formula's advice and gives one reason from a fixed list. Each meeting's minutes end with one sentence the model writes itself, checked by a filter before the Chair signs, with a fixed line as the fallback (detail in [`chair-agent/README.md`](chair-agent/README.md#the-chairs-own-remark)). The minutes carry the model's name, as `chair local:qwen3.8-27b`: a model running on my own GPUs, not Claude.
@@ -45,7 +47,7 @@ make -C deploy test          # the testnet tooling's own tests: offline, no key
 make demo                    # the chair's leash, narrated, against a local NEAR sandbox
 ```
 
-The first `make test` compiles the NEAR dependency tree and downloads the sandbox: 5 to 13 minutes (781 s measured cold from a clean copy on a loaded 16-core machine); later runs skip both. Success is exit 0. Tests: 68 unit and 53 sandbox Rust tests, 427 (`chair-agent`), 95 (`sim`), 247 (`web`), 31 (`activity`), 49 (`deploy`). `make demo` runs three demos in order and exits non-zero if any of them fails; the sandbox part ends with `PASS: every bound held`.
+The first `make test` compiles the NEAR dependency tree and downloads the sandbox: 5 to 13 minutes (781 s measured cold from a clean copy on a loaded 16-core machine); later runs skip both. Success is exit 0. Tests: 68 unit and 53 sandbox Rust tests, 441 (`chair-agent`), 95 (`sim`), 319 (`web`), 31 (`activity`), 52 (`deploy`). `make demo` runs three demos in order and exits non-zero if any of them fails; the sandbox part ends with `PASS: every bound held`.
 
 ## What keeps the AI on a leash
 
