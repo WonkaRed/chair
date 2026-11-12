@@ -3,7 +3,7 @@
 export const config = {
   network: "testnet",
   // The deployed token: docs/testnet-deployment.json records it, `make -C deploy verify` re-checks it.
-  account: "token.chair-coin-2.testnet",
+  account: "token.chair-coin-3.testnet",
   // NEAR JSON-RPC: the source of truth for every total on the page. Ordered: the page starts at the first and moves to the next when one
   // is throttled (429), down, or unreachable, then sticks with whichever answered last. Each must answer `query` (call_function,
   // view_access_key_list) and send CORS headers on its answers. Measured 2026-11-11 with the account's own calls, ordered by fewest 429s.

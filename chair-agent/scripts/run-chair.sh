@@ -16,8 +16,8 @@ set -euo pipefail
 : "${CHAIR_KEY_FILE:?set CHAIR_KEY_FILE to the path of the chair function-call key file}"
 export CHAIR_KEY_FILE
 export CHAIR_RPC_URL="${CHAIR_RPC_URL:-https://test.rpc.fastnear.com}"
-export CHAIR_TOKEN="${CHAIR_TOKEN:-token.chair-coin-2.testnet}"
-export CHAIR_ACCOUNT="${CHAIR_ACCOUNT:-challenger.chair-coin-2.testnet}"
+export CHAIR_TOKEN="${CHAIR_TOKEN:-token.chair-coin-3.testnet}"
+export CHAIR_ACCOUNT="${CHAIR_ACCOUNT:-challenger.chair-coin-3.testnet}"
 export CHAIR_LLM_ENDPOINT="${CHAIR_LLM_ENDPOINT:-http://127.0.0.1:18020}"
 export CHAIR_LLM_MODEL="${CHAIR_LLM_MODEL:-qwen3.8-27b}"
 

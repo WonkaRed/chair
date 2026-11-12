@@ -46,18 +46,18 @@ make -C activity test                                   # offline: typecheck and
 export CHAIR_ACTIVITY_KEY_DIR=/path/to/keys             # one <account>.key file per holder; there is no default path
 activity/scripts/run-activity.sh --epochs 3             # a trial: three acting epochs, then it stops
 export CHAIR_ACTIVITY_EVERY=6                           # the default deployment: every 6th epoch
-systemctl --user enable --now chair-activity             # the live unit: deploy/systemd/chair-activity.service (see chair-agent/README.md)
-journalctl --user -u chair-activity -f                  # what it does
-systemctl --user stop chair-activity                    # stop it (SIGTERM; it finishes the call in flight)
+systemctl --user enable --now chair3-activity            # the live unit: deploy/systemd/chair3-activity.service (see chair-agent/README.md)
+journalctl --user -u chair3-activity -f                 # what it does
+systemctl --user stop chair3-activity                   # stop it (SIGTERM; it finishes the call in flight)
 ```
 
 The run script defaults to the live deployment (`CHAIR_TOKEN`, `CHAIR_ACTIVITY_HOLDERS`, `CHAIR_RPC_URL`) and takes
-`CHAIR_ACTIVITY_EVERY`, `CHAIR_ACTIVITY_SEED` and `CHAIR_ACTIVITY_LOG` if set. Key files are read only by the bot (`KeyStore` refuses one that group or
+`CHAIR_ACTIVITY_EVERY`, `CHAIR_ACTIVITY_SEED`, `CHAIR_ACTIVITY_STATE_DIR` (the runner lock and the log; the live unit uses `~/.local/state/chair3-activity`) and `CHAIR_ACTIVITY_LOG` if set. Key files are read only by the bot (`KeyStore` refuses one that group or
 others can read), never printed, logged or copied. The chair's own key is not used and not needed.
 
 ## The log
 
-`~/.local/state/chair-activity/activity.jsonl` (or `$CHAIR_ACTIVITY_LOG`), one JSON object per line: `start` (N, the
+`activity.jsonl` in `$CHAIR_ACTIVITY_STATE_DIR` (default `~/.local/state/chair-activity`; or `$CHAIR_ACTIVITY_LOG`), one JSON object per line: `start` (N, the
 estimated NEAR a day at N, the days each holder lasts to the floor from the balances read at start, and which holder is first),
 `near_balances` (the hourly read), `epoch` (the rate in effect, the staked share, how many actions were planned, how many
 acting epochs were missed), one `action` per

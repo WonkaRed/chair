@@ -7,22 +7,24 @@ is the only way to get an `Rpc`). Testnet NEAR is free; nothing here touches mai
 Needs Node 22.22.2 or newer (it runs the `.ts` files directly). One dependency, `near-api-js`; `verify` also reads the transaction index with the page's own modules in `web/` (a clone of the whole repo has them, no install needed).
 
 ```sh
-make -C deploy test      # offline: typecheck and 42 unit tests, no key, no network
+make -C deploy test      # offline: typecheck and 44 unit tests, no key, no network
 make -C deploy verify    # read-only: re-checks the live deployment from public view calls; needs no key
 ```
 
 ## What is deployed
 
 The record is `docs/testnet-deployment.json` (written by the tool, one entry per transaction with its hash, what it proves and
-its outcome). The run logs are `docs/testnet-run-scenario.txt`, `docs/testnet-run-verify.txt` and, for the agents that chaired, `docs/testnet-run-agent-*` (index in `docs/ai-chair-runs.md`).
+its outcome). The run logs are `docs/testnet-run-scenario.txt` and `docs/testnet-run-verify.txt`. The previous token, `token.chair-coin-2.testnet`
+(the one before the contract's rate became per day), keeps its records under `docs/chair-coin-2/`; verify it with
+`node src/cli.ts verify --record docs/chair-coin-2/testnet-deployment.json`. The logs of the agents that chaired it are `docs/testnet-run-agent-*` (index in `docs/ai-chair-runs.md`).
 
 | account | role | keys on chain |
 |---|---|---|
-| `token.chair-coin-2.testnet` | the $CHAIR contract | **none**: created, funded, given the code and initialised in one transaction with no `AddKey`. Nobody can upgrade or drain it. |
-| `chair.chair-coin-2.testnet` | the founding chair | one function-call key: receiver the token, methods `["set_policy"]`, no allowance cap. No full-access key ever existed. |
-| `challenger.chair-coin-2.testnet` | the nominated chair the stakers vote in; the rule-based agent and then the model-driven agent ran as this account | the same kind of key |
-| `alice` / `bob` / `carol` `.chair-coin-2.testnet` | holders: two stakers and one liquid holder | one full-access key each (ordinary users) |
-| `chair-coin-2.testnet` | parent, created by the testnet faucet | one full-access key; only used to fund and create the accounts above |
+| `token.chair-coin-3.testnet` | the $CHAIR contract | **none**: created, funded, given the code and initialised in one transaction with no `AddKey`. Nobody can upgrade or drain it. |
+| `chair.chair-coin-3.testnet` | the founding chair | one function-call key: receiver the token, methods `["set_policy"]`, no allowance cap. No full-access key ever existed. |
+| `challenger.chair-coin-3.testnet` | the nominated chair the stakers voted in (the scripted impeachment); the chair agent signs as this account | the same kind of key |
+| `alice` / `bob` / `carol` `.chair-coin-3.testnet` | holders: two stakers and one liquid holder | one full-access key each (ordinary users) |
+| `chair-coin-3.testnet` | parent, created by the testnet faucet | one full-access key; only used to fund and create the accounts above |
 
 The chair accounts are created with the function-call key already in the creating transaction, so the "the chair holds a key that can
 only call `set_policy`" claim is a property of the account's history, not a promise. The protocol (not the contract) refuses any
@@ -88,7 +90,7 @@ sha256sum contract/res/chair_token.wasm
 make -C deploy verify WASM=../contract/res/chair_token.wasm
 ```
 
-The recorded wasm (sha256 `91cd11b6...8abc013`, in the record) was built from commit `c61e0ff` (the contract is unchanged since).
+The recorded wasm (sha256 `47a3f710...218903f`, code hash `5pexa4j7UxF3tHW1F1eVfDShRr7aWsU7HNdTT7CdsPCz`, in the record) was built from commit `8b5acb5` (the contract is unchanged since).
 `verify --wasm` passes when your build is byte-identical and says so when it is not. Whether a rebuild on another machine is
 byte-identical has not been checked. The deployed file itself is not in the repository; a byte-identical build of the commit above passes the check.
 
@@ -97,10 +99,10 @@ byte-identical has not been checked. The deployed file itself is not in the repo
 A deployed token has no key, so it cannot be upgraded; a changed contract is a new deployment under a new parent.
 
 1. `make -C contract build` and copy `contract/res/chair_token.wasm` somewhere stable (a later rebuild must not change the file you deploy).
-2. Pick a fresh parent, e.g. `chair-coin-3.testnet`; create a key directory with mode 700 and
-   `CHAIR_TESTNET_KEYS=<dir> node src/cli.ts bootstrap --parent chair-coin-3.testnet`.
-3. `CHAIR_TESTNET_KEYS=<dir> node src/cli.ts deploy --parent chair-coin-3.testnet --wasm <copy> --record <new-record>.json`
-   (a new record keeps the old deployment's record; `deploy` refuses a record made for another wasm, sha256 mismatch).
+2. Pick a fresh parent, e.g. `chair-coin-4.testnet`; create a key directory with mode 700 and
+   `CHAIR_TESTNET_KEYS=<dir> node src/cli.ts bootstrap --parent chair-coin-4.testnet`.
+3. `CHAIR_TESTNET_KEYS=<dir> node src/cli.ts deploy --parent chair-coin-4.testnet --wasm <copy> --record <new-record>.json`
+   (a new record keeps the old deployment's record, which moves under `docs/<old parent>/` as `docs/chair-coin-2/` did; `deploy` refuses a record made for another wasm, sha256 mismatch).
 4. `scenario` and `verify` with the same `--record` and `CHAIR_TESTNET_KEYS`.
 5. Point `web/config.js` `account` at the new token (`web/README.md`), and the agent's `CHAIR_TOKEN`/`CHAIR_ACCOUNT` at the new accounts.
 6. Update the account ids in `docs/` and the READMEs.
@@ -112,7 +114,7 @@ A deployed token has no key, so it cannot be upgraded; a changed contract is a n
   `MethodNameMismatch`, the method restriction.
 - The scripted run took about 17 minutes. It is resumable, and a resumed run passes through epochs it already began; a step that is not
   yet recorded and would land in the wrong epoch stops the run instead.
-- The rule-based agent in `chair-agent/` ran against the live token as the challenger (`docs/testnet-run-agent-rule*`). The LLM chair has run against it
+- The rule-based agent in `chair-agent/` ran against the previous token (`token.chair-coin-2.testnet`) as the challenger (`docs/testnet-run-agent-rule*`). The LLM chair has run against it
   with a local model, `local:qwen3.8-27b` (`docs/testnet-run-agent-llm*`, `docs/testnet-run-agent-live-decisions.jsonl`), in five runs; it has never run with Claude. `tools/llm-usage-proxy.mjs` measures the spend of a run against the Anthropic API without changing the agent: it is a
   pass-through that prints tokens and dollars per call and enforces a call and dollar cap (the local run cost nothing and did not use it).
 

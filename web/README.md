@@ -17,7 +17,7 @@ Deploying is copying `web/dist` to any static host.
 
 ## Config: `config.js`
 
-The one file to edit after deployment: `account` (the token account; shipped pointing at the live testnet token `token.chair-coin-2.testnet`, see `docs/testnet-deployment.json`),
+The one file to edit after deployment: `account` (the token account; shipped pointing at the live testnet token `token.chair-coin-3.testnet`, see `docs/testnet-deployment.json`),
 `rpcUrls` (NEAR JSON-RPC endpoints in order of preference, the source of truth for every total; see Throttled or down RPC), `indexerUrl` (FastNEAR transactions API, the source of the event list),
 `explorerUrl`, `repoUrl`/`repoRef` (spec and test links), `pressDiscoveryUrl` (where the page finds the press desk; see Press conference), and `fixture`. `fixture: null` (as shipped) reads the live chain; setting it to a path, as the tests do, shows
 `fixtures/sandbox-run.json` instead and says, in a banner, "recorded sandbox run, not a live chain". The build writes the page's

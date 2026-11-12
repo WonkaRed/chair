@@ -1,0 +1,24 @@
+[Unit]
+Description=$CHAIR press-conference server on 127.0.0.1:18791 (answers from the reviewed book, line picked by the local model)
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+ExecStart=%h/Desktop/Projects/Survival/chair-worktrees/runtime/chair-agent/scripts/run-press.sh
+Environment=PATH=%h/.local/share/mise/installs/node/26/bin:%h/.local/share/mise/installs/gh/latest/gh_2.103.3_linux_amd64/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+# The overreach panel signs with the chair account's own function-call key (the only key it has; no second key can be added, the account holds no full-access key). Remove this line to switch the feature off.
+Environment=CHAIR_OVERREACH_KEY_FILE=%h/.claude/secrets/survival-testnet/chair3/challenger.chair-coin-3.testnet.key
+# run-press.sh still defaults to the previous token, so the chain is named here.
+Environment=CHAIR_TOKEN=token.chair-coin-3.testnet
+Environment=CHAIR_ACCOUNT=challenger.chair-coin-3.testnet
+Environment=CHAIR_PRESS_PORT=18791
+# press.jsonl of this token only (the old token's is in ~/.local/state/chair-agent); chair3-agent reads the same file.
+Environment=CHAIR_STATE_DIR=%h/.local/state/chair3-agent
+# visitor pool key for the Join the Committee panel; absent = feature off
+# Environment=CHAIR_VISITOR_KEY_FILE=...
+# Environment=CHAIR_VISITOR_ACCOUNT=...
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target

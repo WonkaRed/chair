@@ -1,11 +1,11 @@
 #!/usr/bin/env node
-// Daily-ish watch over the live $CHAIR demo (run by chair-balance-watch.timer, every 6 h). Testnet only; reads, never signs.
+// Daily-ish watch over the live $CHAIR demo (run by chair3-balance-watch.timer, every 6 h). Testnet only; reads, never signs.
 //
 // 1. Every account the demo spends gas from: how many days its NEAR lasts at the burn measured over the last 24 h,
 //    against the end of judging (WATCH_UNTIL). The burn is read from the RPC's own history (one balance sample every 2 h,
 //    only the drops counted, so a top-up never hides spending). Days left are counted from the spendable balance:
 //    amount, minus the NEAR locked for storage, minus a 0.05 NEAR reserve (the activity bot stops there too).
-// 2. The four chair units are active, the decision log is fresh, and the address the gist publishes answers /health.
+// 2. The four chair3 units are active, the decision log is fresh, and the address the gist publishes answers /health.
 //
 // One line per account on stdout. Any problem prints a PROBLEM line, runs
 //   pixelbot-notify "<what> | 0 | Survival"
@@ -15,7 +15,7 @@
 // before an account would run dry, so there is time to fund it), PRESS_GIST_ID, CHAIR_STATE_DIR, WATCH_NO_NOTIFY=1 (print only).
 
 import { execFile } from "node:child_process";
-import { statSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -33,16 +33,19 @@ const NO_NOTIFY = process.env.WATCH_NO_NOTIFY === "1";
 if (!Number.isFinite(UNTIL_MS) || !Number.isFinite(MARGIN_DAYS)) throw new Error("bad WATCH_UNTIL or WATCH_MARGIN_DAYS");
 if (!/^(test\.|rpc\.testnet\.)/.test(new URL(RPC).hostname)) throw new Error(`refusing a non-testnet RPC: ${RPC}`);
 
+/** The live token's accounts, read from its deployment record, so the watch cannot drift from the token the units run. */
+const { accounts: deployed } = JSON.parse(readFileSync(new URL("../../docs/testnet-deployment.json", import.meta.url), "utf8"));
+
 /** Everything the live demo spends gas from: the chair signer, the three activity bots, and the sister demo's two spenders. */
 const ACCOUNTS = [
-  "challenger.chair-coin-2.testnet",
-  "alice.chair-coin-2.testnet",
-  "bob.chair-coin-2.testnet",
-  "carol.chair-coin-2.testnet",
+  deployed.challenger,
+  deployed.alice,
+  deployed.bob,
+  deployed.carol,
   "switch.preflight-guard.testnet",
   "chameleon.preflight-guard.testnet",
 ];
-const UNITS = ["chair-agent", "chair-activity", "chair-press", "chair-press-tunnel"];
+const UNITS = ["chair3-agent", "chair3-activity", "chair3-press", "chair3-press-tunnel"];
 
 const YOCTO = 10n ** 24n;
 const RESERVE = 5n * 10n ** 22n; // 0.05 NEAR
