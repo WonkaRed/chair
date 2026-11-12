@@ -1,7 +1,7 @@
 import { MAX_REASONING_CHARS } from "./reasoning.js";
 import { entryLine, type PressEntry } from "./press-store.js";
 
-/** Entries written into one decision's minutes; the rest wait for the next meeting. */
+/** Entries written into one decision's minutes; the rest stay pending, and no sentence promises when they are entered. */
 export const MAX_PRESS_ENTRIES = 2;
 
 const plural = (n: number): string => `${n} question${n === 1 ? "" : "s"}`;
@@ -14,7 +14,8 @@ const plural = (n: number): string => `${n} question${n === 1 ? "" : "s"}`;
  */
 export function pressSection(pending: readonly PressEntry[], room: number = MAX_REASONING_CHARS): string {
   for (let k = Math.min(MAX_PRESS_ENTRIES, pending.length); k >= 1; k--) {
-    const head = `The press has ${plural(pending.length)} waiting.${k < pending.length ? ` The Chair enters ${k} here and the rest at the next meeting.` : ""}`;
+    const left = pending.length - k;
+    const head = `The press has ${plural(pending.length)} waiting.${left === 0 ? "" : ` The Chair enters ${k} here; ${left === 1 ? "the other waits" : "the rest wait"}.`}`;
     const text = `\n${[head, ...pending.slice(0, k).map(entryLine)].join("\n")}`;
     if (text.length <= room) return text;
   }

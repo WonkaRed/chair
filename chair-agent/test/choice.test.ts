@@ -3,7 +3,10 @@ import { test } from "node:test";
 import { pathToFileURL } from "node:url";
 import { join } from "node:path";
 import { BAND_BPS, bandFor, choiceFault, choiceLine, MODEL_REASONS, type ReasonId } from "../src/choice.js";
-import { decide } from "../src/decide.js";
+import { decide, finalize, propose } from "../src/decide.js";
+import { MAX_PRESS_ENTRIES } from "../src/press-section.js";
+import { reasoningHash } from "../src/reasoning.js";
+import type { PressEntry } from "../src/press-store.js";
 import { LlmChair } from "../src/llm-chair.js";
 import { ruleChair } from "../src/rule-chair.js";
 import type { DecisionInput } from "../src/types.js";
@@ -15,7 +18,9 @@ const WINDOW = { lo: -50, hi: 50 };
 /** The page's reader of the minutes (web/site/js/minutes.js), the one a visitor's browser runs: the agent's sentences must parse with it, or the page shows nothing of the choice. */
 interface Page {
   parseChoice(line: string): { kind: string; formula: number; chosen: number; why: string } | null;
-  splitMinutes(text: string): { meta: string[]; prose: string };
+  choiceMatching<T>(choice: T | null, setBps: number): T | null;
+  splitMinutes(text: string): { meta: string[]; prose: string; fallback: string | null };
+  splitClosing(text: string): { head: string; own: string; tail: string } | null;
 }
 const page = (await import(pathToFileURL(join(import.meta.dirname, "..", "..", "..", "web", "site", "js", "minutes.js")).href)) as unknown as Page;
 
@@ -156,4 +161,57 @@ test("a supply reason says what it holds for: the Chair's last decision, however
   assert.match(d.reasoning, /The Chair chose printing 0\.40% a day: supply has grown since the Chair's last decision\.\n/);
   assert.match(d.reasoning, /Supply is up 100,000 coins over the last 4 meetings\./);
   assert.doesNotMatch(d.reasoning, /since the last meeting/, "the span is 4 meetings, so no sentence says one");
+});
+
+/** What the page makes of a whole decision: the plain fallback sentence, the choice row (shown only when it agrees with the rate set) and the Chair's own closing. */
+const onPage = (d: Awaited<ReturnType<typeof decide>>) => {
+  const { meta, prose, fallback } = page.splitMinutes(d.reasoning);
+  const choice = page.choiceMatching(page.parseChoice(meta.at(-1) ?? ""), d.rate);
+  return { meta, prose, fallback, choice, closing: page.splitClosing(d.reasoning) };
+};
+
+test("the page reads the fallback line and the choice of a stale answer and of a model that was not asked, as the agent writes them (this fails if the wordings drift)", async () => {
+  // The model answered for the rate it saw; the rollover decayed it: the agent drops the answer and says so.
+  const seen = snapshot({ epoch: 12, rate: 100, lastSet: 11, timeLeftMs: 20_000, supply: 1_000_000n * COIN, staked: 100_000n * COIN });
+  const fresh = snapshot({ epoch: 13, rate: 50, lastSet: 11, timeLeftMs: 80_000, supply: 1_000_000n * COIN, staked: 100_000n * COIN });
+  const steady = { name: "llm:stand-in", propose: () => Promise.resolve({ rateBps: 100, reason: "steady" as const }) };
+  const stale = finalize(fresh, [], await propose(seen, [], { chair: steady, marginMs: 15_000, timeoutMs: PATIENT_MS }), { marginMs: 15_000 });
+  assert.equal(stale.kind, "rule-fallback");
+  const s = onPage(stale);
+  assert.equal(s.fallback, "The AI chair gave an answer that no longer fit the chain when it arrived, so the Chair's built-in fallback rule decided this meeting.", stale.reasoning);
+  assert.deepEqual(s.choice && { kind: s.choice.kind, formula: s.choice.formula, chosen: s.choice.chosen }, { kind: "rule", formula: 100, chosen: 100 });
+  assert.ok(s.prose.startsWith("The Committee of One has met."), s.prose);
+  // The call may land after the rollover and no rate near the formula is then sure to be taken: the model is not asked.
+  const late = snapshot({ rate: 30, staked: 0n, timeLeftMs: 20_000 });
+  const none = await decide(late, [], { chair: new LlmChair({ label: "llm:stand-in", complete: () => Promise.reject(new Error("must not be asked")) }), marginMs: 15_000, timeoutMs: PATIENT_MS });
+  assert.equal(none.kind, "rule-fallback");
+  const n = onPage(none);
+  assert.equal(n.fallback, "The AI chair was not asked: too little of the meeting was left to choose, so the Chair's built-in fallback rule decided this meeting.", none.reasoning);
+  assert.ok(n.choice !== null && n.choice.kind === "rule", none.reasoning);
+  // A row that does not match the rate the chain set is not shown.
+  assert.equal(page.choiceMatching(page.parseChoice(page.splitMinutes(none.reasoning).meta.at(-1) ?? ""), none.rate + 1), null);
+});
+
+test("the page reads the clamp note and the press head of the real agent's text: the Chair's own closing is found before them, for every number of questions waiting", async () => {
+  const REMARK = "The Chair has appointed a subcommittee of the Chair to look into the Chair.";
+  const chair = { name: "llm:stand-in", propose: () => Promise.resolve({ rateBps: 100, reason: "smaller_move" as const }), remark: () => Promise.resolve(REMARK) };
+  const entry = (i: number): PressEntry => ({ id: `id-${i}`, question: `q${i}`, questionHash: reasoningHash(`q${i}`), answer: `Answer ${i}.`, source: "model", askedAtMs: i, epoch: null, txHash: null });
+  const seen = snapshot({ rate: 60, timeLeftMs: 60_000 });
+  const asked = await propose(seen, [], { chair, marginMs: 15_000, timeoutMs: PATIENT_MS });
+  for (const n of [0, 1, 2, 3, 5]) {
+    const d = finalize(snapshot({ rate: 60, timeLeftMs: 5_000 }), [], asked, { marginMs: 15_000 }, Array.from({ length: n }, (_, i) => entry(i)));
+    const closing = onPage(d).closing;
+    assert.equal(closing?.own, REMARK, `${n} waiting: ${d.reasoning}`);
+    assert.ok(closing.tail.includes("The contract is sure to accept 10..60 bps here"), "the clamp note is after the statement");
+    if (n > 0) {
+      const entered = Math.min(n, MAX_PRESS_ENTRIES);
+      assert.ok(closing.tail.includes(`The press has ${n} question${n === 1 ? "" : "s"} waiting.`), `${n} waiting: ${closing.tail}`);
+      assert.equal(closing.tail.split("\n").filter((l) => l.startsWith("A member of the press")).length, entered);
+    }
+    assert.equal(onPage(d).choice?.kind, "asked", "the clamp moved the rate: the row says what was asked for");
+    // No clamp note before it: the press head alone is what ends the statement.
+    const plain = finalize(seen, [], asked, { marginMs: 15_000 }, Array.from({ length: n }, (_, i) => entry(i)));
+    assert.equal(onPage(plain).closing?.own, REMARK, `${n} waiting, no clamp: ${plain.reasoning}`);
+    if (n > 0) assert.ok(onPage(plain).closing?.tail.startsWith(`\nThe press has ${n} question`), `${n} waiting, no clamp: the press head is outside the statement`);
+  }
 });

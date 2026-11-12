@@ -186,7 +186,7 @@ export const BOOK_CLOSINGS = [
 /** The AI chair's name in the header line: its label from the agent (`llm:<model>` or `local:<model>`); the rule chair's is `rule-v1`. */
 const AI_HEADER = /^\$CHAIR decision, epoch \d+, chair (?:llm|local):/;
 /** The lines the agent adds after the Chair's statement: the epoch rolled over, the rate was clamped, the press section (decide.ts, press-section.ts). */
-const AFTER_STATEMENT = /^(?:The epoch rolled over while the Chair was deliberating\.|The Chair asked for -?\d+ bps; the contract accepts |The contract accepts -?\d+\.\.-?\d+ bps here, so |The press (?:asked \d+ questions? since the last meeting|has \d+ questions? waiting)\.)/;
+const AFTER_STATEMENT = /^(?:The epoch rolled over while the Chair was deliberating\.|The Chair asked for -?\d+ bps; the contract accepts |The contract (?:accepts|is sure to accept) -?\d+\.\.-?\d+ bps here, so |The press (?:asked \d+ questions? since the last meeting|has \d+ questions? waiting)\.)/;
 
 /**
  * `{head, own, tail}` with `head + own + tail` equal to the minutes' prose, when an AI chair's statement ends in a sentence that is not a line of the

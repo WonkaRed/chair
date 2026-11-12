@@ -3,7 +3,7 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { tick } from "../src/agent.js";
-import { decide } from "../src/decide.js";
+import { decide, finalize, propose } from "../src/decide.js";
 import { FakeChain } from "../src/fake-chain.js";
 import { LlmChair, type LlmClient, type LlmRequest } from "../src/llm-chair.js";
 import { DecisionLog, findReasoning, verifyLog } from "../src/log.js";
@@ -70,6 +70,29 @@ test("the remark is given the rate the chair proposed, and the same chain facts 
   let seen: unknown;
   await decide(snap, [], opts(chairWith((input, rateBps) => { seen = { rateBps, epoch: input.snapshot.policy.epoch }; return Promise.resolve(null); })));
   assert.deepEqual(seen, { rateBps: 24, epoch: snap.policy.epoch });
+});
+
+test("a remark rests on facts the chain can change while the model thinks: it is kept only when those are the same on the read the decision is made on, else the book closes the minutes", async () => {
+  const COIN = 10n ** 24n;
+  const at = (o: Parameters<typeof snapshot>[0]) => snapshot({ epoch: 5, rate: 0, supply: 1_000_000n * COIN, ...o });
+  const seen = at({ staked: 499_000n * COIN }); // 49.9% staked: the formula is 0, and so is the rate in effect; the model holds it and says something about it
+  const chair: Chair = { name: "llm:stand-in", propose: () => Promise.resolve({ rateBps: 0, reason: "steady" }), remark: () => Promise.resolve(REMARK) };
+  const decideOn = async (fresh: ReturnType<typeof snapshot>, history: { epoch: number; totalSupply: bigint }[] = []) => finalize(fresh, history, await propose(seen, history, opts(chair)), { marginMs: 15_000 });
+  const kept = await decideOn(at({ staked: 499_000n * COIN }));
+  assert.equal(kept.remark, REMARK, "the same read: kept");
+  assert.equal((await decideOn(at({ staked: 480_000n * COIN }))).remark, REMARK, "the stake moved but stays on the same side of half: kept");
+  const crossed = await decideOn(at({ staked: 501_000n * COIN }));
+  assert.equal(crossed.kind, "llm", "the choice itself still fits");
+  assert.equal(crossed.remark, null, "more than half is staked now: a remark written on fewer than half is not used");
+  assert.ok(crossed.reasoning.endsWith(bookLine(5)), crossed.reasoning);
+  const rolled = await decideOn({ ...at({ staked: 499_000n * COIN }), policy: { ...seen.policy, epoch: 6 } });
+  assert.equal(rolled.remark, null, "the epoch rolled over: the meeting the remark was written for is over");
+  const grew = [{ epoch: 4, totalSupply: 999_000n * COIN }];
+  const seenGrew = at({ staked: 499_000n * COIN });
+  const wrote = finalize(seenGrew, grew, await propose(seenGrew, grew, opts(chair)), { marginMs: 15_000 });
+  assert.equal(wrote.remark, REMARK, "supply up, still up: kept");
+  const shrank = finalize(at({ staked: 498_000n * COIN, supply: 998_000n * COIN }), grew, await propose(seenGrew, grew, opts(chair)), { marginMs: 15_000 });
+  assert.equal(shrank.remark, null, "the supply the remark saw growing has since shrunk");
 });
 
 test("the rule chair and a fallen-back chair write their own closing line and no remark", async () => {

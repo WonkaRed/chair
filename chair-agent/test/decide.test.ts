@@ -4,8 +4,8 @@ import { RateWindow, DEFAULT_BOUNDS } from "../src/bounds.js";
 import { ChairFailure, decide, finalize, propose } from "../src/decide.js";
 import { LlmChair, type LlmClient, type LlmResponse } from "../src/llm-chair.js";
 import { reasoningHash } from "../src/reasoning.js";
-import { choiceFault, MODEL_REASONS } from "../src/choice.js";
-import { formulaRate, rateDoes, ruleChair } from "../src/rule-chair.js";
+import { MODEL_REASONS } from "../src/choice.js";
+import { ruleChair } from "../src/rule-chair.js";
 import { policyArgs } from "../src/signer.js";
 import type { Chair, Proposal } from "../src/types.js";
 import { IMPATIENT_MS, PATIENT_MS, contractAccepts, randInt, rng, snapshot, specDecay } from "./helpers.js";
@@ -55,7 +55,7 @@ test("a rate the window no longer holds is clamped, and the text says so (the wi
   const d = finalize(snapshot({ rate: 60, timeLeftMs: 5_000 }), [], asked, { marginMs: 15_000 }); // the call may now land after the rollover: the contract takes 10..60
   assert.equal(d.rate, 60);
   assert.equal(d.kind, "llm");
-  assert.match(d.reasoning, /\nThe contract accepts 10\.\.60 bps here, so 60 bps is set instead\. The Chair defers\./);
+  assert.match(d.reasoning, /\nThe contract is sure to accept 10\.\.60 bps here, so 60 bps is set instead\. The Chair defers\./);
   assert.match(d.reasoning, /The Chair asked for printing 1\.00% a day: the Chair prefers to move the rate by less than the formula does\./, "the choice line says what the Chair asked for, the note what the contract set");
   assert.doesNotMatch(d.reasoning, /The Chair chose|The Chair agreed/, "nothing says a rate was chosen that was not set");
   assert.deepEqual(d.choice, { formulaBps: 110, chosenBps: 100, reason: "smaller_move" });
@@ -175,7 +175,7 @@ test("the rule chair's minutes after the window moved its rate describe the rate
   assert.match(d.reasoning, /\nThe formula suggested printing 1\.10% a day\. The rule chair asked for it\.\n/);
   assert.match(d.reasoning, /The Chair holds the rate: /, "the statement is of the rate set");
   assert.doesNotMatch(d.reasoning, /would go further|moves the rate from printing 0\.60% a day to printing 1\.10%/);
-  assert.match(d.reasoning, /\nThe contract accepts 10\.\.60 bps here, so 60 bps is set instead\. The Chair defers\.$/);
+  assert.match(d.reasoning, /\nThe contract is sure to accept 10\.\.60 bps here, so 60 bps is set instead\. The Chair defers\.$/);
 });
 
 test("a timeout, an error and a refusal are not retried", async () => {
@@ -349,39 +349,102 @@ test("an answer that still fits the fresh read is the Chair's, and its minutes s
   assert.doesNotMatch(d.reasoning, /holds the rate/);
 });
 
-test("the truth of every sentence, against the fresh read: rates that decayed, decayed to zero, and choices that change sign", async () => {
-  // [the rate the model saw, the rate in effect when the decision is made, share of coins staked]
-  const worlds: [number, number, number][] = [[100, 50, 10], [30, 0, 10], [-40, 0, 10], [60, 10, 60], [-60, -10, 60], [30, 0, 50], [100, 50, 50]];
+/**
+ * The truth of a choice, written again from the sentences the minutes carry and the contract's rules, sharing nothing with src/choice.ts or rule-chair.ts, the way
+ * `contractAccepts` shares nothing with bounds.ts: the share of coins staked against half, the supply against the last logged decision, the side of the formula.
+ */
+const ref = {
+  shareBps: (staked: bigint, supply: bigint): number => Number((staked * 10_000n) / supply),
+  /** The formula: half of all coins staked is the aim; the rate walks to it 50 at a time, and a gap under 5 is left alone unless the aim is zero. */
+  formula(now: number, shareBps: number): number {
+    const aim = Math.max(-200, Math.min(200, Math.trunc((5000 - shareBps) / 40))) || 0;
+    const gap = aim - now;
+    return gap === 0 || (aim !== 0 && Math.abs(gap) < 5) ? now : now + Math.max(-50, Math.min(50, gap));
+  },
+  /** Whether `reason` is true of the world and of `rate`, and sits on the right side of the formula. */
+  true(reason: string, rate: number, w: { now: number; shareBps: number; supplyDelta: bigint | null; formula: number }): boolean {
+    const side = Math.sign(rate - w.formula);
+    switch (reason) {
+      case "stake_low": return w.shareBps < 5000 && side >= 0;
+      case "stake_high": return w.shareBps > 5000 && side <= 0;
+      case "supply_up": return w.supplyDelta !== null && w.supplyDelta > 0n && side <= 0;
+      case "supply_down": return w.supplyDelta !== null && w.supplyDelta < 0n && side >= 0;
+      case "steady": return rate === w.now;
+      case "smaller_move": return Math.abs(rate - w.now) < Math.abs(w.formula - w.now);
+      case "larger_move": return Math.abs(rate - w.now) > Math.abs(w.formula - w.now);
+      default: throw new Error(reason);
+    }
+  },
+  /** The rates a call is sure to be accepted at: those the contract takes now and, near the epoch end, also after the decay of a rollover. */
+  accepted(now: number, nearEnd: boolean): number[] {
+    return Array.from({ length: 401 }, (_, i) => i - 200).filter((r) => contractAccepts(now, r) && (!nearEnd || contractAccepts(specDecay(now), r)));
+  },
+  does: (bps: number): string => (bps === 0 ? "neither printing nor burning" : bps > 0 ? `printing ${(bps / 100).toFixed(2)}% a day` : `burning ${(-bps / 100).toFixed(2)}% of every transfer`),
+};
+
+test("the truth of every sentence, against the fresh read: rates that decayed, decayed to zero, sign changes, the clamp near the epoch end, no silence", async () => {
+  const base = 1_000_000n * COIN;
+  /** The rate the model saw and the one in effect now, the share staked, the logged supply (below the supply now: it grew), the supply now, the time left now, and the last epoch the Chair set. */
+  const worlds: { was: number; now: number; pct: number; logged: bigint | null; supply: bigint; left: number; lastSet: number | null }[] = [
+    { was: 100, now: 50, pct: 10, logged: null, supply: base, left: 80_000, lastSet: 11 }, // decayed
+    { was: 30, now: 0, pct: 10, logged: null, supply: base, left: 80_000, lastSet: 11 }, // decayed to zero
+    { was: -40, now: 0, pct: 10, logged: null, supply: base, left: 80_000, lastSet: 11 }, // burning decayed to zero: the formula prints
+    { was: 60, now: 10, pct: 60, logged: null, supply: base, left: 80_000, lastSet: 11 },
+    { was: -60, now: -10, pct: 60, logged: null, supply: base, left: 80_000, lastSet: 11 }, // still burning, less
+    { was: 30, now: 0, pct: 50, logged: null, supply: base, left: 80_000, lastSet: 11 },
+    { was: 100, now: 50, pct: 50, logged: null, supply: base, left: 80_000, lastSet: 11 },
+    { was: 100, now: 50, pct: 10, logged: base - 1000n, supply: base, left: 80_000, lastSet: 11 }, // supply grew since the last decision
+    { was: 100, now: 50, pct: 10, logged: base + 1000n, supply: base, left: 80_000, lastSet: 11 }, // supply shrank
+    { was: 80, now: 30, pct: 20, logged: null, supply: base, left: 5_000, lastSet: 11 }, // the fresh read is near the epoch end: the window is the overlap of two epochs
+    { was: -80, now: -30, pct: 80, logged: null, supply: base, left: 5_000, lastSet: 11 },
+    { was: 0, now: 0, pct: 10, logged: null, supply: base, left: 80_000, lastSet: null }, // never set a rate: no silent meeting to speak of
+  ];
   let llm = 0;
   let ruled = 0;
-  for (const [was, now, pct] of worlds) {
-    const seen = snapshot({ epoch: 12, rate: was, lastSet: 11, timeLeftMs: 80_000, ...share(pct) });
-    const fresh = snapshot({ epoch: 13, rate: now, lastSet: 11, timeLeftMs: 80_000, ...share(pct) });
-    const limits = { lo: -200, hi: 200 };
+  let clamped = 0;
+  for (const w of worlds) {
+    const history = w.logged === null ? [] : [{ epoch: 11, totalSupply: w.logged }];
+    const staked = (BigInt(w.pct) * base) / 100n;
+    const seen = snapshot({ epoch: 12, rate: w.was, lastSet: w.lastSet, timeLeftMs: 80_000, supply: base, staked });
+    const fresh = snapshot({ epoch: 13, rate: w.now, lastSet: w.lastSet, timeLeftMs: w.left, supply: w.supply, staked });
+    const shareBps = ref.shareBps(staked, w.supply);
+    const formula = ref.formula(w.now, shareBps);
+    const facts = { now: w.now, shareBps, supplyDelta: w.logged === null ? null : w.supply - w.logged, formula };
+    const accepted = ref.accepted(w.now, w.left < 15_000);
     for (const reason of MODEL_REASONS) {
-      for (let rate = -120; rate <= 120; rate += 10) {
+      for (let rate = -120; rate <= 120; rate += 5) {
         const chair: Chair = { name: "llm:stand-in", propose: () => Promise.resolve({ rateBps: rate, reason }) };
-        const asked = await propose(seen, [], opts(chair));
-        if (asked.kind !== "llm") continue; // not a fair choice even when the model was asked: the earlier tests cover it
-        const d = finalize(fresh, [], asked, { marginMs: 15_000 });
-        const fair = choiceFault({ snapshot: fresh, history: [], window: limits }, rate, reason) === null;
-        const label = `saw ${was}, now ${now}, ${pct}% staked, ${reason} ${rate}`;
+        const asked = await propose(seen, history, opts(chair));
+        if (asked.kind !== "llm") continue; // not a fair choice even on the read the model saw: the earlier tests cover it
+        const d = finalize(fresh, history, asked, { marginMs: 15_000 });
+        const label = `saw ${w.was}, now ${w.now}, ${w.pct}% staked, logged ${w.logged}, ${w.left} ms left, ${reason} ${rate}`;
+        const fair = Math.abs(rate - formula) <= 25 && Math.abs(rate) <= 200 && ref.true(reason, rate, facts);
         assert.equal(d.kind, fair ? "llm" : "rule-fallback", label);
         fair ? llm++ : ruled++;
-        const formula = formulaRate(fresh);
+        const chosen = fair ? rate : formula;
+        const set = Math.min(Math.max(chosen, accepted[0]!), accepted.at(-1)!);
+        assert.equal(d.rate, set, `${label}: the nearest rate the call is sure to be accepted at`);
+        if (set !== chosen) clamped++;
         const text = d.reasoning;
-        assert.ok(text.startsWith("$CHAIR decision, epoch 13,"), label);
-        assert.ok(text.includes(`\nRate in effect ${now} bps; decision ${d.rate} bps.\nThe formula suggested ${rateDoes(formula)}.`), `${label}: the formula and the rate in effect are the fresh read's\n${text}`);
-        assert.ok(text.includes(d.rate === now ? "The Chair holds the rate: " : `The Chair moves the rate from ${rateDoes(now)} to ${rateDoes(d.rate)}`), `${label}: the statement is of the rate set against the fresh rate in effect\n${text}`);
-        if (was !== now) assert.ok(d.rate === was || !text.includes(`from ${rateDoes(was)}`), `${label}: nothing is said from the rate the model saw`);
-        assert.ok(text.includes("was silent for 1 meeting,") && !text.includes("silent for 2"), label);
+        const lines = text.split("\n");
+        assert.equal(lines[0]!.startsWith("$CHAIR decision, epoch 13, chair "), true, label);
+        assert.ok(text.includes(`\nRate in effect ${w.now} bps; decision ${set} bps.\nThe formula suggested ${ref.does(formula)}.`), `${label}: the formula and the rate in effect are the fresh read's\n${text}`);
+        assert.ok(text.includes(set === w.now ? "The Chair holds the rate: " : `The Chair moves the rate from ${ref.does(w.now)} to ${ref.does(set)}`), `${label}: the statement is of the rate set against the rate in effect now\n${text}`);
+        if (w.was !== w.now && set !== w.was) assert.ok(!text.includes(`from ${ref.does(w.was)}`), `${label}: nothing is said from the rate the model saw`);
+        const silent = w.lastSet === null ? 0 : 13 - w.lastSet - 1;
+        assert.equal(/was silent for (\d+) meetings?/.exec(text)?.[1] ?? null, silent === 0 ? null : String(silent), `${label}: the silent meetings`);
+        assert.ok(text.includes("The epoch rolled over while the Chair was deliberating."), label);
+        if (fair) {
+          const said = set !== rate ? `The Chair asked for ${ref.does(rate)}: ` : rate === formula ? "The Chair agreed: " : `The Chair chose ${ref.does(rate)}: `;
+          assert.ok(text.includes(said), `${label}\n${text}`);
+        } else {
+          assert.ok(text.includes(set === formula ? "The rule chair applied it." : "The rule chair asked for it."), `${label}\n${text}`);
+        }
         assert.equal(d.choice?.formulaBps, formula, label);
-        if (fair) assert.ok(text.includes(rate === formula ? "The Chair agreed: " : `The Chair ${d.rate === rate ? "chose" : "asked for"} ${rateDoes(rate)}: `), `${label}\n${text}`);
-        else assert.ok(text.includes(d.rate === formula ? "The rule chair applied it." : "The rule chair asked for it."), `${label}\n${text}`);
       }
     }
   }
-  assert.ok(llm > 5 && ruled > 5, `both outcomes are exercised: ${llm} kept, ${ruled} not`);
+  assert.ok(llm > 20 && ruled > 20 && clamped > 5, `every outcome is exercised: ${llm} kept, ${ruled} not, ${clamped} clamped`);
 });
 
 test("any chair's choice is checked in propose, not only the LLM chair's: a bad reason or rate falls back instead of throwing in finalize", async () => {

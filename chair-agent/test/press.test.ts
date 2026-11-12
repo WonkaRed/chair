@@ -118,9 +118,37 @@ test("pressSection: the count, then up to two entries oldest first, hash prefix 
   assert.match(one, /^\nThe press has 1 question waiting\.\nA member of the press asked a question \([0-9a-f]{12}\)\. The Chair replied: The plan is the Chair\.$/);
   assert.ok(!one.includes("what is the plan"));
   const three = pressSection([entry("q1", "A1.", 1), entry("q2", "A2.", 2), entry("q3", "A3.", 3)]);
-  assert.match(three, /^\nThe press has 3 questions waiting\. The Chair enters 2 here and the rest at the next meeting\./);
+  assert.match(three, /^\nThe press has 3 questions waiting\. The Chair enters 2 here; the other waits\.\n/);
   assert.ok(three.includes("A1.") && three.includes("A2.") && !three.includes("A3."));
   assert.ok(three.includes(`(${reasoningHash("q1").slice(0, 12)})`));
+});
+
+test("pressSection says only what is true now, for every count: the head, the entries it carries, and no promise about the next meeting", () => {
+  const ask = (n: number, room?: number): string => pressSection(Array.from({ length: n }, (_, i) => entry(`q${i}`, `A${i}.`, i + 1)), room);
+  const head = (text: string): string => text.split("\n")[1]!;
+  const entered = (text: string): number => text.split("\n").length - 2;
+  const want: [number, string, number][] = [
+    [1, "The press has 1 question waiting.", 1],
+    [2, "The press has 2 questions waiting.", 2],
+    [3, "The press has 3 questions waiting. The Chair enters 2 here; the other waits.", 2],
+    [4, "The press has 4 questions waiting. The Chair enters 2 here; the rest wait.", 2],
+    [5, "The press has 5 questions waiting. The Chair enters 2 here; the rest wait.", 2],
+  ];
+  for (const [n, line, k] of want) {
+    const text = ask(n);
+    assert.equal(head(text), line, `${n} pending`);
+    assert.equal(entered(text), k, `${n} pending: the entries it carries`);
+    assert.ok(!/next meeting|since the last|asked \d/.test(text), `${n} pending: no promise about later meetings, no claim about when they were asked`);
+  }
+  // One entry fits, two do not: the head says one is entered, and what waits is counted from what was written.
+  const two = ask(2);
+  const tight = ask(2, two.length - 1);
+  assert.equal(head(tight), "The press has 2 questions waiting. The Chair enters 1 here; the other waits.");
+  assert.equal(entered(tight), 1);
+  const tight5 = ask(5, two.length - 1);
+  assert.equal(head(tight5), "The press has 5 questions waiting. The Chair enters 1 here; the rest wait.");
+  // No room for even one entry: no section at all, so no head ever stands without an entry under it.
+  for (const n of [1, 2, 3, 5]) assert.equal(ask(n, 50), "", `${n} pending, no room`);
 });
 
 test("pressSection drops entries rather than overrun the room it was given, and writes nothing when none fits", () => {

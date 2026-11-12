@@ -189,6 +189,18 @@ const FORMS: readonly string[] = [
   "something enormous described as routine, in the driest possible words",
 ];
 
+/**
+ * What a remark can lean on that a later read can make false, in the coarse form that matters: the meeting, the rate in effect and the rate set, which side of the
+ * target the staked share is on, and which way the supply went. A remark is kept only when this is the same on the read the decision is made on; the filter bans every
+ * digit, number word and ordinal, so no remark can state a count or a figure, but "most coins are staked" or "the supply grew" is still a claim about the chain.
+ */
+export function remarkBasis(input: DecisionInput, rateBps: number): string {
+  const { snapshot } = input;
+  const side = snapshot.staking === null || snapshot.totalSupply === 0n ? null : Math.sign(stakedShareBps(snapshot.staking.totalStaked, snapshot.totalSupply) - Number(TARGET_STAKED_BPS));
+  const drift = supplyMoved(input);
+  return JSON.stringify([snapshot.policy.epoch, snapshot.policy.rateBps, rateBps, side, drift === null ? null : Math.sign(Number(drift.delta))]);
+}
+
 /** What the Chair knows of this meeting, in words for the model to react to. Chain facts only: nothing a visitor wrote, no question, no count of questions. */
 export function buildRemarkPrompt(input: DecisionInput, rateBps: number, recent: readonly string[], attempt = 0): { system: string; user: string } {
   const { snapshot, memory } = input;

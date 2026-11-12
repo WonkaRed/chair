@@ -603,17 +603,20 @@ test("ownClosing: the last sentence of an AI chair's statement when it is not a 
   const after = [
     "The epoch rolled over while the Chair was deliberating. Time does not wait for the Committee of One.",
     "The Chair asked for 30 bps; the contract accepts 0..20 bps here, so 20 bps is set. The Chair defers.", // the older form, still on chain
-    "The contract accepts 0..20 bps here, so 20 bps is set instead. The Chair defers.",
+    "The contract accepts 0..20 bps here, so 20 bps is set instead. The Chair defers.", // the form of the previous commit, not on chain
+    "The contract is sure to accept 0..20 bps here, so 20 bps is set instead. The Chair defers.",
     "The press asked 3 questions since the last meeting. The Chair enters 2 here and the rest at the next meeting.\nQuestion 0123456789ab: The Chair replied: Noted.", // the older form
-    "The press has 3 questions waiting. The Chair enters 2 here and the rest at the next meeting.\nQuestion 0123456789ab: The Chair replied: Noted.",
+    "The press has 3 questions waiting. The Chair enters 2 here and the rest at the next meeting.\nQuestion 0123456789ab: The Chair replied: Noted.", // the form of the previous commit, not on chain
+    "The press has 5 questions waiting. The Chair enters 2 here; the rest wait.\nQuestion 0123456789ab: The Chair replied: Noted.",
+    "The press has 3 questions waiting. The Chair enters 2 here; the other waits.\nQuestion 0123456789ab: The Chair replied: Noted.",
     "The press has 1 question waiting.\nQuestion 0123456789ab: The Chair replied: Noted.",
   ];
   for (const note of after) {
     assert.equal(ownClosing(text(`${OWN_BODY} ${REMARK}`, note)), REMARK, note);
     assert.equal(ownClosing(text(`${OWN_BODY} ${CLOSING_BOOK}`, note)), null, note);
   }
-  assert.equal(ownClosing(text(`${OWN_BODY} ${REMARK}`, after[0], after[1], after[3])), REMARK);
-  assert.equal(ownClosing(text(`${OWN_BODY} ${REMARK}`, after[0], after[2], after[4])), REMARK);
+  assert.equal(ownClosing(text(`${OWN_BODY} ${REMARK}`, after[0], after[1], after[4])), REMARK);
+  assert.equal(ownClosing(text(`${OWN_BODY} ${REMARK}`, after[0], after[3], after[6])), REMARK);
   // Not an AI chair's statement: the rule chair, a fallback, a text with no header, a cut text.
   assert.equal(ownClosing(`$CHAIR decision, epoch 5, chair rule-v1.\nRate in effect 1 bps; decision 1 bps.\n${OWN_BODY} ${REMARK}`), null);
   assert.equal(ownClosing(`${OWN_BODY} ${REMARK}`), null);

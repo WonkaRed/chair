@@ -3,7 +3,7 @@ import { pressSection } from "./press-section.js";
 import type { PressEntry } from "./press-store.js";
 import { bandFor, choiceFault, choiceLine } from "./choice.js";
 import { cleanReasoning, MAX_REASONING_CHARS, reasoningHash } from "./reasoning.js";
-import { bookLine, factFault, factOf } from "./remark.js";
+import { bookLine, factFault, factOf, remarkBasis } from "./remark.js";
 import { formulaRate, mandateRate, ruleChair, ruleDecision, statement, supplyDrift } from "./rule-chair.js";
 import type { AnswerFault, Chair, ChairKind, ChairMemory, Decision, DecisionInput, HistoryPoint, Proposal, Snapshot } from "./types.js";
 
@@ -83,8 +83,8 @@ export interface Proposed {
   readonly used: Chair;
   readonly kind: ChairKind;
   readonly proposal: Proposal;
-  /** The model's own closing remark, already checked; null when there is none and the minutes close on the book. */
-  readonly remark: string | null;
+  /** The model's own closing remark, already checked, with the facts of the read it was written on (`remarkBasis`); null when there is none and the minutes close on the book. */
+  readonly remark: { readonly text: string; readonly basis: string } | null;
   readonly fallbackNote: string;
   /** The epoch of the read of the chain the chair was given; the decision's own epoch is the fresh read's. */
   readonly readEpoch: number;
@@ -143,7 +143,8 @@ export async function propose(snapshot: Snapshot, history: readonly HistoryPoint
       const proposal = await withTimeout(leftMs(), (signal) => opts.chair.propose(input, signal, previous));
       const fault = choiceFault(input, proposal.rateBps, proposal.reason);
       if (fault !== null) throw new ChairFailure("malformed", `choice: ${fault}`, fault);
-      const remark = await remarkWithin(opts.chair, input, proposal.rateBps, leftMs());
+      const text = await remarkWithin(opts.chair, input, proposal.rateBps, leftMs());
+      const remark = text === null ? null : { text, basis: remarkBasis(input, proposal.rateBps) };
       return { used: opts.chair, kind: "llm", proposal, remark, fallbackNote: "", readEpoch: snapshot.policy.epoch };
     } catch (err) {
       const reason: FallbackReason = err instanceof ChairFailure ? err.reason : "error";
@@ -186,14 +187,19 @@ export function finalize(
   const chosen = proposed.used === ruleChair ? formula : proposed.proposal.rateBps;
   const rate: Rate = window.pick(chosen);
   const rolloverNote = rolled ? "\nThe epoch rolled over while the Chair was deliberating. Time does not wait for the Committee of One." : "";
+  // The window is what a call is sure to be accepted in: near the epoch end it holds only the rates valid in this meeting and the next, narrower than what this meeting alone accepts.
   const clampNote =
     rate === chosen
       ? ""
-      : `\nThe contract accepts ${window.lo}..${window.hi} bps here, so ${rate} bps is set instead. The Chair defers.`;
+      : `\nThe contract is sure to accept ${window.lo}..${window.hi} bps here, so ${rate} bps is set instead. The Chair defers.`;
   const mandate = mandateRate(fresh);
   const day = supplyDrift(input, params.meetingsPerDay);
-  // The remark was checked against the rate the model proposed and the rate in effect when it asked; the rate sent may differ (clamped, or the rate in effect decayed).
-  const remark = proposed.remark !== null && factFault(proposed.remark, factOf(rate, policy.rateBps)) === null ? proposed.remark : null;
+  // The remark was written on the read the model saw and checked against the rate it proposed: it is kept only when the facts it could lean on are the same on the fresh read
+  // and it is still true of the rate sent (clamped, or the rate in effect decayed); otherwise the minutes close on the book.
+  const remark =
+    proposed.remark !== null && proposed.remark.basis === remarkBasis(input, proposed.proposal.rateBps) && factFault(proposed.remark.text, factOf(rate, policy.rateBps)) === null
+      ? proposed.remark.text
+      : null;
   const choice = { formulaBps: formula, chosenBps: chosen, reason: proposed.proposal.reason };
   const body = proposed.kind === "llm" ? `${statement(input, rate)} ${remark ?? bookLine(policy.epoch)}` : ruleDecision(input, rate).reasoning;
   const base =
