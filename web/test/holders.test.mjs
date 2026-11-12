@@ -35,6 +35,8 @@ test("the model: staked share, the seat, the bar, and challengers by backing wit
   assert.equal(holdersModel({ params, policy, supply, candidates: [] }).challengers.length, 0);
   assert.equal(holdersModel({ params, policy, supply, candidates: null }).challengers, null, "unreadable is not the same as none");
   assert.equal(holdersModel({ params, policy, supply: { totalSupply: 0n, totalStaked: 0n }, candidates: [] }).stakedPct, 0);
+  // Cut, not rounded, to two decimals, as the minutes do: 40.488% reads 40.48%, never 40.49% or 40.4%.
+  assert.equal(holdersModel({ params, policy, supply: { totalSupply: 1_000_583_503n, totalStaked: 405_116_000n }, candidates: [] }).stakedPct, 40.48);
 });
 
 test("the panel says the live figures in plain words and the past impeachment with its transaction", () => {
@@ -43,7 +45,8 @@ test("the panel says the live figures in plain words and the past impeachment wi
   const m = holdersModel({ params, policy, supply, candidates: [] });
   renderHolders(doc, el, m, { explorer: "https://explorer.example", specUrl: "https://repo.example/SPEC.md" });
   const t = text(el);
-  assert.match(t, /Staked right now37\.5%/);
+  assert.match(t, /Staked right now37\.50%/);
+  assert.match(t, /the Chair's minutes give the share as it was at each meeting, so the two can differ\./);
   assert.match(t, /600 000 of 1 600 000 coins\. Every coin the Chair prints is shared among these\./);
   assert.match(t, /654 meetings in office\./);
   assert.match(t, /180 000 coins/);

@@ -7,7 +7,8 @@ import { clear, h } from "./dom.js";
 import { safeText, showAccount } from "./text.js";
 import { plainPct } from "./views.js";
 
-const pct1 = (n, d) => (d === 0n ? 0 : Number((n * 1_000n) / d) / 10);
+/** The staked share in percent, cut (not rounded) to two decimals: the same figure, to the digit, that the Chair's minutes cite for the same state. */
+const stakedShare = (n, d) => (d === 0n ? 0 : Number((n * 10_000n) / d) / 100);
 
 /**
  * The backing a challenger must beat, in base units: the larger of the threshold share of the staked coins and the quorum share of all coins,
@@ -24,7 +25,7 @@ export function holdersModel(d) {
   const { params, policy, supply, candidates } = d;
   const needed = backingNeeded(params, supply);
   return {
-    stakedPct: pct1(supply.totalStaked, supply.totalSupply),
+    stakedPct: stakedShare(supply.totalStaked, supply.totalSupply),
     staked: supply.totalStaked,
     total: supply.totalSupply,
     chair: policy.chair,
@@ -71,9 +72,9 @@ export function renderHolders(doc, host, m, { explorer = null, specUrl = null, s
   // `append(null)` would write the text "null": nodes only.
   host.append(...[
     h(doc, "div", { class: "hold-grid" },
-      h(doc, "div", { class: "hold hold-big" }, h(doc, "span", { class: "k" }, "Staked right now"), h(doc, "span", { class: "hv" }, `${m.stakedPct}%`),
-        meter(doc, m.stakedPct, `${m.stakedPct}% of all coins are staked`),
-        h(doc, "span", { class: "s" }, `${coins(m.staked)} of ${coins(m.total)} coins. Every coin the Chair prints is shared among these. Coins that are not staked get none, so their share shrinks.`)),
+      h(doc, "div", { class: "hold hold-big" }, h(doc, "span", { class: "k" }, "Staked right now"), h(doc, "span", { class: "hv" }, `${m.stakedPct.toFixed(2)}%`),
+        meter(doc, m.stakedPct, `${m.stakedPct.toFixed(2)}% of all coins are staked`),
+        h(doc, "span", { class: "s" }, `${coins(m.staked)} of ${coins(m.total)} coins. Every coin the Chair prints is shared among these. Coins that are not staked get none, so their share shrinks. This moves whenever someone stakes or takes coins out; the Chair's minutes give the share as it was at each meeting, so the two can differ.`)),
       stat(doc, "", "The Chair in the seat", h(doc, "span", { class: "acct" }, showAccount(m.chair)), `${m.streak} meetings in office.`),
       stat(doc, "", "What it takes to fire the Chair", `${coins(m.needed)} coins`, `A challenger needs more than ${rule} behind them. Each staker backs one challenger at a time, and a bigger holder counts for more.`)),
     h(doc, "h3", {}, "Challengers right now"),
