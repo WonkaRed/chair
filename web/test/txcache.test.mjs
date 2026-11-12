@@ -51,7 +51,7 @@ class MemStore {
  * A chain and an index that answer from the recorded run. `txs` is what the index holds; `up` false makes every index call a network error (a 429
  * without CORS headers looks like that); `script` is a list of replies (or null for "answer normally") for the next /v0/transactions calls.
  */
-function world({ txs = FULL, store = new MemStore(), peek = true } = {}) {
+function world({ txs = FULL, store = new MemStore(), peek = true, pageLimit } = {}) {
   const w = { up: true, script: [], batches: [], accountCalls: 0, slept: [], store };
   const fetchImpl = async (url, init) => {
     const body = JSON.parse(init.body);
@@ -59,8 +59,12 @@ function world({ txs = FULL, store = new MemStore(), peek = true } = {}) {
       if (!w.up) throw new TypeError("Failed to fetch");
       if (url.endsWith("/v0/account")) {
         w.accountCalls++;
+        // The index pages like the real one (checked live): `limit` rows a page, newest first when `desc`, and a resume token that carries on from where the page ended.
         const rows = txs.map((t) => ({ transaction_hash: hashOf(t) }));
-        return ok({ account_txs: body.desc ? rows.reverse() : rows });
+        if (body.desc) rows.reverse();
+        const from = body.resume_token === undefined ? 0 : Number(body.resume_token.replace("page:", ""));
+        const page = rows.slice(from, from + body.limit);
+        return ok({ account_txs: page, resume_token: page.length === body.limit ? `page:${from + page.length}` : undefined });
       }
       w.batches.push(body.tx_hashes);
       const scripted = w.script.shift();
@@ -72,7 +76,7 @@ function world({ txs = FULL, store = new MemStore(), peek = true } = {}) {
     return ok({ jsonrpc: "2.0", result: { result: bytes(view), logs: [] } });
   };
   w.transport = () => {
-    const t = rpcTransport({ rpcUrls: [A], indexerUrl: IDX, account: TOKEN, fetchImpl, sleep: async (ms) => void w.slept.push(ms), store: w.store });
+    const t = rpcTransport({ rpcUrls: [A], indexerUrl: IDX, account: TOKEN, fetchImpl, ...(pageLimit === undefined ? {} : { pageLimit }), sleep: async (ms) => void w.slept.push(ms), store: w.store });
     if (!peek) delete t.peek; // the full read alone, for tests that script the failures of its batches
     return t;
   };
@@ -370,4 +374,44 @@ test("loadLog never offers the latest decision after it has returned", async () 
   release();
   await new Promise((done) => setTimeout(done, 20));
   assert.equal(offered.length, 0);
+});
+
+test("the index is read newest first across several pages: the full list is complete, oldest first, with no hash twice", async () => {
+  const oldestFirst = FULL.map(hashOf);
+  for (const pageLimit of [7, 8, 20, 21, 500]) {
+    const w = world({ pageLimit });
+    const hashes = await w.transport().txHashes();
+    assert.deepEqual(hashes, oldestFirst, `page size ${pageLimit}`);
+    assert.equal(new Set(hashes).size, hashes.length);
+    // A page that fills exactly asks once more (the index may hold more), so 21 rows at 7 a page is four calls, and at 21 a page is two.
+    assert.equal(w.accountCalls, Math.floor(oldestFirst.length / pageLimit) + 1, `page size ${pageLimit}: calls`);
+  }
+});
+
+test("the read-ahead is the true newest twenty even when the index comes in several pages, and the whole log still reads the same", async () => {
+  const w = world({ pageLimit: 20 });
+  const d = await w.load();
+  const newest = FULL.map(hashOf).slice(-20).reverse();
+  assert.deepEqual(w.batches[0], newest, "the first request asks for the newest twenty, newest first");
+  assert.deepEqual(w.batches.slice(1).flat(), [hashOf(FULL[0])], "only the one older hash is left for the full read");
+  assert.equal(d.status, "complete");
+  assert.deepEqual(d.entries, (await world().load()).entries, "paged and unpaged reads give the same log");
+});
+
+test("nothing the read-ahead or the caller's drawing does can surface as an unhandled rejection", async () => {
+  const strays = [];
+  const stray = (e) => strays.push(e);
+  process.on("unhandledRejection", stray);
+  try {
+    const sync = await loadLog(world().transport(), { onLatest: () => { throw new Error("drawing failed"); } });
+    const async_ = await loadLog(world().transport(), { onLatest: async () => { throw new Error("async drawing failed"); } });
+    const t = world().transport();
+    t.peek = async () => ({}); // not a list of transactions: decoding it throws
+    const odd = await loadLog(t, { onLatest: () => assert.fail("a read-ahead that could not be decoded offers nothing") });
+    await new Promise((done) => setTimeout(done, 30));
+    for (const d of [sync, async_, odd]) assert.equal(d.status, "complete", "the full read is unaffected");
+    assert.deepEqual(strays, []);
+  } finally {
+    process.off("unhandledRejection", stray);
+  }
 });

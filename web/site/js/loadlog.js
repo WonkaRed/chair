@@ -92,7 +92,7 @@ async function read(transport, { onViews, onLatest }) {
   const newestHashes = new Promise((resolve) => (firstPage = resolve));
   const hashes = transport.txHashes({ onFirstPage: firstPage });
   hashes.catch(() => {}); // a failure is read where the hashes are awaited, below; this only keeps it from going unhandled if the views fail first
-  const newest = newestHashes.then((page) => transport.peek?.(page)).then((txs) => (txs ? decisionsOfTxs(txs, transport.token).decisions[0] ?? null : null), () => null);
+  const newest = newestHashes.then((page) => transport.peek?.(page)).then((txs) => (txs ? decisionsOfTxs(txs, transport.token).decisions[0] ?? null : null)).catch(() => null); // the read-ahead only ever helps: any failure in it is no decision
   const [rawParams, rawPolicy, rawSupply, candidates] = await Promise.all([transport.view("get_params"), transport.view("get_policy"), transport.view("get_supply"), transport.view("get_candidates").then(parseCandidates, () => null)]);
   const params = parseParams(rawParams);
   const policy = parsePolicy(rawPolicy);
@@ -100,8 +100,8 @@ async function read(transport, { onViews, onLatest }) {
   onViews?.({ params, policy, supply, candidates });
   const keys = transport.accessKeys().then((n) => n, () => null);
   void newest.then((decision) => {
-    if (decision !== null && decision.epoch >= (policy.lastSetEpoch ?? -1)) onLatest?.({ decision, policy, params });
-  });
+    if (decision !== null && decision.epoch >= (policy.lastSetEpoch ?? -1)) return onLatest?.({ decision, policy, params });
+  }).catch(() => {}); // the caller's drawing (it may be async) failing must not become an unhandled rejection: the full read draws the same card
 
   const base = { params, policy, supply, candidates, identity: identity(supply), accessKeys: await keys, entries: [], decisions: [], remembered: [], refusals: [], anomalies: [], reconcile: null, pending: null, txCount: 0, reasons: [] };
   let txs;

@@ -102,7 +102,7 @@ function corridor(doc, policy, params) {
   const max = params.maxRateBps;
   const x = (v) => 20 + ((v + max) / (2 * max)) * (W - 40);
   const reach = [Math.max(-max, policy.rateBps - params.maxStepBps), Math.min(max, policy.rateBps + params.maxStepBps)];
-  const root = svg(doc, "svg", { viewBox: `0 0 ${W} ${H}`, class: "corridor-svg", role: "img", "aria-label": `Rate ${fmtRate(policy.rateBps)} within the bounds ${MINUS}${max} to +${max} bps. The chair can move it at most ${params.maxStepBps} bps per epoch, to between ${fmtRate(reach[0])} and ${fmtRate(reach[1])}.` });
+  const root = svg(doc, "svg", { viewBox: `0 0 ${W} ${H}`, class: "corridor-svg", role: "img", "aria-label": `Rate ${fmtRate(policy.rateBps)} within the bounds ${MINUS}${max} to +${max} bps. The chair can move it at most ${params.maxStepBps} bps per meeting, to between ${fmtRate(reach[0])} and ${fmtRate(reach[1])}.` });
   root.append(svg(doc, "rect", { x: x(-max), y: 34, width: x(max) - x(-max), height: 22, rx: 3, class: "bounds" }));
   root.append(svg(doc, "rect", { x: x(reach[0]), y: 34, width: x(reach[1]) - x(reach[0]), height: 22, rx: 3, class: "reach" }));
   for (let v = -max; v <= max; v += params.maxStepBps) {
@@ -140,14 +140,14 @@ export function renderNow(doc, host, d) {
     h(doc, "div", { class: "now-grid" },
       fact("big", "The rate right now", [fmtSignedPct(policy.rateBps), " ", h(doc, "span", { class: "tag" }, fmtRate(policy.rateBps))], "rate", h(doc, "span", { class: "s" }, policy.rateBps > 0 ? `eases: mints ${fmtPct(policy.rateBps)} of supply ${printUnit(params)} to stakers` : policy.rateBps < 0 ? `tightens: every transfer burns ${fmtPct(policy.rateBps)}` : "neutral: nothing is minted or burned")),
       fact("", "Coins in existence", h(doc, "span", { title: formatExact(supply.totalSupply) }, formatTokens(supply.totalSupply)), "", h(doc, "span", { class: "s" }, `${formatTokens(supply.minted)} minted and ${formatTokens(supply.burned)} burned since launch`)),
-      fact("", "The current round (epoch)", String(policy.epoch), "", h(doc, "span", { class: "s" }, `ends ${fmtTime(policy.epochEndsMs)}; epochs last ${formatDuration(params.epochMs)}`)),
-      fact("", "The Chair", showAccount(policy.chair), "acct", h(doc, "span", { class: "s" }, `${policy.streak} complete epochs in office; ${acted ? "has set this epoch's rate" : "has not set this epoch's rate yet"}`)),
+      fact("", "The current meeting", String(policy.epoch), "", h(doc, "span", { class: "s" }, `ends ${fmtTime(policy.epochEndsMs)}; meetings last ${formatDuration(params.epochMs)}`)),
+      fact("", "Who holds the seat", "The Chair's account", "", h(doc, "span", { class: "s" }, h(doc, "span", { class: "acct" }, showAccount(policy.chair)), `${policy.streak} complete meetings in office; ${acted ? "has set this meeting's rate" : "has not set this meeting's rate yet"}`)),
     ),
     h(doc, "div", { class: "corridor" }, h(doc, "p", { class: "corridor-h" }, "Where the rate is allowed to go"), corridor(doc, policy, params), h(doc, "ul", { class: "key" },
       h(doc, "li", {}, h(doc, "span", { class: "sw sw-bounds", "aria-hidden": "true" }), `Allowed by the contract: ${fmtRate(-params.maxRateBps)} to ${fmtRate(params.maxRateBps)}`),
-      h(doc, "li", {}, h(doc, "span", { class: "sw sw-reach", "aria-hidden": "true" }), `Where the chair can move it next: ${fmtRate(Math.max(-params.maxRateBps, policy.rateBps - params.maxStepBps))} to ${fmtRate(Math.min(params.maxRateBps, policy.rateBps + params.maxStepBps))} (at most ${params.maxStepBps} bps per epoch)`),
+      h(doc, "li", {}, h(doc, "span", { class: "sw sw-reach", "aria-hidden": "true" }), `Where the chair can move it next: ${fmtRate(Math.max(-params.maxRateBps, policy.rateBps - params.maxStepBps))} to ${fmtRate(Math.min(params.maxRateBps, policy.rateBps + params.maxStepBps))} (at most ${params.maxStepBps} bps per meeting)`),
     )),
-    h(doc, "p", { class: "note" }, `If the chair does nothing more, the next epochs run at ${path.map(fmtRate).join(", ")}.`),
+    h(doc, "p", { class: "note" }, `If the chair does nothing more, the next meetings run at ${path.map(fmtRate).join(", ")}.`),
   );
 }
 

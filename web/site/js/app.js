@@ -9,6 +9,7 @@ import { createJoin } from "./join.js";
 import { createMine, SEND_TIMEOUT_MS } from "./mine.js";
 import { loadTexts, renderHero, renderMinutes, resolveTexts } from "./minutes.js";
 import { createOverreach } from "./overreach.js";
+import { keepFoldsOpen } from "./keepopen.js";
 import { setupPhoneFolds } from "./phonefold.js";
 import { createPress, pressFromChain } from "./press.js";
 import { linkFallback, newestAnswer, setPullQuote } from "./pullquote.js";
@@ -65,7 +66,7 @@ function heroUnavailable() {
 /** The chain's own numbers, as soon as the quick views answer: the plain sentence, the holders' panel and the worst-case section. */
 function showViews({ params, policy, supply, candidates }, made) {
   renderPlain(doc, $("now-plain"), { policy, params });
-  renderHolders(doc, $("holders-body"), holdersModel({ params, policy, supply, candidates }), { explorer: made.fixture ? null : config.explorerUrl, specUrl: `${config.repoUrl}/blob/${config.repoRef}/SPEC.md#epochs-and-rollover`, showPast: made.fixture === null });
+  keepFoldsOpen($("holders-body"), () => renderHolders(doc, $("holders-body"), holdersModel({ params, policy, supply, candidates }), { explorer: made.fixture ? null : config.explorerUrl, specUrl: `${config.repoUrl}/blob/${config.repoRef}/SPEC.md#epochs-and-rollover`, showPast: made.fixture === null }));
   renderBound(doc, $("bound-body"), { ...params, launchSupply: supply.launchSupply }, { explorer: made.fixture ? null : config.explorerUrl });
 }
 
@@ -88,21 +89,21 @@ async function showChain() {
   const showSource = () => renderSource(doc, $("source"), { mode: made.fixture ? "fixture" : "live", config, fixture: made.fixture, rpcUrl: made.transport.rpcInUse?.() });
   showSource();
   let shown = null; // the data on screen, if a read has succeeded
-  let heroTx = null; // the decision the hero shows, so a read that ends on the same one does not redraw it (and shut a proof the visitor opened)
   const explorer = made.fixture ? null : config.explorerUrl;
   const indexerUrl = made.fixture ? null : config.indexerUrl;
   const contextFor = (bundled, resolved, params) => ({ texts: bundled, resolved, explorer, indexerUrl, repoBase: `${config.repoUrl}/blob/${config.repoRef}`, network: made.fixture ? null : config.network, unit: printUnit(params) });
   const run = async () => {
     let data;
     let over = false; // the whole read has ended: its own hero draw is the last word
+    let early = false; // the read-ahead drew the hero in this read
+    const drawHero = (d, ctx) => keepFoldsOpen($("hero-minutes"), () => renderHero(doc, $("hero-minutes"), d, ctx)); // every read redraws it: its silence line follows the meeting, and an open proof stays open
     /** The newest decision, read ahead of the rest of the log: the hero is drawn from it as soon as it is known. */
     const showLatest = async ({ decision, policy, params }) => {
-      if (decision.tx === heroTx) return;
       const bundled = await texts;
       const resolved = await resolveTexts([decision], bundled);
       if (over) return;
-      heroTx = decision.tx;
-      renderHero(doc, $("hero-minutes"), { decisions: [decision], remembered: [], status: "partial", policy }, contextFor(bundled, resolved, params));
+      early = true;
+      drawHero({ decisions: [decision], remembered: [], status: "partial", policy }, contextFor(bundled, resolved, params));
     };
     try {
       data = await loadLog(made.transport, { onViews: (views) => showViews(views, made), onLatest: showLatest });
@@ -130,11 +131,8 @@ async function showChain() {
     showSource();
     const bundled = await texts;
     const ctx = contextFor(bundled, await resolveTexts([...data.decisions, ...data.remembered], bundled), data.params);
-    // What the read-ahead drew stands when the whole read agrees with it, or when the index failed part-way and has nothing newer to say.
-    if (heroTx === null || (data.decisions.length > 0 && data.decisions[0].tx !== heroTx)) {
-      renderHero(doc, $("hero-minutes"), data, ctx);
-      heroTx = data.decisions[0]?.tx ?? null;
-    }
+    // What the read-ahead drew stands when the index failed part-way and the whole read has no decision to say.
+    if (data.decisions.length > 0 || !early) drawHero(data, ctx);
     renderMinutes(doc, $("minutes-body"), data, ctx);
     renderRefusals(doc, $("refusals-body"), data, { explorer, indexerUrl });
     chainData = data;
@@ -247,10 +245,10 @@ function showGuarantees() {
 function setupPage() {
   setupPhoneFolds(doc);
   setupReveal([...doc.querySelectorAll(".reveal")], doc.documentElement);
-  const open = () => {
+  const open = (fragment) => {
     let id = "";
     try {
-      id = decodeURIComponent(location.hash.slice(1));
+      id = decodeURIComponent(fragment.replace(/^#/, ""));
     } catch {
       // A malformed fragment names nothing.
     }
@@ -260,8 +258,13 @@ function setupPage() {
       openFoldsAround(target);
     }
   };
-  addEventListener("hashchange", open);
-  open();
+  addEventListener("hashchange", () => open(location.hash));
+  // The same link pressed twice changes no hash, so the link itself is what opens the fold again after the visitor shut it.
+  doc.addEventListener("click", (e) => {
+    const link = e.target?.closest?.('a[href^="#"]');
+    if (link) open(link.getAttribute("href"));
+  });
+  open(location.hash);
 }
 
 setupTheme();

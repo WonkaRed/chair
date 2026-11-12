@@ -83,7 +83,7 @@ export function failoverPoster(fetchImpl, source, urls, sleep = (ms) => new Prom
 }
 
 /** `store` is where complete transactions are kept between visits (a `Storage`; null keeps nothing). */
-export function rpcTransport({ rpcUrls, indexerUrl, account, fetchImpl = globalThis.fetch.bind(globalThis), sleep, store = null }) {
+export function rpcTransport({ rpcUrls, indexerUrl, account, fetchImpl = globalThis.fetch.bind(globalThis), sleep, store = null, pageLimit = PAGE_LIMIT }) {
   const rpc = failoverPoster(fetchImpl, "rpc", rpcUrls, sleep);
   const indexer = failoverPoster(fetchImpl, "indexer", [indexerUrl], sleep);
   const cache = txCache({ store, key: `chair-txs/1:${account}` });
@@ -120,15 +120,15 @@ export function rpcTransport({ rpcUrls, indexerUrl, account, fetchImpl = globalT
     const seen = new Set();
     let resume;
     for (let page = 0; page < MAX_PAGES; page++) {
-      const reply = await indexer.post("/v0/account", { account_id: account, is_receiver: true, desc: true, limit: PAGE_LIMIT, ...(resume ? { resume_token: resume } : {}) });
+      const reply = await indexer.post("/v0/account", { account_id: account, is_receiver: true, desc: true, limit: pageLimit, ...(resume ? { resume_token: resume } : {}) });
       const rows = reply?.account_txs;
       if (!Array.isArray(rows)) throw new SourceError("indexer", "unexpected response shape");
       for (const r of rows) if (typeof r?.transaction_hash === "string" && !seen.has(r.transaction_hash)) (seen.add(r.transaction_hash), hashes.push(r.transaction_hash));
       if (page === 0) onFirstPage?.([...hashes]);
       resume = reply.resume_token;
-      if (rows.length < PAGE_LIMIT || typeof resume !== "string" || resume === "") return hashes.reverse();
+      if (rows.length < pageLimit || typeof resume !== "string" || resume === "") return hashes.reverse();
     }
-    throw new SourceError("indexer", `more than ${MAX_PAGES * PAGE_LIMIT} transactions: not read to the end`);
+    throw new SourceError("indexer", `more than ${MAX_PAGES * pageLimit} transactions: not read to the end`);
   };
 
   /**

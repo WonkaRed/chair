@@ -439,7 +439,7 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 .hold .hv { margin: 0.2rem 0 0.35rem; font: 600 1.9rem/1.15 var(--serif); font-variant-numeric: lining-nums tabular-nums; overflow-wrap: anywhere; }
 .hold .hv .acct { display: block; font: 600 1.05rem/1.3 var(--mono); padding-block: 0.3rem; }
 .hold .s { margin-top: 0.4rem; color: var(--ink2); font-size: 0.92rem; }
-.hold .s .acct { display: block; overflow-wrap: anywhere; }
+.hold .s .acct, .fact .s .acct { display: block; overflow-wrap: anywhere; }
 .meter { display: block; height: 0.6rem; border-radius: 999px; background: var(--hair); overflow: hidden; margin-block: 0.4rem; }
 .meter-fill { display: block; height: 100%; width: var(--w, 0%); background: var(--accent); border-radius: 999px; }
 .challengers { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.75rem; }
