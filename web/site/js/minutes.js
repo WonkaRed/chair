@@ -245,16 +245,6 @@ function proof(doc, d, ctx) {
   );
 }
 
-/** The Chair's statement: the prose without the lines the agent adds after it (a clamp, a rollover, the press), which speak in bps whatever the Chair wrote. */
-const statementOf = (prose) => {
-  const lines = prose.split("\n");
-  const cut = lines.findIndex((line) => AFTER_STATEMENT.test(line));
-  return (cut < 0 ? lines : lines.slice(0, cut)).join("\n");
-};
-
-/** The page's own plain line is only for a decision whose text is not already plain: no text, or a statement still in basis points and epochs. */
-const needsPlain = (p) => !p.rec || /basis points|bps|epoch/i.test(statementOf(p.prose));
-
 /**
  * The minutes as a quote. When the Chair wrote its closing sentence, that sentence is its own element with a plain label, inside the same quote, so the
  * text reads and copies as the one the hash covers (the label is not selectable). Only for a text that checked out and was not forced by a visitor through the press desk.
@@ -283,12 +273,13 @@ function parts(doc, d, ctx, saved = false) {
   const state = !rec ? "absent" : saved && rec.verdict === "verified" ? "kept" : rec.verdict;
   if (!rec) {
     const lead = h(doc, "p", { class: "m-absent" }, ctx.texts === null ? "The bundled reasoning texts could not be loaded, so no text is shown for this decision." : "no reasoning text for this decision: its transaction carries none and none was saved");
-    return { state, rec, lead, fallback: null, choice: null, prose: "", meta: null, notes: [] };
+    return { state, rec, lead, full: null, own: null, fallback: null, choice: null, prose: "", meta: null, notes: [] };
   }
   const shown = safeLines(rec.text);
   const { meta, prose, fallback } = splitMinutes(shown);
   // Only a text that hashed to the chain's and that the chair wrote itself is read for what the Chair wrote: a visitor can force any text through the press desk.
   const trusted = (state === "verified" || state === "kept") && !d.byVisitor;
+  const closing = trusted ? splitClosing(shown) : null;
   const src = rec.source && /^[\w.-]+$/.test(rec.source) && ctx.repoBase ? h(doc, "a", { href: `${ctx.repoBase}/docs/${rec.source}`, rel: "noopener noreferrer", target: "_blank" }, `docs/${rec.source}`) : null;
   return {
     state,
@@ -296,7 +287,9 @@ function parts(doc, d, ctx, saved = false) {
     prose,
     fallback: fallback === null ? null : h(doc, "p", { class: "plain-line m-fallback" }, fallback),
     choice: trusted ? choiceMatching(parseChoice(meta.at(-1) ?? ""), d.rateBps) : null,
-    lead: lead(doc, prose, trusted ? splitClosing(shown) : null),
+    own: closing?.own ?? null,
+    lead: lead(doc, prose, closing),
+    full: h(doc, "blockquote", { class: "reasoning", lang: "en" }, prose),
     meta: meta.length === 0 && !d.byVisitor ? null : h(doc, "p", { class: "m-meta" }, d.byVisitor ? h(doc, "strong", { class: "visitor-tag" }, "Forced by a visitor through the press desk, not decided by the AI chair: the chair account signed it. ") : null, meta.map((line) => h(doc, "span", {}, line))),
     notes: [
       h(doc, "p", { class: `m-check ${MARKS[state].cls}` }, h(doc, "strong", {}, `${MARKS[state].mark} ${MARKS[state].short}.`), ` ${MARKS[state].long}`),
@@ -314,21 +307,31 @@ const HOW = "Your browser computed the SHA-256 of the exact text above and compa
 const verdictLabel = (state, ctx) => (state === "verified" ? (ctx.network ? `Verified on NEAR ${safeText(ctx.network, 12)}` : "Verified against the recorded sandbox run") : MARKS[state].short);
 
 /**
+ * What a minute leads with: the sentence the AI wrote itself, large, labelled as the AI's. A text without one (the rule chair's, a fallback, an old text,
+ * one a visitor forced) leads with the page's plain line built from the numbers, labelled so; the whole text stays behind "Read the full minutes".
+ */
+function headline(doc, p, d, ctx) {
+  if (p.own !== null) return [h(doc, "blockquote", { class: "reasoning has-own ai-line", lang: "en" }, h(doc, "span", { class: "m-own-line" }, p.own)), h(doc, "p", { class: "m-own-k" }, "Written by the AI this meeting")];
+  return [h(doc, "p", { class: "plain-line ai-line" }, plainDecision(d.rateBps, d.previousRateBps, ctx.unit)), p.rec ? h(doc, "p", { class: "said-k" }, "A plain summary of this meeting's numbers") : p.lead];
+}
+
+/** The whole text, verbatim: it is what the chain's hash covers, so it stays one tap away. */
+const fullMinutes = (doc, p) => (p.full === null ? null : h(doc, "details", { class: "fold m-full" }, h(doc, "summary", {}, "Read the full minutes, word for word"), p.full));
+
+/**
  * A decision as the page's pull-quote: the prose large, the epoch, the rate as a percent with bps second, and the proof folded behind the mark.
  * `note` is a line of status under the rate. `saved` is a decision from this browser's saved copy, not read just now: it is never called the latest.
  */
-function heroCard(doc, d, ctx, { note = null, saved = false } = {}) {
+function heroCard(doc, d, ctx, { note = null, saved = false, confirmed = false } = {}) {
   const p = parts(doc, d, ctx, saved);
-  const title = saved ? "Saved minutes of the Committee of One" : "Latest minutes of the Committee of One";
-  return h(doc, "figure", { class: `minutes-paper ${p.state}`, "aria-label": `${saved ? "Saved" : "Latest"} minutes, meeting ${d.epoch}` },
+  const title = saved && !confirmed ? "Saved minutes of the Committee of One" : "Latest minutes of the Committee of One";
+  return h(doc, "figure", { class: `minutes-paper ${p.state}`, "aria-label": `${saved && !confirmed ? "Saved" : "Latest"} minutes, meeting ${d.epoch}` },
     svg(doc, "svg", { class: "watermark", "aria-hidden": "true" }, svg(doc, "use", { href: "#seal" })),
     h(doc, "p", { class: "paper-head" }, h(doc, "span", {}, title), h(doc, "span", { class: "paper-epoch", title: `Epoch ${d.epoch}` }, `Meeting ${d.epoch}`)),
     p.fallback,
-    needsPlain(p) ? [h(doc, "p", { class: "plain-line" }, plainDecision(d.rateBps, d.previousRateBps, ctx.unit)), h(doc, "p", { class: "said-k" }, "In the Chair's words")] : null,
-    p.lead,
+    headline(doc, p, d, ctx),
     h(doc, "figcaption", { class: "paper-rate" },
       h(doc, "span", { class: "rate-big" }, fmtSignedPct(d.rateBps)),
-      h(doc, "span", { class: "rate-bps" }, fmtRate(d.rateBps)),
       h(doc, "span", { class: "rate-effect" }, effect(d.rateBps, ctx.unit)),
       h(doc, "span", { class: "rate-prev" }, `Before: ${plainSigned(d.previousRateBps)}.`),
       p.choice === null ? null : choiceRow(doc, p.choice, ctx),
@@ -337,6 +340,7 @@ function heroCard(doc, d, ctx, { note = null, saved = false } = {}) {
     h(doc, "details", { class: `seal ${p.state}` },
       h(doc, "summary", {}, svg(doc, "svg", { class: "stamp", "aria-hidden": "true" }, svg(doc, "use", { href: "#seal" })), pill(doc, p.state, verdictLabel(p.state, ctx))),
       h(doc, "div", { class: "seal-body" },
+        h(doc, "p", { class: "note" }, "Rate in basis points: ", h(doc, "span", { class: "rate-bps" }, fmtRate(d.rateBps)), "."),
         p.meta,
         p.rec ? h(doc, "p", { class: "note" }, saved ? HOW_SAVED : HOW) : null,
         who(doc, d, p.rec),
@@ -344,6 +348,7 @@ function heroCard(doc, d, ctx, { note = null, saved = false } = {}) {
         proof(doc, d, ctx),
       ),
     ),
+    fullMinutes(doc, p),
   );
 }
 
@@ -361,6 +366,24 @@ function chainOnly(doc, d, ctx) {
     ? ["The Chair's latest decision is older than the transactions read here.", "\"Show earlier meetings\", under the minutes, reads further back."]
     : ["The Chair's minutes could not be read just now.", "See the status under the log."];
   return h(doc, "p", { class: "empty hero-empty" }, h(doc, "span", {}, `${why} The chain itself says the rate in force is `, rateLabel(policy.rateBps, ctx.unit), ` (meeting ${policy.epoch}) and that `, h(doc, "span", { class: "acct" }, showAccount(policy.chair)), ` is the Chair. ${see}`));
+}
+
+/**
+ * The hero while the transaction index is still being read, drawn from what is already true: the chain's own views (`policy`, the first to arrive) and,
+ * when this browser kept the decision of the meeting the chain says was the last (one decision a meeting, so the same meeting is the same decision), that
+ * saved copy with its neutral mark. Otherwise the meeting and the rate in force, and grey bars where the Chair's words will be. The full read draws over it.
+ */
+export function renderHeroPending(doc, host, { policy, remembered }, ctx) {
+  while (host.firstChild) host.removeChild(host.firstChild);
+  const [saved] = remembered;
+  if (saved !== undefined && saved.epoch === policy.lastSetEpoch && ctx.resolved.has(saved.tx)) return host.append(heroCard(doc, saved, ctx, { saved: true, confirmed: true }));
+  host.append(h(doc, "figure", { class: "minutes-paper pending", "aria-busy": "true", "aria-label": "Latest minutes, being read from the chain" },
+    svg(doc, "svg", { class: "watermark", "aria-hidden": "true" }, svg(doc, "use", { href: "#seal" })),
+    h(doc, "p", { class: "paper-head" }, h(doc, "span", {}, "Latest minutes of the Committee of One"), policy.lastSetEpoch === null ? null : h(doc, "span", { class: "paper-epoch" }, `Meeting ${policy.lastSetEpoch}`)),
+    h(doc, "p", { class: "plain-line ai-line" }, `The rate in force is ${rateLabel(policy.rateBps, ctx.unit)}.`),
+    h(doc, "span", { class: "skel", "aria-hidden": "true" }), h(doc, "span", { class: "skel skel-short", "aria-hidden": "true" }),
+    h(doc, "p", { class: "note", role: "status" }, "Reading the Chair's words from the chain…"),
+  ));
 }
 
 /**
@@ -384,17 +407,15 @@ function card(doc, d, ctx) {
   const p = parts(doc, d, ctx);
   return h(doc, "article", { class: `minute card ${p.state}` },
     p.fallback,
-    needsPlain(p) ? h(doc, "p", { class: "plain-line" }, plainDecision(d.rateBps, d.previousRateBps, ctx.unit)) : null,
-    p.lead,
+    headline(doc, p, d, ctx),
     h(doc, "p", { class: "m-line" },
       h(doc, "strong", { title: `Epoch ${d.epoch}` }, `Meeting ${d.epoch}`),
-      h(doc, "span", {}, `${rateLabel(d.rateBps, ctx.unit)} (${fmtRate(d.rateBps)}), ${move(d)}`),
+      h(doc, "span", {}, `${rateLabel(d.rateBps, ctx.unit)}, ${move(d)}`),
       pill(doc, p.state),
     ),
-    p.meta,
     h(doc, "details", { class: "m-more" },
-      h(doc, "summary", {}, "Proof and details"),
-      h(doc, "div", { class: "m-body" }, who(doc, d, p.rec), p.notes, proof(doc, d, ctx)),
+      h(doc, "summary", {}, "Full minutes and proof"),
+      h(doc, "div", { class: "m-body" }, p.full, p.meta, who(doc, d, p.rec), p.notes, proof(doc, d, ctx)),
     ),
   );
 }

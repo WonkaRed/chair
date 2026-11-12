@@ -5,7 +5,7 @@
   display: grid; gap: 1.25rem 3rem; grid-template-columns: minmax(0, 1fr); align-items: start;
 }
 @media (min-width: 62rem) { #mine { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); grid-template-rows: auto 1fr; } #mine .slot { grid-column: 2; grid-row: 1 / span 2; } }
-#mine h2 { margin: 0; }
+#mine .panel-h { margin: 0; }
 #mine[hidden], #mine [hidden] { display: none !important; } /* the section's own display:grid above would otherwise beat its hidden attribute */
 #mine { overflow-wrap: anywhere; } /* a 64-character account or a long contract sentence wraps inside the panel and never widens the page */
 #mine > * { min-width: 0; }

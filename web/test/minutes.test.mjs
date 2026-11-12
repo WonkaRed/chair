@@ -16,7 +16,7 @@ const docs = join(root, "..", "docs");
 const site = (f) => import(join(root, "site", "js", f));
 const { decisionsOfTxs, refusalsOfTxs } = await site("decisions.js");
 const { BOOK_CLOSINGS, checkReasoning, choiceMatching, loadTexts, ownClosing, parseChoice, renderHero, renderMinutes, resolveTexts, sha256Hex, silence, splitClosing, splitMinutes } = await site("minutes.js");
-const { renderRefusals, humanReason, PROJECT_TEST_CALLS } = await site("refusals.js");
+const { renderRefusals, refusalDisclosure, humanReason, PROJECT_TEST_CALLS } = await site("refusals.js");
 const { rawTxCommand } = await site("views.js");
 const { lineChart } = await site("charts.js");
 const { loadLog } = await site("loadlog.js");
@@ -292,8 +292,8 @@ test("the refusals are labelled by what they were: every known one is a delibera
   const refusedSteps = deployment.transactions.filter((s) => s.outcome === "refused" && s.hash);
   assert.deepEqual([...PROJECT_TEST_CALLS].sort(), refusedSteps.map((s) => s.hash).sort(), "the labelled hashes are exactly the scripted run's refused transactions");
   assert.equal(humanReason("only the chair may set policy: caller x"), "The account that signed was not the chair.");
-  assert.match(humanReason("rate_bps out of bounds: must be within -200..=200"), /limit of 200 bps either way: 2% of supply a day when printing/);
-  assert.match(humanReason("rate step too large: moving from 190 to 100"), /more than 0.5% \(50 bps\) away/);
+  assert.match(humanReason("rate_bps out of bounds: must be within -200..=200"), /can never go above 2% a day when printing/);
+  assert.match(humanReason("rate step too large: moving from 190 to 100"), /more than 0\.5% away/);
   assert.match(humanReason("policy already set this epoch"), /already decided in that epoch/);
   assert.match(humanReason("reasoning_hash must be 64 lowercase hex characters"), /not a SHA-256 digest/);
   assert.equal(humanReason("something new"), null, "an unknown reason is shown raw, never guessed at");
@@ -306,14 +306,16 @@ test("the refusals are labelled by what they were: every known one is a delibera
     return hostNode;
   };
   const all = draw([row(known, "launch.chair.testnet", "rate_bps out of bounds: must be within -200..=200")]);
-  assert.match(textOf(all), /All 1 were deliberate test calls that I made to show the bounds hold, signed by launch\.chair\.testnet \(1\)\. In none of them did the AI chair choose a rate the contract refused\./);
-  assert.match(textOf(all), /limit of 200 bps either way: 2% of supply a day when printing, 2% of a transfer when burning/);
-  assert.match(textOf(all), /The contract's own words: rate_bps out of bounds: must be within -200\.\.=200/, "the raw text stays, in small print");
-  assert.ok([...walk(all)].some((n) => n.tag === "td" && n.attrs.title === "The contract's own words: rate_bps out of bounds: must be within -200..=200"), "and on hover");
+  assert.match(textOf(all), /In none of them did the AI chair choose a rate the contract refused\./);
+  assert.doesNotMatch(textOf(all), /I made|signed by launch/, "who made the tests is told under the honest limits");
+  assert.equal(refusalDisclosure({ status: "complete", refusals: [row(known, "launch.chair.testnet", "x")] }), 'Of the refusals listed under "Times the contract told the Chair no", all 1 were deliberate test calls that I made to show the bounds hold, signed by launch.chair.testnet (1).');
+  assert.match(textOf(all), /can never go above 2% a day when printing or 2% of a transfer when burning/);
+  assert.match(textOf(all), /The contract's own wordsrate_bps out of bounds: must be within -200\.\.=200/, "the raw text stays, in a fold");
+  assert.ok([...walk(all)].some((n) => n.tag === "details" && n.attrs.class === "raw-words" && textOf(n.children.find((c) => c.tag === "code")) === "rate_bps out of bounds: must be within -200..=200"), "the raw words sit in a fold");
   const forced = draw([row(known, "launch.chair.testnet", "x"), { ...row(txId(8), "ai.chair.testnet", "x"), byVisitor: true }]);
-  assert.match(textOf(forced), /1 of the 2 were deliberate test calls.*; 1 was forced by visitors through the press desk\. In none of them/);
+  assert.match(refusalDisclosure({ status: "complete", refusals: [row(known, "launch.chair.testnet", "x"), { ...row(txId(8), "ai.chair.testnet", "x"), byVisitor: true }] }), /1 of the 2 were deliberate test calls.*; 1 was forced by visitors through the press desk\./);
   const stranger = draw([row(known, "launch.chair.testnet", "x"), row(txId(9), "ai.chair.testnet", "x")]);
-  assert.match(textOf(stranger), /1 of the 2 were deliberate test calls/);
+  assert.match(refusalDisclosure({ status: "complete", refusals: [row(known, "launch.chair.testnet", "x"), row(txId(9), "ai.chair.testnet", "x")] }), /1 of the 2 were deliberate test calls/);
   assert.doesNotMatch(textOf(stranger), /did the AI chair choose/, "a refusal the page cannot account for withdraws the claim about the AI chair");
   assert.doesNotMatch(textOf(draw([row(txId(9), "ai.chair.testnet", "x")])), /deliberate test/, "nothing known, nothing claimed");
   assert.ok([...walk(all)].some((n) => n.tag === "button" && textOf(n) === "raw"), "each row has the raw curl chip");
@@ -411,9 +413,9 @@ test("a card says what its rate is measured over in the page's own words, beside
     renderMinutes(doc, list, { decisions: [decision({ epoch: 6 }), decision({ rateBps, previousRateBps })], policy, status: "complete" }, c);
     return [...walk(list)].filter((n) => n.attrs?.class === "m-line").map(textOf);
   };
-  assert.match(lines(29, 25)[0], /^Meeting 5\+0\.29% a day \(\+29 bps\), up 0\.04% from \+0\.25%/);
-  assert.match(lines(-10, 0)[0], /\u22120\.10% of every transfer \(\u221210 bps\)/);
-  assert.match(lines(0, 0)[0], /0\.00% \(0 bps\), unchanged/);
+  assert.match(lines(29, 25)[0], /^Meeting 5\+0\.29% a day, up 0\.04% from \+0\.25%/);
+  assert.match(lines(-10, 0)[0], /\u22120\.10% of every transfer/);
+  assert.match(lines(0, 0)[0], /0\.00%, unchanged/);
   assert.match(lines(50, 50, ctx(null, new Map()))[0], /\+0\.50% a day/);
 });
 
@@ -564,12 +566,12 @@ test("the Refusals section lists each refusal with its panic text and a transact
     return hostNode;
   };
   const h = draw({ status: "complete", refusals });
-  assert.match(textOf(h), /1 refused set_policy call, newest first/);
-  assert.match(textOf(h), /\u2212201 bps/);
+  assert.match(textOf(h), /1 refused call, newest first/);
+  assert.match(textOf(h), /\u22122\.01%/);
   assert.match(textOf(h), /<img src=x onerror=alert\(1\)>\\u\{202e\}/, "the panic text is shown escaped, as text");
   assert.ok([...walk(h)].some((n) => n.tag === "a" && n.attrs.href === `https://example.invalid/txns/${txId(1)}`));
   assertInert(h, "refusals");
-  assert.match(textOf(draw({ status: "complete", refusals: [] })), /refused no set_policy call yet/);
+  assert.match(textOf(draw({ status: "complete", refusals: [] })), /refused no call to set the rate yet/);
   assert.match(textOf(draw({ status: "incomplete", refusals: [] })), /index, which could not be read/);
 });
 
@@ -651,10 +653,9 @@ test("the hero and the log set the Chair's own closing line apart and say so in 
   const own = showing(`${OWN_HEAD}\n${OWN_BODY} ${REMARK}`);
   assert.deepEqual(labels(own), [OWN_LABEL, OWN_LABEL], "hero and card");
   assert.deepEqual(lines(own), [REMARK, REMARK], "the sentence is its own element, with exactly the chain's words");
-  for (const q of [...walk(own)].filter((n) => n.tag === "blockquote")) {
-    assert.equal(textOf(q), `${OWN_BODY} ${REMARK}${OWN_LABEL}`, "the quote holds the whole text, then the label");
-    assert.ok(textOf(q).startsWith(`${OWN_BODY} ${REMARK}`), "text before the label is the minutes, unmodified");
-  }
+  const quotes = [...walk(own)].filter((n) => n.tag === "blockquote");
+  assert.deepEqual(quotes.map((q) => textOf(q)), [REMARK, `${OWN_BODY} ${REMARK}`, REMARK, `${OWN_BODY} ${REMARK}`], "hero and card each lead with the AI's line alone, and keep the whole text, unmodified, in a fold");
+  assert.deepEqual([...walk(own)].filter((n) => n.tag === "details" && /\bm-(full|more)\b/.test(n.attrs?.class ?? "")).map((n) => [...walk(n)].find((c) => c.tag === "blockquote" && !/ai-line/.test(c.attrs.class)).children.map(textOf).join("")), [`${OWN_BODY} ${REMARK}`, `${OWN_BODY} ${REMARK}`], "the whole text sits in a fold, in the hero and in the card");
   assert.deepEqual(labels(showing(`${OWN_HEAD}\n${OWN_BODY} ${CLOSING_BOOK}`)), [], "a book line: no label");
   assert.deepEqual(lines(showing(`${OWN_HEAD}\n${OWN_BODY} ${CLOSING_BOOK}`)), [], "a book line: no split");
   assert.deepEqual(labels(showing(`$CHAIR decision, epoch 310, chair rule-v1.\nRate in effect 190 bps; decision 190 bps.\n${OWN_BODY} ${REMARK}`)), [], "the rule chair wrote nothing itself");
@@ -742,7 +743,7 @@ test("the hero sets the formula's number beside the Chair's, near the rate, only
   assert.deepEqual([...walk(page)].filter((n) => n.attrs?.class === "m-own-k").map(textOf), [OWN_LABEL, OWN_LABEL]);
 });
 
-test("the page's own plain line is for a statement still in bps, never for the notes the agent adds after the Chair's own words", async () => {
+test("a minute whose last line is a book line leads with the page's plain line from the numbers, once, whatever notes the agent adds after the Chair's words", async () => {
   const header = "$CHAIR decision, epoch 408, chair local:qwen3.8-27b.\nRate in effect 20 bps; decision 25 bps.\nThe formula suggested printing 0.25% a day. The Chair agreed: the Chair prefers to hold the rate steady.";
   const clamp = "\nThe contract is sure to accept 20..25 bps here, so 25 bps is set instead. The Chair defers.";
   const press = "\nThe press asked 2 questions since the last meeting.";
@@ -751,14 +752,14 @@ test("the page's own plain line is for a statement still in bps, never for the n
     const d = { decisions: [decision({ hash, rateBps: 25, previousRateBps: 20, epoch: 408 }), decision({ epoch: 407, rateBps: 25, previousRateBps: 20, hash, tx: "Z".repeat(43) })], policy: { ...policy, epoch: 409, lastSetEpoch: 408 }, status: "complete" };
     const resolved = await resolveTexts(d.decisions, new Map([[hash, { text, chair: "local:qwen3.8-27b", kind: "llm", source: null }]]));
     const doc = fakeDoc();
-    return [renderHero, renderMinutes].map((render) => { const x = host(doc); render(doc, x, d, ctx(null, resolved)); return [...walk(x)].filter((n) => n.attrs?.class === "plain-line").length; });
+    return [renderHero, renderMinutes].map((render) => { const x = host(doc); render(doc, x, d, ctx(null, resolved)); return [...walk(x)].filter((n) => n.attrs?.class === "plain-line ai-line").length; });
   };
   const inCharacter = "The Committee of One has met. The Chair keeps the rate. The Chair has no further comment.";
-  assert.deepEqual(await plainLines(`${header}\n${inCharacter}`), [0, 0], "in character, no note: no plain line");
-  assert.deepEqual(await plainLines(`${header}\n${inCharacter}${clamp}`), [0, 0], "a clamp note says bps but is not the Chair's statement");
-  assert.deepEqual(await plainLines(`${header}\n${inCharacter}${clamp}${press}`), [0, 0]);
+  assert.deepEqual(await plainLines(`${header}\n${inCharacter}`), [1, 1], "no line of the AI's own: the page's plain line leads, in the hero and in the list");
+  assert.deepEqual(await plainLines(`${header}\n${inCharacter}${clamp}`), [1, 1], "a clamp note changes nothing");
+  assert.deepEqual(await plainLines(`${header}\n${inCharacter}${clamp}${press}`), [1, 1]);
   const old = (await plainLines(`${header}\nThe Chair raises the rate by 5 basis points. The Chair has no further comment.${clamp}`));
-  assert.deepEqual(old.map((n) => n > 0), [true, true], "a statement in basis points still gets the page's plain line, in the hero and in the list");
+  assert.deepEqual(old, [1, 1], "a statement in basis points leads with the same one plain line");
 });
 
 test("the account that signed leads the line about who decided", async () => {

@@ -8,8 +8,22 @@
 <meta name="referrer" content="no-referrer">
 <title>$CHAIR: an AI runs this memecoin's central bank</title>
 <meta name="description" content="An AI runs this memecoin's central bank. The contract keeps it on a leash. Read the Chair's minutes, checked against the chain, and put a question to it.">
+<link rel="canonical" href="https://wonkared.github.io/chair/">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="$CHAIR">
+<meta property="og:url" content="https://wonkared.github.io/chair/">
+<meta property="og:title" content="$CHAIR: an AI runs this memecoin's central bank">
+<meta property="og:description" content="The contract keeps it on a leash. Watch the AI decide every 90 seconds, then try to make it overreach and see the contract refuse, on chain.">
+<meta property="og:image" content="https://wonkared.github.io/chair/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The $CHAIR page: an AI runs this memecoin's central bank, and a stamp reading Refused by the contract.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="$CHAIR: an AI runs this memecoin's central bank">
+<meta name="twitter:description" content="The contract keeps it on a leash. Watch the AI decide every 90 seconds, then try to make it overreach and see the contract refuse, on chain.">
+<meta name="twitter:image" content="https://wonkared.github.io/chair/og.png">
 <script src="theme.js"></script>
-<link rel="icon" href="data:,">
+<link rel="icon" type="image/svg+xml" href="favicon.svg">
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="overreach.css">
 <link rel="stylesheet" href="join.css">
@@ -23,13 +37,14 @@
   <div class="wrap bar">
     <a class="mark" href="#top" id="top" aria-label="$CHAIR, top of page"><svg class="seal-icon" aria-hidden="true"><use href="#seal"/></svg>$CHAIR</a>
     <nav aria-label="Sections">
-      <a href="#overreach">Overreach</a>
+      <a href="#overreach">Try it</a>
       <a href="#mine" id="nav-mine" hidden>Your coins</a>
       <a href="#press">Ask the Chair</a>
       <a href="#holders">Holders</a>
       <a href="#refusals">Contract said no</a>
       <a href="#guarantees">Proof</a>
     </nav>
+    <a class="chip gh" href="https://github.com/WonkaRed/chair" rel="noopener noreferrer" target="_blank">GitHub</a>
     <button type="button" id="theme" class="chip" aria-label="Colour theme">Theme</button>
   </div>
 </header>
@@ -38,53 +53,64 @@
     <div class="hero-copy">
       <h1 id="hero-h"><span>An AI runs this memecoin's central bank.</span> <span class="h1-second">The contract keeps it on a leash.</span></h1>
       <div id="now-plain" class="slot now-slot"><span class="sr-only" role="status">Reading the chain…</span><span class="skel" aria-hidden="true"></span><span class="skel" aria-hidden="true"></span><span class="skel skel-short" aria-hidden="true"></span></div>
+      <p id="hero-verified" class="hero-verified" hidden></p>
       <p class="hero-do"><a class="btn btn-main" href="#overreach">Make the Chair overreach</a><a class="btn" href="#press">Ask the Chair a question</a></p>
+      <div id="hero-stamp" class="hero-stamp-slot"></div>
       <noscript><p class="source fixture">This page reads the chain with JavaScript. Nothing is sent anywhere and no script is loaded from any other host.</p></noscript>
     </div>
-    <div id="hero-minutes" class="slot hero-slot"><div class="minutes-paper skeleton" aria-hidden="true"><p class="paper-head"><span>Latest minutes of the Committee of One</span></p><span class="skel"></span><span class="skel"></span><span class="skel"></span><span class="skel"></span><span class="skel skel-short"></span></div></div>
+    <div class="hero-side">
+      <div id="hero-minutes" class="slot hero-slot"><div class="minutes-paper skeleton" aria-hidden="true"><p class="paper-head"><span>Latest minutes of the Committee of One</span></p><span class="skel"></span><span class="skel"></span><span class="skel"></span><span class="skel"></span><span class="skel skel-short"></span></div></div>
+      <p id="next-meeting" class="next-meeting" hidden></p>
+    </div>
   </section>
 
-  <figure id="pull" class="pull" data-tx="GuLkS2VJmnxq9gL6tJH7PD2tMRUnqv7FV721cbw2Fo2a" data-epoch="525">
-    <blockquote lang="en">The Chair is neither up nor down. The Chair is seated.</blockquote>
-    <figcaption>A line the Chair gave the press on the earlier token, meeting 525.</figcaption>
-  </figure>
-
-  <section id="overreach" class="dare reveal" aria-labelledby="overreach-h">
-    <h2 id="overreach-h">Make the Chair overreach</h2>
-    <p class="dare-line">What if the AI went rogue? Make its own account ask for 5% a day. The contract says no.</p>
-    <div id="overreach-body" class="slot"></div>
+  <section id="best-of" class="best-of reveal" aria-labelledby="best-h">
+    <h2 id="best-h">The Chair, in its own words</h2>
+    <figure id="pull" class="pull" data-tx="83mpWP962bzCPpeGzTyt3Aw566a9VQgiFtsiqVbJFsia" data-epoch="485">
+      <blockquote lang="en">The Chair is not in the business of tomorrow. The Chair is in the business of this sentence.</blockquote>
+      <figcaption>A line the Chair gave the press on the earlier token, meeting 485.</figcaption>
+    </figure>
+    <ul class="quips">
+      <li data-tx="GuLkS2VJmnxq9gL6tJH7PD2tMRUnqv7FV721cbw2Fo2a" data-epoch="525"><blockquote lang="en">The Chair is neither up nor down. The Chair is seated.</blockquote></li>
+      <li data-tx="BdGPDUMdDhggLCtVa3mTV4qJWY3qr6BNLL2GAoycnbH4" data-epoch="478"><blockquote lang="en">The Chair has taken the question under advisement. The advisement is the Chair.</blockquote></li>
+      <li data-tx="EHKcA7GmruEEa8EoTdorBucK3wmMio4uP2uFHY2UFpwA" data-epoch="461"><blockquote lang="en">The Chair observes inflation as one observes weather: it arrives, it departs, and the Chair remains.</blockquote></li>
+    </ul>
+    <details class="fold">
+      <summary>Where these lines come from</summary>
+      <p class="note">Answers the Chair entered into its on-chain minutes on the earlier token, <code>token.chair-coin-2.testnet</code>, the one before the contract's rate became per day. The first line changes to the Chair's newest answer once the page has read the chain. Each is a line from the reviewed book of statements it answers from; a local model only picks the line. The record keeps no questions, so none is shown.</p>
+    </details>
   </section>
 
-  <section id="join" class="reveal" aria-labelledby="join-h" hidden>
-    <h2 id="join-h">Join the Committee</h2>
-    <p class="dare-line">Press one button. A moment later the AI's meeting room has one more member, and the AI writes down what that did to its decision.</p>
-    <div id="join-body" class="slot"></div>
-  </section>
+  <section id="try" class="try reveal" aria-labelledby="try-h">
+    <h2 id="try-h">Try it</h2>
+    <div class="tablist" role="tablist" aria-label="Things to try" hidden>
+      <button type="button" role="tab" id="tab-overreach" aria-controls="overreach">Make it overreach</button>
+      <button type="button" role="tab" id="tab-join" aria-controls="join" hidden>Join the Committee</button>
+      <button type="button" role="tab" id="tab-mine" aria-controls="mine" hidden>Get test coins</button>
+    </div>
+    <section id="overreach" class="dare tabpanel" aria-labelledby="overreach-h">
+      <h3 id="overreach-h" class="panel-h">Make the Chair overreach</h3>
+      <p class="dare-line">Think the AI could print whatever it likes? Make its own account ask for 5% a day. The contract says no.</p>
+      <div id="overreach-body" class="slot"></div>
+    </section>
 
-  <section id="mine" class="reveal" aria-labelledby="mine-h" hidden>
-    <h2 id="mine-h">Your own test coins</h2>
-    <p class="dare-line">Press one button and this page makes you a test account, right in your browser. My faucet puts 50 test coins in it. Then lock them up to earn more, collect what they earn, and send some on. You sign every step yourself.</p>
-    <div id="mine-body" class="slot"></div>
+    <section id="join" class="tabpanel" aria-labelledby="join-h" hidden>
+      <h3 id="join-h" class="panel-h">Join the Committee</h3>
+      <p class="dare-line">Press one button. A moment later the AI's meeting room has one more member, and the AI writes down what that did to its decision.</p>
+      <div id="join-body" class="slot"></div>
+    </section>
+
+    <section id="mine" class="tabpanel" aria-labelledby="mine-h" hidden>
+      <h3 id="mine-h" class="panel-h">Your own test coins</h3>
+      <p class="dare-line">Press one button and this page makes you a test account, right in your browser. My faucet puts 50 test coins in it. Then lock them up to earn more, collect what they earn, and send some on. You sign every step yourself.</p>
+      <div id="mine-body" class="slot"></div>
+    </section>
   </section>
 
   <section id="press" class="reveal" aria-labelledby="press-h">
     <h2 id="press-h">Ask the Chair a question</h2>
     <p class="lede">It replies from its approved statements, and the reply is entered into the on-chain minutes. Your question goes to my press desk, so keep anything private out of it.</p>
     <div id="press-body" class="slot"></div>
-  </section>
-
-  <section id="best-of" class="best-of reveal" aria-labelledby="best-h">
-    <h2 id="best-h">The Chair's best lines</h2>
-    <ul class="quips">
-      <li data-tx="GuLkS2VJmnxq9gL6tJH7PD2tMRUnqv7FV721cbw2Fo2a" data-epoch="525"><blockquote lang="en">The Chair is neither up nor down. The Chair is seated.</blockquote></li>
-      <li data-tx="83mpWP962bzCPpeGzTyt3Aw566a9VQgiFtsiqVbJFsia" data-epoch="485"><blockquote lang="en">The Chair is not in the business of tomorrow. The Chair is in the business of this sentence.</blockquote></li>
-      <li data-tx="BdGPDUMdDhggLCtVa3mTV4qJWY3qr6BNLL2GAoycnbH4" data-epoch="478"><blockquote lang="en">The Chair has taken the question under advisement. The advisement is the Chair.</blockquote></li>
-      <li data-tx="EHKcA7GmruEEa8EoTdorBucK3wmMio4uP2uFHY2UFpwA" data-epoch="461"><blockquote lang="en">The Chair observes inflation as one observes weather: it arrives, it departs, and the Chair remains.</blockquote></li>
-    </ul>
-    <details class="fold">
-      <summary>Where these lines come from</summary>
-      <p class="note">Four answers the Chair entered into its on-chain minutes on the earlier token, <code>token.chair-coin-2.testnet</code>, the one before the contract's rate became per day. Each is a line from the reviewed book of statements it answers from; a local model only picks the line. The record keeps no questions, so none is shown.</p>
-    </details>
   </section>
 
   <section id="holders" class="reveal" aria-labelledby="holders-h">
@@ -115,7 +141,7 @@
 
   <section id="refusals" class="reveal" aria-labelledby="refusals-h">
     <h2 id="refusals-h">Times the contract told the Chair no</h2>
-    <p class="note">The <code>set_policy</code> calls the contract turned down in recent transactions, and the test refusals made on purpose, each with the reason it gave. A refused call changes nothing and logs no event, so it is not among the minutes. Refusals marked as forced by a visitor were sent by the press desk at a visitor's request, from the chair account.</p>
+    <p class="note">The times the contract turned down a rate asked for from the Chair's account, each with the reason it gave. A refused call changes nothing and logs no event, so it is not among the minutes. Refusals marked as forced by a visitor were sent by the press desk at a visitor's request, from the chair account.</p>
     <details class="fold phone-fold" open>
     <summary>Show the times the contract said no</summary>
     <div id="refusals-body" class="slot">Loading…</div>
@@ -148,7 +174,7 @@
   </section>
 
   <section id="simulation" class="reveal" aria-labelledby="sim-h">
-    <h2 id="sim-h">What if the Chair went rogue?</h2>
+    <h2 id="sim-h">How bad could a rogue Chair get?</h2>
     <div id="bound-body" class="bound"></div>
     <details class="fold phone-fold" open>
     <summary>Show five ways a Chair could behave, charted</summary>
@@ -171,11 +197,6 @@
     <details class="fold phone-fold" open>
     <summary>Show what the contract guarantees, and how to check it</summary>
     <div id="guarantee-list"></div>
-    <div class="verify">
-      <p>Check it yourself with one command from a clone of the repo. It runs the real contract in a local NEAR sandbox and fails if any administrative method exists.</p>
-      <div class="cmd"><code id="verify-cmd" tabindex="0"></code><button type="button" id="copy" class="chip">Copy</button></div>
-      <p class="note">For a deployed account, anyone can also ask any RPC node for its access keys. The answer must be an empty list, which is also shown in the supply ledger.</p>
-    </div>
     </details>
   </section>
 
@@ -184,14 +205,18 @@
       <summary id="l-h">What this page does not prove</summary>
       <ul class="plain">
         <li>It does not say the chair is wise. The contract bounds the chair; it does not make it right.</li>
-        <li>It does not say a bad Chair cannot do harm. A Chair that prints at its ceiling keeps doing so for as long as the holders let it. What stops it is the holders; see "What if the Chair went rogue?".</li>
+        <li>It does not say a bad Chair cannot do harm. A Chair that prints at its ceiling keeps doing so for as long as the holders let it. What stops it is the holders; see "How bad could a rogue Chair get?".</li>
         <li>It does not say anything about price, liquidity or returns. The simulation is a model of supply under stated assumptions.</li>
+        <li id="limits-refusals">The refusals listed under "Times the contract told the Chair no" include deliberate test calls that I made to show the bounds hold; each is labelled in its row.</li>
+        <li>The one time holders replaced the Chair on the testnet, at meeting 10, it was my own scripted test accounts voting, not a crowd. It shows the mechanism works, not that anyone is using it.</li>
+        <li>The faucet gives out at most 10,000 coins in total (200 visitors x 50), about 1% of the coins that exist, on purpose: visitors can never vote the Chair out, which takes over 5%. These are test coins from a pool I control, with no value.</li>
         <li>The log comes from an index, so it is checked, not signed: its sums must equal the chain's own ledger, and a difference is shown as such. Each row links to its transaction so you can check any entry by hand.</li>
       </ul>
     </details>
   </section>
 </main>
 <footer class="wrap foot">
+  <p class="foot-links"><a href="https://github.com/WonkaRed/chair" rel="noopener noreferrer" target="_blank">Source code and spec on GitHub</a></p>
   <p id="foot">$CHAIR is a hackathon project and a toy monetary experiment. Nothing here is advice. The transfers, stakes and claims in the log are scripted test activity by three accounts I control, not users, plus test accounts funded by the faucet for page visitors.</p>
   <details class="fold">
     <summary>Where this page reads from</summary>

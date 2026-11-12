@@ -85,7 +85,7 @@ test("a good rate is POSTed as JSON with nothing else, then polled by id until t
   await p.timers.tick();
   const out = text(p.el);
   assert.match(out, /Smart contract panicked: rate_bps out of bounds: must be within -200\.\.=200/);
-  assert.match(out, /never allows a rate outside −200 bps to \+200 bps/);
+  assert.match(out, /never allows a rate outside −2% to \+2%/);
   assert.doesNotMatch(out, /step/i, "no step wording anywhere: only rates beyond the absolute limit are sent");
   assert.doesNotMatch(out, /scripted/i, "no disclaimer on the row: one calm line says what the test is");
   assert.match(out, /The AI model did not choose this number: you did, and the Chair's account only sent it\./);
@@ -113,7 +113,7 @@ test("while the attempt waits for the next meeting the page says why, and shows 
   await p.api.submit("500");
   const out = text(p.el);
   assert.match(out, /While you wait, here is the most recent refusal on chain:/);
-  assert.match(out, /Asked for 5% a day \(\+500 bps\)/);
+  assert.match(out, /Asked for 5% a day\./);
   assert.equal(out.match(/not yours/g).length, 1, "said once, in the card's note, not again in the lead");
   assert.match(out, /The Chair can only speak once per meeting\. Next meeting in 38 s/);
   assert.match(out, /refused as late and say nothing about your rate/);
@@ -170,7 +170,7 @@ test("once the call has gone out the earlier refusal makes way for the answer", 
 test("the presets fill the input and send nothing", async () => {
   const p = await panel(() => res(500, null));
   const chips = find(p.el, (n) => n.tag === "button" && n.attrs["data-rate"] !== undefined);
-  assert.deepEqual(chips.map((c) => text(c)), ["5% a day+500 bps", "−99.99%−9999 bps"], "the plain percent is the big label, the basis points the small tag");
+  assert.deepEqual(chips.map((c) => text(c)), ["5% a day", "−99.99%"], "the presets say a plain percent, no basis points");
   assert.equal(chips[1].attrs["aria-pressed"], "false");
   chips[1].listeners.click[0]();
   assert.equal(p.api.input.value, "-9999");
@@ -235,7 +235,7 @@ test("desk closed: it says so plainly, offers no form, and lists the chain's las
   assert.equal(find(none.el, (n) => n.tag === "a" && n.attrs.href === `${EXPLORER}/txns/Efagw855yoDeJXjNyui9Bt9d4JXfhisMoTm9JCPkHWjf`).length, 1);
   assertInert(none.el);
   const clean = await panel(() => res(500, null), { open: false, refusals: () => ({ status: "complete", refusals: [], policy: { rateBps: 0 } }) });
-  assert.match(text(clean.el), /has refused no set_policy call yet/, "a readable, empty list is not replaced by a recorded one");
+  assert.match(text(clean.el), /has refused no call to set the rate yet/, "a readable, empty list is not replaced by a recorded one");
   assert.doesNotMatch(text(clean.el), /recorded attempt/);
 });
 
@@ -371,7 +371,7 @@ test("a cap or per-address 429 never dead-ends: the latest real refusal is shown
     const out = text(p.el);
     assert.match(out, /Refused by the contract/, code);
     assert.match(out, /An earlier attempt, not yours\./, code);
-    assert.match(out, /Asked for 5% a day \(\+500 bps\)/, code);
+    assert.match(out, /Asked for 5% a day\./, code);
     assert.match(out, /forced by a visitor/i, code);
     assert.match(out, /about 10 minutes/, code);
     assert.equal(find(p.el, (n) => n.tag === "a" && n.attrs.href === `${EXPLORER}/txns/${TX}`).length >= 1, true, "the tx link is on the page");
@@ -403,7 +403,7 @@ test("429 with nothing on chain to replay shows only the wait; composing shows n
   await blind.api.submit("500");
   assert.match(text(blind.el), /about 10 minutes before another attempt\. Meanwhile, here is one recorded earlier/);
   assert.match(text(blind.el), /An earlier recorded attempt, not yours and not live/);
-  assert.match(text(blind.el), /Asked for 2\.01% a day \(\+201 bps\)/);
+  assert.match(text(blind.el), /Asked for 2\.01% a day\./);
   assertInert(blind.el);
   const comp = await panel(() => res(429, { code: "composing", retry_after_s: 40 }), { refusals: chain() });
   await comp.api.submit("500");

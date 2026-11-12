@@ -102,16 +102,16 @@ function corridor(doc, policy, params) {
   const max = params.maxRateBps;
   const x = (v) => 20 + ((v + max) / (2 * max)) * (W - 40);
   const reach = [Math.max(-max, policy.rateBps - params.maxStepBps), Math.min(max, policy.rateBps + params.maxStepBps)];
-  const root = svg(doc, "svg", { viewBox: `0 0 ${W} ${H}`, class: "corridor-svg", role: "img", "aria-label": `Rate ${fmtRate(policy.rateBps)} within the bounds ${MINUS}${max} to +${max} bps. The chair can move it at most ${params.maxStepBps} bps per meeting, to between ${fmtRate(reach[0])} and ${fmtRate(reach[1])}.` });
+  const root = svg(doc, "svg", { viewBox: `0 0 ${W} ${H}`, class: "corridor-svg", role: "img", "aria-label": `Rate ${plainSigned(policy.rateBps)} within the bounds ${plainSigned(-max)} to ${plainSigned(max)}. The chair can move it at most ${plainPct(params.maxStepBps)} per meeting, to between ${plainSigned(reach[0])} and ${plainSigned(reach[1])}.` });
   root.append(svg(doc, "rect", { x: x(-max), y: 34, width: x(max) - x(-max), height: 22, rx: 3, class: "bounds" }));
   root.append(svg(doc, "rect", { x: x(reach[0]), y: 34, width: x(reach[1]) - x(reach[0]), height: 22, rx: 3, class: "reach" }));
   for (let v = -max; v <= max; v += params.maxStepBps) {
     root.append(svg(doc, "line", { x1: x(v), x2: x(v), y1: 58, y2: 64, class: "tickline" }));
-    if (v % 100 === 0) root.append(svg(doc, "text", { x: x(v), y: 98, class: "tick", "text-anchor": v === -max ? "start" : v === max ? "end" : "middle" }, v === 0 ? "0" : fmtRate(v).replace(" bps", "")));
+    if (v % 100 === 0) root.append(svg(doc, "text", { x: x(v), y: 98, class: "tick", "text-anchor": v === -max ? "start" : v === max ? "end" : "middle" }, v === 0 ? "0" : plainSigned(v)));
   }
   root.append(svg(doc, "line", { x1: x(0), x2: x(0), y1: 28, y2: 62, class: "zero" }));
   root.append(svg(doc, "polygon", { points: `${x(policy.rateBps)},58 ${x(policy.rateBps) - 8},74 ${x(policy.rateBps) + 8},74`, class: "marker" }));
-  root.append(svg(doc, "text", { x: x(policy.rateBps), y: 22, class: "marker-label", "text-anchor": policy.rateBps > max / 2 ? "end" : policy.rateBps < -max / 2 ? "start" : "middle" }, `${fmtRate(policy.rateBps)} now`));
+  root.append(svg(doc, "text", { x: x(policy.rateBps), y: 22, class: "marker-label", "text-anchor": policy.rateBps > max / 2 ? "end" : policy.rateBps < -max / 2 ? "start" : "middle" }, `${plainSigned(policy.rateBps)} now`));
   return root;
 }
 
@@ -125,29 +125,27 @@ export function renderPlain(doc, host, d) {
   const unit = printUnit(params);
   const vote = " Holders who staked can vote it out.";
   host.append(h(doc, "p", { class: "now-plain" },
-    r > 0 ? ["Right now the AI is printing ", fig(plainPct(r)), ` more coins ${unit} and giving them to holders who staked. The most the contract lets it print is `, limit, ` ${unit}.`, vote]
+    r > 0 ? ["Right now the AI is printing ", fig(plainPct(r)), ` more coins ${unit} and giving them to holders who staked. The rate can never go above `, limit, ` ${unit}.`, vote]
       : r < 0 ? ["Right now the AI is burning ", fig(plainPct(r)), " of every transfer. The most the contract lets it burn is ", limit, " of every transfer.", vote]
-        : ["Right now the AI is holding the supply still: nothing is being printed or burned. The most the contract lets it print is ", limit, ` ${unit}.`, vote]));
+        : ["Right now the AI is holding the supply still: nothing is being printed or burned. The rate can never go above ", limit, ` ${unit}.`, vote]));
 }
 
 export function renderNow(doc, host, d) {
   clear(host);
   const { policy, params, supply } = d;
-  const acted = policy.lastSetEpoch === policy.epoch;
   const path = silentPath(policy, params.maxStepBps);
   const fact = (cls, k, v, vcls, ...rest) => h(doc, "div", { class: `fact ${cls}` }, h(doc, "span", { class: "k" }, k), h(doc, "span", { class: `v ${vcls}` }, v), ...rest);
   host.append(
     h(doc, "div", { class: "now-grid" },
-      fact("big", "The rate right now", [fmtSignedPct(policy.rateBps), " ", h(doc, "span", { class: "tag" }, fmtRate(policy.rateBps))], "rate", h(doc, "span", { class: "s" }, policy.rateBps > 0 ? `eases: mints ${fmtPct(policy.rateBps)} of supply ${printUnit(params)} to stakers` : policy.rateBps < 0 ? `tightens: every transfer burns ${fmtPct(policy.rateBps)}` : "neutral: nothing is minted or burned")),
+      fact("big", "The rate right now", fmtSignedPct(policy.rateBps), "rate", h(doc, "span", { class: "s" }, policy.rateBps > 0 ? `eases: mints ${fmtPct(policy.rateBps)} of supply ${printUnit(params)} to stakers` : policy.rateBps < 0 ? `tightens: every transfer burns ${fmtPct(policy.rateBps)}` : "neutral: nothing is minted or burned")),
       fact("", "Coins in existence", h(doc, "span", { title: formatExact(supply.totalSupply) }, formatTokens(supply.totalSupply)), "", h(doc, "span", { class: "s" }, `${formatTokens(supply.minted)} minted and ${formatTokens(supply.burned)} burned since launch`)),
       fact("", "The current meeting", String(policy.epoch), "", h(doc, "span", { class: "s" }, `ends ${fmtTime(policy.epochEndsMs)}; meetings last ${formatDuration(params.epochMs)}`)),
-      fact("", "Who holds the seat", "The Chair's account", "", h(doc, "span", { class: "s" }, h(doc, "span", { class: "acct" }, showAccount(policy.chair)), `${policy.streak} complete meetings in office; ${acted ? "has set this meeting's rate" : "has not set this meeting's rate yet"}`)),
     ),
     h(doc, "div", { class: "corridor" }, h(doc, "p", { class: "corridor-h" }, "Where the rate is allowed to go"), corridor(doc, policy, params), h(doc, "ul", { class: "key" },
-      h(doc, "li", {}, h(doc, "span", { class: "sw sw-bounds", "aria-hidden": "true" }), `Allowed by the contract: ${fmtRate(-params.maxRateBps)} to ${fmtRate(params.maxRateBps)}`),
-      h(doc, "li", {}, h(doc, "span", { class: "sw sw-reach", "aria-hidden": "true" }), `Where the chair can move it next: ${fmtRate(Math.max(-params.maxRateBps, policy.rateBps - params.maxStepBps))} to ${fmtRate(Math.min(params.maxRateBps, policy.rateBps + params.maxStepBps))} (at most ${params.maxStepBps} bps per meeting)`),
+      h(doc, "li", {}, h(doc, "span", { class: "sw sw-bounds", "aria-hidden": "true" }), `Allowed by the contract: ${plainSigned(-params.maxRateBps)} to ${plainSigned(params.maxRateBps)}`),
+      h(doc, "li", {}, h(doc, "span", { class: "sw sw-reach", "aria-hidden": "true" }), `Where the chair can move it next: ${plainSigned(Math.max(-params.maxRateBps, policy.rateBps - params.maxStepBps))} to ${plainSigned(Math.min(params.maxRateBps, policy.rateBps + params.maxStepBps))} (at most ${plainPct(params.maxStepBps)} per meeting)`),
     )),
-    h(doc, "p", { class: "note" }, `If the chair does nothing more, the next meetings run at ${path.map(fmtRate).join(", ")}.`),
+    h(doc, "p", { class: "note" }, `If the chair does nothing more, the next meetings run at ${path.map(plainSigned).join(", ")}.`),
   );
 }
 

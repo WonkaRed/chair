@@ -1,11 +1,11 @@
-// The five guarantees: a plain claim up front, then the words of SPEC.md with the SPEC section and the tests that prove it, folded.
+// The guarantees: a plain claim up front, then the words of SPEC.md with the SPEC section and the tests that prove it, folded. The last card is the way to check the no-admin one yourself.
 import { h } from "./dom.js";
 
 export const GUARANTEES = [
   {
     plain: "The rate can never pass 2% a day when printing or 2% of a transfer when burning, or move more than 0.5% at a time.",
     text: "The rate stays between −200 and +200 bps and moves at most 50 bps from one epoch to the next. Both numbers are constants in the code; no call changes them.",
-    spec: ["Methods: set_policy", "methods"],
+    spec: ["How the Chair sets the rate", "methods"],
     tests: [["sandbox-tests/tests/policy.rs", "out_of_bounds_rate_is_rejected"], ["sandbox-tests/tests/policy.rs", "too_large_step_is_rejected"]],
   },
   {
@@ -32,6 +32,13 @@ export const GUARANTEES = [
     spec: ["Epochs and rollover: impeachment", "epochs-and-rollover"],
     tests: [["sandbox-tests/tests/impeachment.rs", "enough_backing_replaces_the_chair_at_the_next_boundary"], ["sandbox-tests/tests/impeachment.rs", "backing_must_also_exceed_five_percent_of_the_supply_to_seat_a_chair"], ["sandbox-tests/tests/policy.rs", "function_call_key_can_set_policy_but_cannot_transfer"]],
   },
+  {
+    plain: "Check the no-admin claim yourself: one command runs it against the real contract.",
+    text: "From a clone of the repo, the command runs the real contract in a local NEAR sandbox and fails if any administrative method exists. For a deployed account, anyone can also ask any RPC node for its access keys: the answer must be an empty list, which the supply ledger shows too.",
+    spec: ["No admin, no owner", "no-admin-no-owner"],
+    tests: [["sandbox-tests/tests/no_admin.rs", "the_exported_surface_has_no_admin_and_nothing_the_deployer_can_use"]],
+    command: true,
+  },
 ];
 
 export const VERIFY_COMMAND = "cargo test -p sandbox-tests --test no_admin";
@@ -43,6 +50,7 @@ export function renderGuarantees(doc, config) {
     h(doc, "li", {},
       h(doc, "p", { class: "claim" }, g.plain),
       h(doc, "p", { class: "proof" }, "Spec: ", link(`${base}/SPEC.md#${g.spec[1]}`, g.spec[0]), "."),
+      g.command ? h(doc, "div", { class: "cmd" }, h(doc, "code", { id: "verify-cmd", tabindex: "0" }, VERIFY_COMMAND), h(doc, "button", { type: "button", id: "copy", class: "chip" }, "Copy")) : null,
       h(doc, "details", { class: "fold proof-fold" },
         h(doc, "summary", {}, "The exact guarantee, and its tests"),
         h(doc, "p", { class: "exact" }, g.text),

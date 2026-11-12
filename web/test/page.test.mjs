@@ -12,9 +12,9 @@ const root = join(fileURLToPath(import.meta.url), "..", "..");
 const site = (f) => import(join(root, "site", "js", f));
 const { plainPct, plainSigned, askedRate, printUnit, everyEpoch, plainDecision, renderPlain } = await site("views.js");
 const { setupReveal, openFoldsAround } = await site("reveal.js");
-const { renderHero, renderMinutes } = await site("minutes.js");
-const { renderRefusals } = await site("refusals.js");
-const { renderGuarantees, GUARANTEES } = await site("guarantees.js");
+const { renderHero, renderHeroPending, renderMinutes } = await site("minutes.js");
+const { renderRefusals, renderHeroStamp } = await site("refusals.js");
+const { renderGuarantees, GUARANTEES, VERIFY_COMMAND } = await site("guarantees.js");
 const html = await readFile(join(root, "site", "index.html"), "utf8");
 
 const text = (n) => n.textContent;
@@ -60,9 +60,9 @@ test("the sentence at the top of the page says what the AI is doing right now, i
     renderPlain(doc, el, { policy: { rateBps }, params: p });
     return text(el);
   };
-  assert.equal(draw(35), "Right now the AI is printing 0.35% more coins a day and giving them to holders who staked. The most the contract lets it print is 2% a day. Holders who staked can vote it out.");
-  assert.equal(draw(5, oldParams), "Right now the AI is printing 0.05% more coins every 90 seconds and giving them to holders who staked. The most the contract lets it print is 2% every 90 seconds. Holders who staked can vote it out.", "a token without meetings_per_day is per meeting, and the page says so");
-  assert.match(draw(0), /The most the contract lets it print is 2% a day\./);
+  assert.equal(draw(35), "Right now the AI is printing 0.35% more coins a day and giving them to holders who staked. The rate can never go above 2% a day. Holders who staked can vote it out.");
+  assert.equal(draw(5, oldParams), "Right now the AI is printing 0.05% more coins every 90 seconds and giving them to holders who staked. The rate can never go above 2% every 90 seconds. Holders who staked can vote it out.", "a token without meetings_per_day is per meeting, and the page says so");
+  assert.match(draw(0), /The rate can never go above 2% a day\./);
   assert.doesNotMatch(draw(5), /each time|every 90 seconds/);
   assert.match(draw(-5), /^Right now the AI is burning 0\.05% of every transfer\. The most the contract lets it burn is 2% of every transfer\. Holders who staked can vote it out\.$/);
   assert.match(draw(0), /^Right now the AI is holding the supply still: nothing is being printed or burned\./);
@@ -86,10 +86,10 @@ test("the hero and every minute lead with a plain translation, and the Chair's o
   const ds = [dec({ epoch: 9, tx: "8".repeat(44) }), dec({ epoch: 8, rateBps: 5, previousRateBps: 10, tx: "9".repeat(44) })];
   renderHero(doc, hero, { decisions: ds, policy, status: "complete" }, ctx);
   renderMinutes(doc, list, { decisions: ds, policy, status: "complete" }, ctx);
-  const lines = (n) => find(n, (x) => x.attrs?.class === "plain-line").map(text);
+  const lines = (n) => find(n, (x) => x.attrs?.class === "plain-line ai-line").map(text);
   assert.deepEqual(lines(hero), ["Raised the rate from 0% to +0.10%. That prints 0.10% more coins a day for holders who staked."]);
   assert.deepEqual(lines(list), ["Lowered the rate from +0.10% to +0.05%. That prints 0.05% more coins a day for holders who staked."]);
-  assert.equal(find(hero, (x) => x.attrs?.class === "said-k").map(text)[0], "In the Chair's words");
+  assert.equal(find(hero, (x) => x.attrs?.class === "m-absent").length, 1, "with no text to read, the card says so under the page's line");
   assert.ok(lines(hero).every((l) => !JARGON.test(l)));
 });
 
@@ -126,6 +126,18 @@ test("each guarantee says it plainly first with its Spec link visible, and keeps
     const outside = find(li, (n) => n.attrs?.class === "proof").filter((p) => !find(fold, (x) => x === p).length);
     assert.match(text(outside[0]), /^Spec: /);
   }
+});
+
+test("the last guarantee card is the way to check the no-admin one yourself: the command, whole, and a Copy button; no other card has them", () => {
+  const ol = renderGuarantees(fakeDoc(), { repoUrl: "https://example.invalid/repo", repoRef: "main" });
+  const items = find(ol, (n) => n.tag === "li");
+  const last = items.at(-1);
+  assert.equal(VERIFY_COMMAND, "cargo test -p sandbox-tests --test no_admin");
+  assert.equal(text(find(last, (n) => n.attrs?.id === "verify-cmd")[0]), VERIFY_COMMAND);
+  const copy = find(last, (n) => n.attrs?.id === "copy");
+  assert.equal(copy.length, 1);
+  assert.equal(copy[0].tag, "button");
+  for (const li of items.slice(0, -1)) assert.equal(find(li, (n) => n.attrs?.id === "verify-cmd" || n.attrs?.id === "copy").length, 0);
 });
 
 const el = (top) => { const e = { cls: new Set(), getBoundingClientRect: () => ({ top }) }; e.classList = { add: (c) => e.cls.add(c), contains: (c) => e.cls.has(c) }; return e; };
@@ -190,7 +202,7 @@ test("page markup: ledger, simulation detail, limits and sources start closed, s
 const resolvedWith = (tx, t) => new Map([[tx, { text: t, verdict: "verified", chair: null, kind: null, source: null, onChain: true }]]);
 const PLAIN_TEXT = "The Chair keeps printing 0.20% more coins every 90 seconds for holders who staked, as it has for the last 3 meetings. 45.71% of all coins are staked.";
 
-test("hero: minutes already in plain words are the star with no duplicated page-written line; old ones still get it", () => {
+test("hero: with no line of the AI's own the page's plain line leads, labelled as a summary of the numbers, and the Chair's words stay whole in a fold", () => {
   const d = dec({ epoch: 582, rateBps: 20, previousRateBps: 15, tx: "8".repeat(44) });
   const draw = (t) => {
     const doc = fakeDoc();
@@ -199,9 +211,11 @@ test("hero: minutes already in plain words are the star with no duplicated page-
     return el;
   };
   const plain = draw(PLAIN_TEXT);
-  assert.equal(find(plain, (n) => n.attrs?.class === "plain-line").length, 0);
-  assert.equal(find(plain, (n) => n.attrs?.class === "said-k").length, 0);
-  assert.ok(text(plain).includes(PLAIN_TEXT), "the Chair's own words are shown whole");
+  assert.equal(find(plain, (n) => n.attrs?.class === "plain-line ai-line").length, 1);
+  assert.deepEqual(find(plain, (n) => n.attrs?.class === "said-k").map(text), ["A plain summary of this meeting's numbers"]);
+  const fold = find(plain, (n) => n.tag === "details" && /\bm-full\b/.test(n.attrs?.class ?? ""));
+  assert.equal(fold.length, 1, "the whole text has one fold");
+  assert.ok(text(fold[0]).includes(PLAIN_TEXT), "the Chair's own words are kept whole, word for word");
   assert.match(text(plain), /Meeting 582/);
   assert.doesNotMatch(text(plain), /Epoch 582/);
   assert.equal(find(plain, (n) => n.attrs?.class === "paper-epoch")[0].attrs.title, "Epoch 582", "the old word survives as a tooltip");
@@ -210,23 +224,23 @@ test("hero: minutes already in plain words are the star with no duplicated page-
   assert.doesNotMatch(text(plain), /Previous rate/);
   for (const old of ["The rate is 20 bps, up 5 bps this epoch.", "The staked share is 46.17 percent, 4617 basis points.", "Same rate as the last epoch."]) {
     const hero = draw(old);
-    assert.equal(find(hero, (n) => n.attrs?.class === "plain-line").length, 1, old);
+    assert.equal(find(hero, (n) => n.attrs?.class === "plain-line ai-line").length, 1, old);
     assert.equal(find(hero, (n) => n.attrs?.class === "said-k").length, 1, old);
   }
   const none = host(fakeDoc());
   renderHero(fakeDoc(), none, { decisions: [d], policy, status: "complete" }, ctx);
-  assert.equal(find(none, (n) => n.attrs?.class === "plain-line").length, 1, "no text at all: the page-written line stands in");
+  assert.equal(find(none, (n) => n.attrs?.class === "plain-line ai-line").length, 1, "no text at all: the page-written line stands in");
 });
 
-test("minute cards follow the same rule: plain text needs no second line", () => {
+test("minute cards follow the same rule: the plain line leads and the text is in the fold", () => {
   const a = dec({ epoch: 8, tx: "8".repeat(44) });
   const b = dec({ epoch: 7, tx: "9".repeat(44) });
   const doc = fakeDoc();
   const list = host(doc);
   renderMinutes(doc, list, { decisions: [dec({ epoch: 9 }), a, b], policy, status: "complete" }, { ...ctx, resolved: new Map([...resolvedWith(a.tx, PLAIN_TEXT), ...resolvedWith(b.tx, "Rate is 10 bps.")]) });
   const cards = find(list, (n) => n.attrs?.class?.startsWith("minute card"));
-  assert.equal(find(cards[0], (n) => n.attrs?.class === "plain-line").length, 0);
-  assert.equal(find(cards[1], (n) => n.attrs?.class === "plain-line").length, 1);
+  for (const c of cards) assert.equal(find(c, (n) => n.attrs?.class === "plain-line ai-line").length, 1);
+  assert.ok(text(find(cards[0], (n) => n.tag === "details")[0]).includes(PLAIN_TEXT), "the whole text is behind the card's fold");
 });
 
 test("first paint: one announcement of the wait, grey bars that hold the size of what is coming, and no empty hole in the hero", () => {
@@ -243,7 +257,10 @@ test("the Chair's line sits right under the hero, is a real line from the review
   assert.ok(fig, "the pull quote is in the page");
   assert.ok(book.includes(`"${fig[3]}"`), "the fallback is a line of the reviewed book");
   assert.match(fig[1], /^[1-9A-HJ-NP-Za-km-z]{43,44}$/);
-  assert.ok(html.includes(`data-tx="${fig[1]}" data-epoch="${fig[2]}"><blockquote lang="en">${fig[3]}</blockquote>`) , "the best-of strip holds the same answer, so the transaction is a recorded one");
+  const quips = [...html.matchAll(/<li data-tx="([^"]+)" data-epoch="(\d+)"><blockquote lang="en">([^<]+)<\/blockquote><\/li>/g)];
+  assert.equal(quips.length, 3, "three more lines sit under it");
+  for (const q of quips) assert.ok(book.includes(`"${q[3]}"`) && /^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(q[1]), "each is a book line with its transaction");
+  assert.ok(![fig[3], ...quips.map((q) => q[3])].some((t, i, all) => all.indexOf(t) !== i), "no line is shown twice in the band");
   assert.equal(fig[4], `A line the Chair gave the press on the earlier token, meeting ${fig[2]}.`, "labelled as a fallback until the chain's newest answer replaces it");
   const at = (n) => html.indexOf(n);
   assert.ok(at('id="pull"') > at('id="hero-minutes"') && at('id="pull"') < at('id="overreach"'));
@@ -264,4 +281,70 @@ test("the page speaks as one person and keeps its typography plain", async () =>
     assert.doesNotMatch(visible, /\bwe\b|\bour\b|\bours\b|submitter|this project/i, `${f}: the page says I, not we`);
     assert.doesNotMatch(src.split("\n").filter((l) => !l.includes(".replace(")).join("\n"), /\u2014|\u2013/, `${f}: no en or em dashes (the one input normaliser that accepts them is exempt)`);
   }
+});
+
+test("the hero stamp: the newest refusal with its rate, the contract's plain reason and a transaction link; drawn once per refusal; nothing when there is none", () => {
+  const r = (n, over = {}) => ({ tx: String(n).repeat(44), signer: "chair.test.near", rateBps: 500, reason: "rate_bps out of bounds: must be within -200..=200", tsMs: 1_700_000_000_000, byVisitor: true, ...over });
+  const doc = fakeDoc();
+  const slot = host(doc);
+  renderHeroStamp(doc, slot, { status: "complete", refusals: [] }, { explorer: "https://example.invalid" });
+  assert.equal(slot.children.length, 0, "no refusal, no stamp");
+  renderHeroStamp(doc, slot, { status: "incomplete", refusals: [r(1)] }, { explorer: "https://example.invalid" });
+  assert.equal(slot.children.length, 0, "an unreadable index draws nothing");
+  const d = { status: "complete", refusals: [r(2, { rateBps: null }), r(3), r(4, { rateBps: 800 })] };
+  renderHeroStamp(doc, slot, d, { explorer: "https://example.invalid" });
+  const stamp = find(slot, (n) => n.attrs?.class === "or-stamp")[0];
+  assert.match(text(stamp), /^5% a day: Refused by the contract$/, "the newest refusal that says what it asked for");
+  assert.match(text(slot), /can never go above 2% a day when printing/);
+  assert.doesNotMatch(text(slot), /prints at most|\bbps\b|rate_bps|set_policy/);
+  assert.equal(find(slot, (n) => n.tag === "a")[0].attrs.href, `https://example.invalid/txns/${"3".repeat(44)}`);
+  assert.match(text(slot), /A visitor had the Chair's account ask for this/);
+  const first = slot.children[0];
+  renderHeroStamp(doc, slot, d, { explorer: "https://example.invalid" });
+  assert.equal(slot.children[0], first, "the same refusal again does not draw it again");
+  renderHeroStamp(doc, slot, { status: "complete", refusals: [r(5, { byVisitor: false }), ...d.refusals] }, { explorer: "https://example.invalid" });
+  assert.notEqual(slot.children[0], first, "a newer refusal replaces it");
+  assert.match(text(slot), /Signed by chair\.test\.near\./);
+  assert.equal(find(slot, (n) => n.tag === "a").length, 1);
+  assert.equal(find(host(doc), () => true).length, 1);
+});
+
+test("the pending hero says only what the chain's views say, or the saved copy of the same meeting with its neutral mark; never a card the index has not confirmed", () => {
+  const doc = fakeDoc();
+  const slot = host(doc);
+  const pol = { epoch: 9, rateBps: 10, lastSetEpoch: 8, streak: 1, epochEndsMs: 1, chair: "chair.test.near" };
+  renderHeroPending(doc, slot, { policy: pol, remembered: [] }, ctx);
+  const paper = find(slot, (n) => /minutes-paper/.test(n.attrs?.class ?? ""))[0];
+  assert.match(paper.attrs.class, /\bpending\b/);
+  assert.equal(paper.attrs["aria-busy"], "true");
+  assert.match(text(paper), /Meeting 8/);
+  assert.match(text(paper), /The rate in force is \+0\.10% a day\./);
+  assert.doesNotMatch(text(paper), /Verified/, "nothing is called verified before it is checked");
+  const saved = dec({ epoch: 8, tx: "6".repeat(44) });
+  renderHeroPending(doc, slot, { policy: pol, remembered: [saved] }, { ...ctx, resolved: resolvedWith(saved.tx, PLAIN_TEXT) });
+  assert.match(text(slot), /Meeting 8/);
+  assert.doesNotMatch(find(slot, (n) => /minutes-paper/.test(n.attrs?.class ?? ""))[0].attrs.class, /pending/);
+  renderHeroPending(doc, slot, { policy: { ...pol, lastSetEpoch: 9 }, remembered: [saved] }, { ...ctx, resolved: resolvedWith(saved.tx, PLAIN_TEXT) });
+  assert.match(find(slot, (n) => /minutes-paper/.test(n.attrs?.class ?? ""))[0].attrs.class, /pending/, "a saved copy of an older meeting is not shown as the latest");
+});
+
+test("the page head and top: share image and card, favicon, the GitHub link, the verified pill's home, and one Try-it panel with three tabs", () => {
+  assert.match(html, /<meta property="og:title" content="[^"]+">/);
+  assert.match(html, /<meta name="twitter:card" content="summary_large_image">/);
+  assert.match(html, /<header class="top">[\s\S]*?href="https:\/\/github\.com\/WonkaRed\/chair"[\s\S]*?<\/header>/);
+  assert.match(html, /<footer[\s\S]*?href="https:\/\/github\.com\/WonkaRed\/chair"/);
+  assert.match(html, /id="hero-stamp"/);
+  assert.match(html, /id="next-meeting"/);
+  const at = (n) => html.indexOf(n);
+  assert.ok(at('id="hero-stamp"') < at('id="best-of"'), "the stamp is in the first screen's markup");
+  const tab = html.match(/<section id="try"[\s\S]*?<\/section>\s*(?=<section id="press")/);
+  assert.ok(tab || html.includes('id="try"'), "one Try-it section");
+  for (const id of ["overreach", "join", "mine"]) {
+    assert.match(html, new RegExp(`role="tab"[^>]*id="tab-${id}"|id="tab-${id}"[^>]*role="tab"`), `tab for ${id}`);
+    assert.match(html, new RegExp(`<section id="${id}"[^>]*class="[^"]*tabpanel`), `panel ${id} keeps its id`);
+  }
+  for (const id of ["limits-refusals", "limits"]) assert.ok(html.includes(`id="${id}"`), id);
+  for (const line of ["my own scripted test accounts voting, not a crowd", "about 1% of the coins that exist", "deliberate test calls that I made"]) assert.ok(html.slice(html.indexOf('id="limits"')).includes(line), `"${line}" is under the honest limits`);
+  const top = html.slice(0, html.indexOf('id="limits"'));
+  assert.doesNotMatch(top.replace(/<details[\s\S]*?<\/details>/g, ""), /scripted test accounts voting|0\.9988%|deliberate test calls that I made/, "the self-undercutting lines are not above the limits");
 });

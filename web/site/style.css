@@ -105,6 +105,9 @@ h1 span { display: block; }
 h1 .h1-second { color: var(--ink2); font-style: italic; font-weight: 500; }
 .now-plain { max-width: 34em; margin: 1.5rem 0 0; font-size: clamp(1.1rem, 1.7vw, 1.35rem); line-height: 1.5; color: var(--ink); }
 .now-plain .fig { font: 700 1.12em/1 var(--serif); font-variant-numeric: lining-nums; color: var(--accent); border-bottom: 2px solid var(--brass); }
+.hero-verified { margin: 0.9rem 0 0; }
+.hero-verified a { display: inline-flex; text-decoration: none; }
+@media (min-width: 62rem) { .hero-verified { display: none; } } /* beside the sentence the whole card, mark included, is on the first screen */
 .hero-do { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 1.75rem 0 0; }
 .btn { display: inline-flex; align-items: center; justify-content: center; min-height: 3.1rem; padding: 0.6rem 1.4rem; font: 600 1rem/1.2 var(--text); text-decoration: none; color: var(--ink); background: transparent; border: 2px solid var(--ink); border-radius: 3px; transition: background-color 0.15s, color 0.15s, transform 0.15s; }
 .btn:hover { background: var(--ink); color: var(--bg); }
@@ -128,17 +131,29 @@ h1 .h1-second { color: var(--ink2); font-style: italic; font-weight: 500; }
 .m-own-line { margin-top: 0.85rem; font-style: normal; font-weight: 600; color: var(--accent); }
 .m-own-line::after { content: close-quote; }
 .m-own-k { padding-top: 0.35rem; font: italic 400 0.92rem/1.3 var(--serif); color: var(--muted); -webkit-user-select: none; user-select: none; }
-.minutes-paper .m-own-line { font-size: clamp(1.3rem, 2.2vw, 1.7rem); line-height: 1.25; }
-.paper-rate { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.9rem; margin: 1.1rem 0 0; padding-top: 0.8rem; border-top: 1px solid var(--hair); }
-.rate-big { font: 600 2rem/1 var(--serif); font-variant-numeric: lining-nums tabular-nums; }
-.rate-bps { font-family: var(--mono); color: var(--muted); font-size: 0.85rem; }
-.rate-effect { flex: 1 1 14rem; color: var(--ink); font-size: 0.95rem; } .rate-prev { color: var(--muted); font-size: 0.88rem; }
+.minutes-paper .m-own-line { font-size: clamp(1.45rem, 2.5vw, 2rem); line-height: 1.2; }
+.ai-line::before { content: none; } .ai-line .m-own-line::before { content: open-quote; }
+.minutes-paper .plain-line.ai-line { font: 600 clamp(1.3rem, 2.2vw, 1.75rem)/1.25 var(--serif); margin: 0.2rem 0 0.5rem; }
+.minutes-paper .said-k { margin: 0 0 0.2rem; }
+.m-full { margin-top: 0.4rem; border: 0; padding: 0; }
+.m-full > summary { min-height: 2.5rem; padding: 0.3rem 0; border: 0; color: var(--accent); font-size: 0.95rem; }
+.m-full .reasoning { margin-top: 0.4rem; font-size: 1rem; line-height: 1.5; font-style: italic; max-height: 22rem; overflow: auto; }
+.minutes-paper.pending .skel { max-width: 36rem; }
+.minutes-paper.pending .note { margin: 0.7rem 0 0; }
+.minutes-paper.fresh { animation: minute-in 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both; }
+.minutes-paper.fresh .ai-line { animation: ink-in 1.6s ease-out 0.25s both; }
+@keyframes minute-in { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: none; } }
+@keyframes ink-in { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0); } }
+.paper-rate { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.7rem; margin: 0.9rem 0 0; padding-top: 0.7rem; border-top: 1px solid var(--hair); color: var(--ink2); font-size: 0.92rem; line-height: 1.4; }
+.rate-big { font: 700 1.05rem/1.2 var(--serif); color: var(--ink); font-variant-numeric: lining-nums tabular-nums; }
+.rate-bps { font-family: var(--mono); color: var(--ink2); font-size: 0.85rem; }
+.rate-effect { flex: 0 1 auto; } .rate-prev { color: var(--muted); }
 /* The formula's number beside the Chair's: a quiet row under the rate, so the closing line stays the loudest thing on the card. */
-.rate-choice { flex: 1 1 100%; display: grid; gap: 0.1rem; margin-top: 0.3rem; color: var(--ink2); font-size: 0.92rem; line-height: 1.35; }
+.rate-choice { flex: 1 1 100%; display: grid; gap: 0.1rem; margin-top: 0.1rem; color: var(--ink2); font-size: 0.88rem; line-height: 1.35; }
 .rate-choice strong { color: var(--ink); font-variant-numeric: lining-nums tabular-nums; }
 .rc-why { color: var(--muted); font-style: italic; }
 .minutes-paper > .m-status { margin: 1rem 0 0; }
-.seal { margin-top: 0.9rem; }
+.seal { margin-top: 0.8rem; }
 .seal summary { display: inline-flex; align-items: center; gap: 0.6rem; cursor: pointer; list-style: none; min-height: 2.75rem; padding: 0.2rem 0.9rem 0.2rem 0.3rem; border: 1px solid var(--rule); border-radius: 999px; }
 .seal summary::-webkit-details-marker { display: none; }
 .seal summary:hover { border-color: var(--accent); }
@@ -171,7 +186,7 @@ h1 .h1-second { color: var(--ink2); font-style: italic; font-weight: 500; }
   #overreach .or-ask { grid-column: 2; grid-row: 1 / span 2; }
   #overreach .or-result, #overreach .or-how { grid-column: 1 / -1; }
 }
-#overreach h2 { margin: 0; }
+#overreach .panel-h { margin: 0; }
 .dare-line { margin: 0; font: 1.35rem/1.4 var(--serif); max-width: 24em; }
 #overreach a { color: var(--accent); }
 
@@ -258,7 +273,8 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 .guarantees .fold > summary { font-weight: 500; font-size: 0.9rem; color: var(--ink2); }
 .guarantees .exact { margin: 0.25rem 0 0.6rem; font-size: 0.95rem; }
 .bounds { font-family: var(--mono); }
-.verify { margin: 1.5rem 0 0; max-width: 60rem; }
+.guarantees .cmd { margin: 0 0 0.6rem; }
+.guarantees .cmd code { flex: 1 1 100%; font-size: 0.85rem; white-space: normal; overflow-wrap: anywhere; } /* inside a card the command wraps and Copy sits under it, so none of it is cut off */
 .cmd { display: flex; gap: 0.5rem; align-items: stretch; flex-wrap: wrap; }
 /* A command that is wider than its box scrolls inside it, and says so: an edge fades in on the side that has more (phones hide scrollbars). */
 .cmd code { flex: 1 1 18rem; min-width: 0; color: var(--bg); padding: 0.6rem 0.9rem; border-radius: 3px; overflow-x: auto; white-space: nowrap; scrollbar-width: thin;
@@ -371,12 +387,10 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 @media (max-width: 56rem) { .press-grid { grid-template-columns: minmax(0, 1fr); } }
 
 /* The best lines: a front page, one lead and three more, set between column rules. */
-.quips { list-style: none; margin: 1.25rem 0 0; padding: 0; display: grid; gap: 0; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 4px double var(--ink); border-bottom: 1px solid var(--rule); }
+.quips { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; grid-template-columns: repeat(3, minmax(0, 1fr)); border-bottom: 1px solid var(--rule); }
 .quips li { display: flex; flex-direction: column; justify-content: space-between; gap: 0.7rem; padding: 1.1rem 1.4rem 1rem; min-width: 0; border-left: 1px solid var(--rule); }
-.quips li:first-child { grid-column: 1 / -1; border-left: 0; border-bottom: 1px solid var(--rule); padding-inline: 0 15%; }
-.quips li:nth-child(2) { border-left: 0; padding-left: 0; }
+.quips li:first-child { border-left: 0; padding-left: 0; }
 .quips blockquote { margin: 0; font: 1.18rem/1.38 var(--serif); quotes: "\201C" "\201D"; }
-.quips li:first-child blockquote { font-size: clamp(1.5rem, 2.9vw, 2.15rem); line-height: 1.22; letter-spacing: -0.01em; }
 .quips blockquote::before { content: open-quote; } .quips blockquote::after { content: close-quote; }
 .quips a, .quips span { font-size: 0.88rem; color: var(--muted); }
 .scripted { margin: 0.25rem 0 1rem; padding: 0.55rem 0.8rem; max-width: 68ch; border-left: 4px solid var(--warn); background: var(--warn-bg); font-size: 0.92rem; }
@@ -385,25 +399,22 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 .visitor-tag { color: var(--warn); }
 
 @media (max-width: 56rem) {
-  .quips { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .quips li:nth-child(2) { border-left: 0; padding-left: 0; }
-  .quips li:nth-child(3) { border-left: 1px solid var(--rule); }
-  .quips li:nth-child(4) { grid-column: 1 / -1; border-left: 0; padding-left: 0; border-top: 1px solid var(--rule); }
+  .quips { grid-template-columns: minmax(0, 1fr); }
+  .quips li, .quips li:first-child { border-left: 0; padding-inline: 0; border-top: 1px solid var(--rule); }
 }
 @media (max-width: 40rem) {
   .minutes-paper { padding: 1.25rem 1.1rem 1rem; }
-  .rate-big { font-size: 1.8rem; }
   .watermark { display: none; }
   .minute.card { padding-inline: 0.9rem; }
   .m-proof > div { grid-template-columns: minmax(0, 1fr); }
   .top { position: static; }
+  .bar { gap: 0.25rem 0.5rem; }
   .bar nav { order: 3; flex: 1 0 100%; flex-wrap: wrap; white-space: normal; overflow: visible; gap: 0 1.1rem; justify-content: flex-start; }
   .bar nav a { padding: 0.3rem 0; font-size: 0.9rem; }
-  .bar #theme { margin-left: auto; }
+  .bar .gh { margin-left: auto; }
   main > section, main > .band { margin-top: 2.5rem; } .band { gap: 2.5rem; }
   .quips { display: flex; overflow-x: auto; scroll-snap-type: x mandatory; gap: 0; border-bottom: 0; margin-inline: -1rem; padding-inline: 1rem; scroll-padding-inline: 1rem; }
   .quips li, .quips li:first-child, .quips li:nth-child(n) { flex: 0 0 84%; scroll-snap-align: start; padding: 1rem 1.1rem; border: 0; border-right: 1px solid var(--rule); }
-  .quips li:first-child blockquote { font-size: 1.4rem; }
   .asked-big { font-size: 1.9rem; }
 }
 
@@ -423,20 +434,23 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 .skel { display: block; height: 0.9rem; margin: 0.7rem 0; border-radius: 3px; background: var(--hair); animation: skel 1.6s ease-in-out infinite; }
 .skel-short { width: 55%; }
 @keyframes skel { 50% { opacity: 0.45; } }
-.now-slot { min-height: 8.5rem; margin-top: 1.5rem; }
+.now-slot { min-height: 7rem; margin-top: 1.5rem; }
 .now-slot .now-plain { margin-top: 0; }
-/* The room held for the minutes: the height of an AI chair's minutes with their choice row, a clamp note and a silence line, at 1280 and at 375 (792 px at most, 50rem is 800); a text with a press section is taller and grows past it, as does an open proof. */
-.hero-slot { --hero-h: 50rem; min-height: var(--hero-h); min-width: 0; }
+/* The room held for the minutes: about the height of a card that leads with the AI's line (the numbers are one small line, the whole text is folded); a longer line or an open fold grows past it. */
+.hero-slot { --hero-h: 27rem; min-height: var(--hero-h); min-width: 0; }
 .hero-slot .minutes-paper.skeleton { min-height: var(--hero-h); }
 .hero-empty { margin: 0; }
 .hero-slot .hero-empty { display: grid; align-content: center; min-height: var(--hero-h); } /* the sentence fills the box the placeholder held, so the page below does not move when the hero resolves */
 
 /* The Chair's line, big, right under the hero. */
-.pull { margin: 2.25rem 0 0; padding: 1.25rem 0 1rem; border-top: 4px double var(--ink); border-bottom: 1px solid var(--rule); min-height: 11rem; }
+.best-of { margin-top: 2.5rem; border-top: 4px double var(--ink); padding-top: 0.5rem; }
+.best-of h2 { font-size: 1rem; font-weight: 600; font-style: italic; color: var(--ink2); margin: 0.5rem 0 0; letter-spacing: 0; }
+.best-of h2::before { display: none; }
+.pull { margin: 0; padding: 0.75rem 0 1.25rem; border-bottom: 1px solid var(--rule); min-height: 9rem; }
 .pull blockquote { margin: 0; max-width: 28em; font: italic 500 clamp(1.6rem, 3.6vw, 2.6rem)/1.2 var(--serif); letter-spacing: -0.01em; quotes: "\201C" "\201D"; }
 .pull blockquote::before { content: open-quote; } .pull blockquote::after { content: close-quote; }
 .pull figcaption { margin-top: 0.75rem; color: var(--muted); font-size: 0.92rem; }
-@media (max-width: 40rem) { .pull { min-height: 11rem; } }
+@media (max-width: 40rem) { .pull { min-height: 10rem; } }
 
 /* What holders control. */
 .holders-plain strong { color: var(--ink); }
@@ -471,4 +485,47 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 .bound-figures dt { color: var(--ink2); font-size: 0.85rem; }
 .bound-figures dd { margin: 0.1rem 0 0; font: 600 1.35rem/1.2 var(--serif); font-variant-numeric: lining-nums tabular-nums; }
 .bound-h { font-weight: 700; margin-top: 1.1rem; }
+@media (min-width: 62rem) { /* the four figures sit beside the copy instead of under it */
+  .bound:has(.bound-figures) { max-width: none; display: grid; grid-template-columns: minmax(0, 40rem) minmax(16rem, 24rem); column-gap: 3rem; align-items: start; }
+  .bound-figures { grid-column: 2; grid-row: 1 / span 5; grid-template-columns: 1fr 1fr; margin: 0.4rem 0 0; }
+  .bound-figures dd { font-size: 1.5rem; }
+}
 .restraints { margin: 0; padding-left: 1.3rem; } .restraints li { margin: 0.5rem 0; }
+
+/* The hero's right side: the minutes, and under them the clock to the next meeting. */
+.hero-side { min-width: 0; }
+.next-meeting { display: flex; align-items: center; gap: 0.55rem; margin: 0.75rem 0 0; color: var(--ink2); font: 0.95rem/1.3 var(--text); font-variant-numeric: tabular-nums; }
+.next-meeting[hidden] { display: none; }
+.next-meeting::before { content: ""; flex: none; width: 0.55rem; height: 0.55rem; border-radius: 50%; background: var(--mint); animation: beat 1.8s ease-in-out infinite; }
+@keyframes beat { 50% { opacity: 0.35; transform: scale(0.8); } }
+
+/* The newest refusal on the chain, as the red stamp it is, under the buttons: the first thing a visitor learns is that the contract says no. */
+.hero-stamp-slot { margin-top: 1.6rem; }
+.hero-stamp { max-width: 34rem; }
+.hero-stamp .or-stamp { display: inline-block; margin: 0.2rem 0 0.7rem; padding: 0.3rem 0.9rem; border: 3px solid var(--stamp); outline: 1px solid var(--stamp); outline-offset: 3px; border-radius: 3px; color: var(--stamp); background: rgb(255 130 102 / 0.08); font: 700 clamp(0.95rem, 1.7vw, 1.2rem)/1.2 var(--serif); letter-spacing: 0.07em; text-transform: uppercase; transform: rotate(-2deg); animation: stamp-in 0.5s cubic-bezier(0.2, 1.3, 0.4, 1) both; }
+.hs-why { margin: 0; color: var(--ink); font-size: 1rem; line-height: 1.45; }
+.hs-who { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.92rem; }
+
+/* "Try it": three things to do, one panel at a time. Without script they are simply stacked. */
+.try .tablist { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 0 0 1.1rem; }
+.try .tablist[hidden] { display: none; }
+.try .tablist button { font: 600 1rem/1.2 var(--text); min-height: 2.9rem; padding: 0.55rem 1.2rem; color: var(--ink); background: var(--panel); border: 1px solid var(--rule); border-radius: 999px; cursor: pointer; }
+.try .tablist button:hover { border-color: var(--accent); }
+.try .tablist button[aria-selected="true"] { color: var(--accent-ink); background: var(--accent); border-color: var(--accent); }
+.try .tablist button[hidden] { display: none; }
+#try.try-on .tabpanel:not(.on) { display: none; }
+@media (max-width: 40rem) {
+  .try .tablist { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0, 1fr); gap: 0.4rem; } /* one row, whichever tabs are shown */
+  .try .tablist[hidden] { display: none; }
+  .try .tablist button { font-size: 0.85rem; line-height: 1.15; min-height: 2.9rem; padding: 0.4rem 0.45rem; border-radius: 14px; text-align: center; }
+}
+.try .tabpanel + .tabpanel { margin-top: 1.5rem; }
+.try-on .tabpanel + .tabpanel { margin-top: 0; }
+.panel-h { font: 600 clamp(1.5rem, 2.8vw, 2.1rem)/1.15 var(--serif); margin: 0; letter-spacing: -0.01em; }
+.panel-h::before { content: ""; display: block; width: 3.5rem; height: 5px; margin-bottom: 0.8rem; border-block: 1px solid var(--brass); }
+
+.chip.gh { display: inline-flex; align-items: center; text-decoration: none; }
+.foot-links { margin: 0 0 0.75rem; }
+details.raw-words { margin-top: 0.4rem; }
+details.raw-words > summary { cursor: pointer; color: var(--muted); font-size: 0.85rem; }
+details.raw-words > code { display: block; margin-top: 0.25rem; font-size: 0.8rem; color: var(--ink2); overflow-wrap: anywhere; }

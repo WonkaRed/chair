@@ -80,18 +80,18 @@ test("without meetings_per_day the text states the old per-meeting worst case an
   assert.match(t.worst, /That is hyperinflation, and the contract alone does not prevent it\./);
   assert.equal(t.figures, null);
   assert.deepEqual(t.restraints.map((r) => r.head), ["Holders can fire the Chair.", "New coins go only to people who staked.", "A silent Chair fades out."]);
-  assert.match(t.restraints[0].body, /more than 30% of the staked coins.*more than 5% of all coins.*meeting 10\. My own scripted accounts did it, not a crowd\./);
+  assert.match(t.restraints[0].body, /more than 30% of the staked coins.*more than 5% of all coins.*meeting 10\./);
   assert.match(t.restraints[1].body, /Stake or be diluted\./);
   assert.match(t.restraints[2].body, /moves the rate 0\.5% toward zero/);
 });
 
 test("with meetings_per_day the text is per day: at most about 2.02% a day, a week, 30 days, the time to the supply limit, and no hyperinflation warning", () => {
   const t = boundText({ meetingsPerDay: 960 });
-  assert.equal(t.lead, "The Chair can print at most 2% of all coins a day. A meeting comes every 90 seconds, and each one prints only 1/960 of that day's rate. It cannot jump to the ceiling either: the rate moves at most 0.5% a meeting, so getting there takes 4 meetings.");
+  assert.equal(t.lead, "The rate can never go above 2% a day. A meeting comes every 90 seconds, and each one prints only 1/960 of that day's rate. It cannot jump to the ceiling either: the rate moves at most 0.5% a meeting, so getting there takes 4 meetings.");
   assert.equal(t.worst, "Even if it holds the rate at the ceiling forever, the supply grows by at most about 2.02% a day: the 2% plus a little, because each meeting's new coins count toward the next. The only hard stop is a supply limit written into the code, about 34,000 times the launch supply.");
   assert.deepEqual(t.figures, [{ k: "In a day", v: "+2.02%" }, { k: "In a week", v: "1.15 times" }, { k: "In 30 days", v: "1.82 times" }, { k: "To the supply limit", v: "about 17 months" }]);
   assert.deepEqual(t.restraints.map((r) => r.head), ["Holders can fire the Chair.", "New coins go only to people who staked.", "A silent Chair fades out."]);
-  assert.match(t.restraints[0].body, /My own scripted accounts did it, not a crowd\./);
+  assert.doesNotMatch(t.restraints[0].body, /scripted accounts/, "the disclosure lives under the honest limits");
   const all = JSON.stringify(t);
   assert.doesNotMatch(all, /hyperinflation|times an hour|does not prevent/i, "the warning is gone: it is no longer true");
   assert.doesNotMatch(all, /—|–|NaN|undefined|Infinity/);
@@ -102,7 +102,7 @@ test("every number follows the chain's params, and one restraint is one entry in
   assert.match(t.lead, /at most 1% of all coins in one meeting, and a meeting comes every hour/);
   assert.match(t.restraints[0].body, /more than 25% of the staked coins/);
   const day = boundText({ maxRateBps: 100, epochMs: 3_600_000, meetingsPerDay: 24, impeachThresholdBps: 2_500, launchSupply: 10n ** 27n });
-  assert.match(day.lead, /at most 1% of all coins a day\. A meeting comes every hour, and each one prints only 1\/24 of that day's rate/);
+  assert.match(day.lead, /^The rate can never go above 1% a day\. A meeting comes every hour, and each one prints only 1\/24 of that day's rate/);
   assert.match(day.figures[0].v, /^\+1(\.\d+)?%$/);
   assert.ok(RESTRAINTS.length === 3 && RESTRAINTS.every((r) => typeof r.head === "string" && typeof r.body === "function"));
 });

@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, stat } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { join } from "node:path";
 import { fakeDoc, host, walk } from "./fakedom.mjs";
@@ -14,6 +14,7 @@ const { identity } = await js("ledger.js");
 const { fixtureTransport, rpcTransport, SourceError } = await js("sources.js");
 const { renderLog, renderReconcile, renderLedger, renderNow, renderFailure, renderSource } = await js("views.js");
 const { safeText, showAccount } = await js("text.js");
+const { holdersModel, renderHolders } = await js("holders.js");
 const { simulate, BEHAVIOURS } = await js("simview.js");
 const { run } = await import(join(dist, "vendor", "sim", "sim.js"));
 const { SCENARIOS } = await import(join(dist, "vendor", "sim", "scenarios.js"));
@@ -197,7 +198,27 @@ test("CSP allows only the configured hosts, and the page has no inline script or
   assert.match(html, /default-src 'none'; script-src 'self'; style-src 'self'/);
   assert.doesNotMatch(html, /<script(?![^>]*\bsrc=)/);
   assert.doesNotMatch(html, /\sstyle=|\son[a-z]+=/i);
-  assert.doesNotMatch(html, /(src|href)="https?:\/\//);
+  assert.doesNotMatch(html, /\ssrc="https?:\/\//, "nothing is loaded from another host");
+  assert.doesNotMatch(html, /<link(?![^>]*rel="canonical")[^>]*\shref="https?:\/\//, "no stylesheet or icon comes from another host");
+  assert.ok(await stat(join(dist, "favicon.svg")).then((f) => f.size > 0), "the favicon is shipped");
+  assert.match(html, /<link rel="icon" type="image\/svg\+xml" href="favicon\.svg">/);
+  const SITE = "https://wonkared.github.io/chair/";
+  const metas = Object.fromEntries([...html.matchAll(/<meta (?:property|name)="((?:og|twitter):[a-z:]+)" content="([^"]*)">/g)].map((m) => [m[1], m[2]]));
+  for (const k of ["og:title", "og:description", "og:image", "og:url", "twitter:card", "twitter:image"]) assert.ok(metas[k], k);
+  assert.equal(metas["twitter:card"], "summary_large_image");
+  assert.equal(metas["og:image"], `${SITE}og.png`, "an absolute address under the page's own");
+  assert.equal(metas["twitter:image"], `${SITE}og.png`);
+  assert.equal(metas["og:url"], SITE);
+  assert.match(html, /<link rel="canonical" href="https:\/\/wonkared\.github\.io\/chair\/">/);
+  const png = await readFile(join(dist, "og.png"));
+  assert.equal(png.subarray(1, 4).toString(), "PNG");
+  assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [1200, 630], "the share image is 1200x630");
+  assert.equal(metas["og:image:width"], "1200");
+  assert.equal(metas["og:image:height"], "630");
+  for (const head of ["<header class=\"top\"", "<footer"]) {
+    const region = html.slice(html.indexOf(head), html.indexOf(head) + 2500);
+    assert.match(region, /href="https:\/\/github\.com\/WonkaRed\/chair"/, `${head} links the source`);
+  }
   for (const f of ["style.css", "js/charts.js", "js/views.js", "js/dom.js", "js/app.js", "js/minutes.js", "js/decisions.js", "js/press.js"]) {
     const t = (await readFile(join(dist, f), "utf8")).split("\n").filter((l) => !l.trimStart().startsWith("//")).join("\n");
     assert.doesNotMatch(t, /innerHTML|outerHTML|insertAdjacentHTML|eval\(|@import|url\(\s*['"]?https?:/);
@@ -246,6 +267,7 @@ function renderEverything(d, fixtureForBanner, explorer = "https://example.inval
   const page = host(doc);
   const add = (fn) => { const x = host(doc); fn(x); page.append(x); };
   add((x) => renderNow(doc, x, d));
+  if (d.policy && d.params && d.supply) add((x) => renderHolders(doc, x, holdersModel({ params: d.params, policy: d.policy, supply: d.supply, candidates: [] }), { explorer }));
   add((x) => renderLedger(doc, x, d));
   add((x) => renderReconcile(doc, x, d, { onRetry() {} }));
   add((x) => renderLog(doc, x, d, { filter: "all", newestFirst: true, shown: 100 }, { explorer, rerender() {} }));
@@ -372,6 +394,9 @@ test("the page opens with the joke: the headline, the plain words, the latest mi
   const at = (needle) => html.indexOf(needle);
   assert.ok(at('id="now-plain"') > at("<h1") && at('id="hero-minutes"') > at('id="now-plain"'), "headline, then what is happening in plain words, then the Chair's own minutes");
   assert.ok(at('id="overreach"') > at('id="hero-minutes"') && at('id="press"') > at('id="overreach"') && at('id="minutes"') > at('id="press"'), "then the dare, the press conference, and the list");
+  assert.ok(at('id="hero-verified"') > at('id="now-plain"') && at('id="hero-verified"') < at('class="hero-do"'), "the compact mark sits under the sentence, above the buttons");
+  assert.match(html, /<p id="hero-verified" class="hero-verified" hidden><\/p>/, "empty and hidden until the script has seen a verified minute");
+  assert.doesNotMatch(html, /class="verify"/, "the command lives in the last guarantee card, not in a block of its own");
   const nav = html.match(/<nav[^>]*>([\s\S]*?)<\/nav>/)[1];
   const links = [...nav.matchAll(/<a href="(#[\w-]+)"[^>]*>([^<]+)<\/a>/g)];
   assert.ok(links.length > 0 && links.length <= 6, `${links.length} nav items`); // five, and "Your coins", which is hidden until the panel is
@@ -391,9 +416,9 @@ test("the best-of strip quotes only lines in the reviewed book, carries no host,
   const html = await readFile(join(dist, "index.html"), "utf8");
   const book = await readFile(join(root, "..", "chair-agent", "src", "press-book.ts"), "utf8");
   const strip = html.match(/<section id="best-of"[\s\S]*?<\/section>/)[0];
-  const quips = [...strip.matchAll(/<li data-tx="([^"]+)" data-epoch="(\d+)"><blockquote lang="en">([^<]+)<\/blockquote>/g)];
-  assert.equal(quips.length, 4);
-  assert.ok(html.indexOf('id="best-of"') > html.indexOf('id="press"') && html.indexOf('id="best-of"') < html.indexOf('id="minutes"'));
+  const quips = [...strip.matchAll(/<(?:li|figure id="pull" class="pull") data-tx="([^"]+)" data-epoch="(\d+)">\s*<blockquote lang="en">([^<]+)<\/blockquote>/g)];
+  assert.equal(quips.length, 4, "the pull quote and three more");
+  assert.ok(html.indexOf('id="best-of"') > html.indexOf('id="hero-minutes"') && html.indexOf('id="best-of"') < html.indexOf('id="try"'), "right after the hero, before the toys");
   for (const [, tx, epoch, quote] of quips) {
     assert.ok(book.includes(quote.replaceAll("&#39;", "'")), `the book holds: ${quote}`);
     assert.match(tx, /^[1-9A-HJ-NP-Za-km-z]{43,44}$/);

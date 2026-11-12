@@ -56,15 +56,14 @@ test("no key: the panel is one button when the faucet is on; when it is off or t
 });
 
 test("the first lines carry no crypto words, and the honest lines say what the money is, how small the share is, and why visitors cannot vote the Chair out", () => {
-  const m = mineModel({ supported: true, desk: "on", grant: { coins: "50", percent: sharePercent("50", 1_000_000n * COIN), cap: sharePercent("10000", 1_000_000n * COIN) }, now: NOW });
+  const m = mineModel({ supported: true, desk: "on", grant: { coins: "50", percent: sharePercent("50", 1_000_000n * COIN) }, now: NOW });
   assert.deepEqual(m.honest, [
     "These are test coins from a pool I control. They have no value, and nothing of yours is spent.",
     "Your 50 coins are 0.005% of the supply, far too few to move the Chair's rate.",
-    "The faucet can give out at most 10,000 coins in total (200 visitors x 50), 1% of the coins that exist, on purpose: visitors can never vote the Chair out, which takes over 5%.",
   ]);
   const unknown = mineModel({ supported: true, desk: "on", now: NOW }).honest;
   assert.match(unknown[1], /a tiny share of the supply/, "no figure is claimed before the supply is known");
-  assert.match(unknown[2], /at most 10,000 coins in total \(200 visitors x 50\), about 1% of the coins that exist/);
+  assert.equal(unknown.length, 2, "the faucet's total is told under the honest limits, not in the panel");
   assert.equal(sharePercent("10000", 2_000_000n * COIN), "0.5%", "the share follows the live supply");
 });
 
