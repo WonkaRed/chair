@@ -219,7 +219,7 @@ async function assemble(transport, base, txs, window, pin) {
   if (out.reconcile?.ok) return settle({ ...out, status: "complete" });
   if (partial && blocks.length === 0) return settle({ ...out, status: "unverified", reasons: ["No mint, burn or decision was logged in the transactions read, so there is nothing in them to check against the chain's ledger."] });
   if (unsettled) return settle({ ...out, status: "unverified", reasons: ["The newest transactions are still being processed, so the event sums cannot be pinned to the chain's state yet. Load the page again in a minute."] });
-  if (tooFew) return settle({ ...out, status: "unverified", reasons: ["The transactions read cover too few blocks to check against the chain's ledger: every mint or burn in them is within a few blocks of the oldest one read. Earlier transactions are read when you ask."] });
+  if (tooFew) return settle({ ...out, status: "unverified", reasons: ["The transactions read hold fewer than two blocks with a logged mint, burn or decision far enough from the oldest one read (a transaction just older may still be running there) to check against the chain's ledger. Earlier transactions are read when you ask."] });
   if (!pinnedOk || out.reconcile === null) return settle({ ...out, status: "unverified", reasons: ["The chain's state at the blocks the log covers could not be read (a non-archival RPC node drops old blocks), so the event sums cannot be pinned to it. A difference may be a mint that is due and not yet applied."] });
   return settle({ ...out, status: "mismatch", reasons: ["The events found do not add up to the chain's ledger. The log below is not complete."] });
 }

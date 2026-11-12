@@ -685,14 +685,14 @@ test("a first read whose events are all unsettled does not leave a stale failure
   assert.equal(next.pinnedHeight, h.receipts.at(-1).block);
 });
 
-test("a window whose events all sit within a few blocks of its oldest says it covers too few blocks, never that the chain could not be read", async () => {
+test("a window with fewer than two usable event blocks says so, never that the chain could not be read", async () => {
   const older = Array.from({ length: 150 }, (_, i) => ({ at: 100 + i * 23, kind: "deposit" }));
   const dense = Array.from({ length: 120 }, (_, i) => ({ at: 10_000 + Math.floor(i / 6), kind: "transfer" }));
   const h = history([...older, ...dense]);
   const d = await windowed(h, { supplyAt: modelSupply }).load();
   assert.equal(d.partial, true);
   assert.equal(d.status, "unverified");
-  assert.match(d.reasons[0], /too few blocks/);
+  assert.match(d.reasons[0], /fewer than two blocks with a logged/);
   assert.doesNotMatch(d.reasons.join(" "), /non-archival|could not be read/);
 });
 
