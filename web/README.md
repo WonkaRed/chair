@@ -10,7 +10,7 @@ Needs Node 22.22.2 or newer and npm (the build compiles `../sim` first).
 ```sh
 make -C web build    # compiles ../sim, writes web/dist (site + config + fixture + the reasoning bundle + a verbatim copy of the compiled simulator + the CSP)
 make -C web serve    # builds, then serves web/dist at http://127.0.0.1:8080/ (`PORT=8081 make -C web serve` to change it; a busy port is reported with that hint)
-make -C web test     # builds, then `node --test "test/*.test.mjs"`: 243 tests, no browser, no network
+make -C web test     # builds, then `node --test "test/*.test.mjs"`: 247 tests, no browser, no network
 ```
 
 Deploying is copying `web/dist` to any static host.
@@ -75,7 +75,7 @@ A `set_policy` call the contract turns down changes nothing and logs no event, b
 
 ## Make the Chair overreach
 
-`js/overreach.js` is the game: two big presets (5% a day, -99.99%) or a number of the visitor's own, one button, and a stamp that lands when the contract refuses. It never dead-ends. When the desk answers 429 (a cap, or an address that has used its few an hour) or is closed or unreachable, the panel shows the most recent real refusal from the chain (the stamp, the rate tried, the transaction), says it is an earlier attempt that was not the visitor's, labels who really sent it by the same rules as the refusals section (forced by a visitor through the press desk, a deliberate test call by this project, or just the signer), and says "Try again in N minutes". If the chain's own list of refusals cannot be read at that moment (the index is down), it shows one fixed, documented refusal instead, the project's deliberate +201 bps test (`Efagw855...`, from the root README), labelled "an earlier recorded attempt, not yours and not live". The long caveats sit in a fold-out, "How this works, and its limits".
+`js/overreach.js` is the game: two big presets (5% a day, -99.99%) or a number of the visitor's own, one button, and a stamp that lands when the contract refuses. It never dead-ends. When the desk answers 429 (a cap, or an address that has used its few an hour) or is closed or unreachable, the panel shows the most recent real refusal from the chain (the stamp, the rate tried, the transaction), says it is an earlier attempt that was not the visitor's, labels who really sent it by the same rules as the refusals section (forced by a visitor through the press desk, a deliberate test call by this project, or just the signer), and says "Try again in N minutes". If the chain's own list of refusals cannot be read at that moment (the index is down), it shows one fixed, documented refusal instead, the project's deliberate +201 bps test (`Efagw855...`, in docs/chair-coin-2/testnet-run-scenario.txt), labelled "an earlier recorded attempt, not yours and not live". The long caveats sit in a fold-out, "How this works, and its limits".
 
 ## Your own test coins
 

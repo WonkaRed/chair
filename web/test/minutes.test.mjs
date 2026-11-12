@@ -15,7 +15,7 @@ const root = join(fileURLToPath(import.meta.url), "..", "..");
 const docs = join(root, "..", "docs");
 const site = (f) => import(join(root, "site", "js", f));
 const { decisionsOfTxs, refusalsOfTxs } = await site("decisions.js");
-const { BOOK_CLOSINGS, checkReasoning, loadTexts, ownClosing, renderHero, renderMinutes, resolveTexts, sha256Hex, silence, splitMinutes } = await site("minutes.js");
+const { BOOK_CLOSINGS, checkReasoning, loadTexts, ownClosing, renderHero, renderMinutes, resolveTexts, sha256Hex, silence, splitClosing, splitMinutes } = await site("minutes.js");
 const { renderRefusals, humanReason, PROJECT_TEST_CALLS } = await site("refusals.js");
 const { rawTxCommand } = await site("views.js");
 const { lineChart } = await site("charts.js");
@@ -574,7 +574,7 @@ test("the Refusals section lists each refusal with its panic text and a transact
 const OWN_HEAD = "$CHAIR decision, epoch 310, chair local:qwen3.8-27b.\nRate in effect 190 bps; decision 190 bps.";
 const OWN_BODY = "The Committee of One has met. The rate holds at 1.90% a day.";
 const REMARK = "The Chair has appointed a subcommittee of the Chair to look into the Chair.";
-const OWN_LABEL = "The Chair wrote the closing line itself this meeting.";
+const OWN_LABEL = "Written by the AI this meeting";
 
 test("the page's list of fixed closing lines is the agent's: it fails when the two drift", async () => {
   const rules = await readFile(join(root, "..", "chair-agent", "src", "rule-chair.ts"), "utf8");
@@ -614,21 +614,44 @@ test("ownClosing: the last sentence of an AI chair's statement when it is not a 
 });
 const CLOSING_BOOK = "The Chair has no further comment.";
 
-test("the hero and the log say, in plain words, that the Chair wrote its closing line, only when it did and the text checked out", async () => {
-  const labels = (page) => [...walk(page)].filter((n) => n.attrs?.class === "note m-own").map(textOf);
+test("splitClosing: head, the Chair's sentence and the notes after it add back up to the prose, byte for byte", () => {
+  const notes = "The epoch rolled over while the Chair was deliberating. Time does not wait.\nThe press asked 2 questions since the last meeting.";
+  for (const body of [`${OWN_BODY} ${REMARK}`, `${OWN_BODY}\n${REMARK}`, `${OWN_BODY}  ${REMARK}`]) {
+    for (const tail of ["", `\n${notes}`, `\n\n${notes}`]) {
+      const text = `${OWN_HEAD}\n${body}${tail}`;
+      const got = splitClosing(text);
+      assert.equal(got.own, REMARK);
+      assert.equal(got.head + got.own + got.tail, splitMinutes(text).prose, JSON.stringify(text));
+      assert.ok(!/^\s/.test(got.own) && !/\s$/.test(got.own));
+    }
+  }
+  assert.equal(splitClosing(`${OWN_HEAD}\n${OWN_BODY} ${CLOSING_BOOK}`), null);
+});
+
+test("the hero and the log set the Chair's own closing line apart and say so in plain words, only when it did and the text checked out", async () => {
+  const labels = (page) => [...walk(page)].filter((n) => n.attrs?.class === "m-own-k").map(textOf);
+  const lines = (page) => [...walk(page)].filter((n) => n.attrs?.class === "m-own-line").map(textOf);
   const showing = (text, over = {}, verdict = "verified") => {
     const hash = sha(text);
     const d = { decisions: [decision({ hash, rateBps: 190, previousRateBps: 190, epoch: 310, ...over }), decision({ hash, rateBps: 190, previousRateBps: 190, epoch: 309, ...over })], policy, status: "complete" };
     const resolved = new Map(d.decisions.map((x) => [x.tx, { text, chair: "local:qwen3.8-27b", kind: "llm", source: null, onChain: true, verdict }]));
     return render(d, ctx(new Map(), resolved));
   };
-  assert.deepEqual(labels(showing(`${OWN_HEAD}\n${OWN_BODY} ${REMARK}`)), [OWN_LABEL, OWN_LABEL], "hero and card");
+  const own = showing(`${OWN_HEAD}\n${OWN_BODY} ${REMARK}`);
+  assert.deepEqual(labels(own), [OWN_LABEL, OWN_LABEL], "hero and card");
+  assert.deepEqual(lines(own), [REMARK, REMARK], "the sentence is its own element, with exactly the chain's words");
+  for (const q of [...walk(own)].filter((n) => n.tag === "blockquote")) {
+    assert.equal(textOf(q), `${OWN_BODY} ${REMARK}${OWN_LABEL}`, "the quote holds the whole text, then the label");
+    assert.ok(textOf(q).startsWith(`${OWN_BODY} ${REMARK}`), "text before the label is the minutes, unmodified");
+  }
   assert.deepEqual(labels(showing(`${OWN_HEAD}\n${OWN_BODY} ${CLOSING_BOOK}`)), [], "a book line: no label");
+  assert.deepEqual(lines(showing(`${OWN_HEAD}\n${OWN_BODY} ${CLOSING_BOOK}`)), [], "a book line: no split");
   assert.deepEqual(labels(showing(`$CHAIR decision, epoch 310, chair rule-v1.\nRate in effect 190 bps; decision 190 bps.\n${OWN_BODY} ${REMARK}`)), [], "the rule chair wrote nothing itself");
   assert.deepEqual(labels(showing(`${OWN_HEAD}\n${OWN_BODY} ${REMARK}`, {}, "mismatch")), [], "a text that did not check out is not praised");
+  assert.deepEqual(lines(showing(`${OWN_HEAD}\n${OWN_BODY} ${REMARK}`, {}, "mismatch")), [], "and is not split");
   assert.deepEqual(labels(showing(`${OWN_HEAD}\n${OWN_BODY} ${REMARK}`, { byVisitor: true })), [], "a visitor-forced decision is not the Chair's own");
   const saved = showing(`${OWN_HEAD}\n${OWN_BODY} ${REMARK}`, {}, "verified");
-  assert.ok(!/LLM|epoch|model|AI/.test(labels(saved)[0]), "plain words");
+  assert.ok(!/LLM|epoch|model/i.test(labels(saved)[0]), "plain words");
   // An old text renders as it did: the prose is the same quote, whether or not the label applies.
   const old = showing(`$CHAIR decision, epoch 310, chair local:qwen3.8-27b.\nRate in effect 190 bps; decision 190 bps.\n${OWN_BODY} The Chair asks that this be recorded.`);
   for (const q of [...walk(old)].filter((n) => n.tag === "blockquote")) assert.equal(textOf(q), `${OWN_BODY} The Chair asks that this be recorded.`);

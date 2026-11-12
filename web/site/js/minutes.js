@@ -139,15 +139,25 @@ const AI_HEADER = /^\$CHAIR decision, epoch \d+, chair (?:llm|local):/;
 /** The lines the agent adds after the Chair's statement: the epoch rolled over, the rate was clamped, the press section (decide.ts, press-section.ts). */
 const AFTER_STATEMENT = /^(?:The epoch rolled over while the Chair was deliberating\.|The Chair asked for -?\d+ bps; the contract accepts |The press asked \d+ questions? since the last meeting\.)/;
 
-/** The closing sentence of an AI chair's statement when it is not a line of the book, so the Chair wrote it; else null. Old texts, the rule chair's and fallbacks give null or a book line. */
-export function ownClosing(text) {
+/**
+ * `{head, own, tail}` with `head + own + tail` equal to the minutes' prose, when an AI chair's statement ends in a sentence that is not a line of the
+ * book (so the Chair wrote it) and `own` is that sentence; else null. `tail` is whatever the agent added after the statement. Old texts, the rule chair's and fallbacks give null.
+ */
+export function splitClosing(text) {
   const { meta, prose } = splitMinutes(text);
   if (!AI_HEADER.test(meta[0] ?? "")) return null;
   const lines = prose.split("\n");
   const cut = lines.findIndex((line) => AFTER_STATEMENT.test(line));
-  const last = /[^.?!]*[.?!]$/.exec((cut < 0 ? lines : lines.slice(0, cut)).join("\n").trim())?.[0].trim();
-  return last === undefined || last === "" || BOOK_CLOSINGS.includes(last) ? null : last;
+  const statement = (cut < 0 ? lines : lines.slice(0, cut)).join("\n").trimEnd();
+  const last = /[^.?!]*[.?!]$/.exec(statement)?.[0];
+  const own = last?.trim();
+  if (own === undefined || own === "" || BOOK_CLOSINGS.includes(own)) return null;
+  const start = statement.length - last.length + (last.length - last.trimStart().length);
+  return { head: prose.slice(0, start), own, tail: prose.slice(start + own.length) };
 }
+
+/** The closing sentence the Chair wrote itself, or null. */
+export const ownClosing = (text) => splitClosing(text)?.own ?? null;
 
 const move = (d) => {
   const delta = d.rateBps - d.previousRateBps;
@@ -188,13 +198,22 @@ function proof(doc, d, ctx) {
 /** The page's own plain line is only for a decision whose text is not already plain: no text, or a text still in basis points and epochs. */
 const needsPlain = (p) => !p.rec || /basis points|bps|epoch/i.test(p.prose);
 
+/**
+ * The minutes as a quote. When the Chair wrote its closing sentence, that sentence is its own element with a plain label, inside the same quote, so the
+ * text reads and copies as the one the hash covers (the label is not selectable). Only for a text that checked out and was not forced by a visitor through the press desk.
+ */
+function lead(doc, prose, closing) {
+  if (closing === null) return h(doc, "blockquote", { class: "reasoning", lang: "en" }, prose);
+  return h(doc, "blockquote", { class: "reasoning has-own", lang: "en" }, closing.head || null, h(doc, "span", { class: "m-own-line" }, closing.own), h(doc, "span", { class: "m-own-k" }, "Written by the AI this meeting"), closing.tail || null);
+}
+
 /** The pieces of one decision: its state, the prose to lead with, the boilerplate as metadata, and the notes that belong with the proof. `saved` is a decision that was not read from the chain on this load. */
 function parts(doc, d, ctx, saved = false) {
   const rec = ctx.resolved.get(d.tx);
   const state = !rec ? "absent" : saved && rec.verdict === "verified" ? "kept" : rec.verdict;
   if (!rec) {
     const lead = h(doc, "p", { class: "m-absent" }, ctx.texts === null ? "The bundled reasoning texts could not be loaded, so no text is shown for this decision." : "no reasoning text for this decision: its transaction carries none and none was saved");
-    return { state, rec, lead, fallback: null, own: null, prose: "", meta: null, notes: [] };
+    return { state, rec, lead, fallback: null, prose: "", meta: null, notes: [] };
   }
   const shown = safeLines(rec.text);
   const { meta, prose, fallback } = splitMinutes(shown);
@@ -204,9 +223,7 @@ function parts(doc, d, ctx, saved = false) {
     rec,
     prose,
     fallback: fallback === null ? null : h(doc, "p", { class: "plain-line m-fallback" }, fallback),
-    // Said only of a text that checked out, and never of one a visitor forced through the press desk.
-    own: (state === "verified" || state === "kept") && !d.byVisitor && ownClosing(shown) !== null ? h(doc, "p", { class: "note m-own" }, "The Chair wrote the closing line itself this meeting.") : null,
-    lead: h(doc, "blockquote", { class: "reasoning", lang: "en" }, prose),
+    lead: lead(doc, prose, (state === "verified" || state === "kept") && !d.byVisitor ? splitClosing(shown) : null),
     meta: meta.length === 0 && !d.byVisitor ? null : h(doc, "p", { class: "m-meta" }, d.byVisitor ? h(doc, "strong", { class: "visitor-tag" }, "Forced by a visitor through the press desk, not decided by the AI chair: the chair account signed it. ") : null, meta.map((line) => h(doc, "span", {}, line))),
     notes: [
       h(doc, "p", { class: `m-check ${MARKS[state].cls}` }, h(doc, "strong", {}, `${MARKS[state].mark} ${MARKS[state].short}.`), ` ${MARKS[state].long}`),
@@ -236,7 +253,6 @@ function heroCard(doc, d, ctx, { note = null, saved = false } = {}) {
     p.fallback,
     needsPlain(p) ? [h(doc, "p", { class: "plain-line" }, plainDecision(d.rateBps, d.previousRateBps, ctx.unit)), h(doc, "p", { class: "said-k" }, "In the Chair's words")] : null,
     p.lead,
-    p.own,
     h(doc, "figcaption", { class: "paper-rate" },
       h(doc, "span", { class: "rate-big" }, fmtSignedPct(d.rateBps)),
       h(doc, "span", { class: "rate-bps" }, fmtRate(d.rateBps)),
@@ -292,7 +308,6 @@ function card(doc, d, ctx) {
     p.fallback,
     needsPlain(p) ? h(doc, "p", { class: "plain-line" }, plainDecision(d.rateBps, d.previousRateBps, ctx.unit)) : null,
     p.lead,
-    p.own,
     h(doc, "p", { class: "m-line" },
       h(doc, "strong", { title: `Epoch ${d.epoch}` }, `Meeting ${d.epoch}`),
       h(doc, "span", {}, `${rateLabel(d.rateBps, ctx.unit)} (${fmtRate(d.rateBps)}), ${move(d)}`),

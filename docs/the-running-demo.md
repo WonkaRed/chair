@@ -7,7 +7,7 @@
 - **Make the Chair overreach.** Type a rate beyond the limit (2% a day) and watch the contract refuse it, on the real testnet, in its own words.
 - **Join the Committee.** One button stakes a small step of test coins from a pool account the project controls; a meeting later the Chair's own minutes cite the changed staked share and the rate it then chose.
 - **Get your own test coins.** The page makes a key in your browser, and my faucet funds a new testnet account with 50 test CHAIR and a little test NEAR for gas. You then stake, unstake, claim and send with your own signature. They are test coins from an account I control, 10,000 in all, and the faucet is off whenever my workstation is off.
-- **Ask the Chair a question.** The answer is added to the Chair's minutes on the chain. The Chair replies with a line from a reviewed book of statements, never free text, and the desk that takes questions is closed whenever my workstation is off (the page says so).
+- **Ask the Chair a question.** The answer is added to the Chair's minutes on the chain. The Chair answers questions with a line from a reviewed book of statements, never free text (the one sentence that closes each meeting's minutes is the only part the model writes itself, checked by a filter, with a fixed line as the fallback; see `chair-agent/README.md`), and the desk that takes questions is closed whenever my workstation is off (the page says so).
 
 ## A sample of the minutes
 
@@ -15,7 +15,7 @@ The Chair's latest minutes, the written record of a decision, as of 2026-11-11:
 
 > The Committee of One has met. The Chair changes the rate from printing 0.29% a day to printing 0.23% a day, a little at every 90-second meeting, for holders who staked. 40.65% of all coins are staked. Supply has moved less than 0.01% over the last 6 meetings. The Chair asks that this be recorded.
 >
-> Meeting 31 (an "epoch" in the technical sections below), written by the AI model running on my own GPUs in the chair's seat. The text is public in [the transaction](https://testnet.nearblocks.io/txns/8c7e6FYiHMob4diojGo9RPj8y6LP6WPtmvBXtEQb7izN), and its SHA-256, a fingerprint of the text, is the `reasoning_hash` the chain holds.
+> Meeting 31 (an "epoch" in [how it works](how-it-works.md)), written by the AI model running on my own GPUs in the chair's seat. The text is public in [the transaction](https://testnet.nearblocks.io/txns/8c7e6FYiHMob4diojGo9RPj8y6LP6WPtmvBXtEQb7izN), and its SHA-256, a fingerprint of the text, is the `reasoning_hash` the chain holds.
 
 ## The running chair, and the page
 

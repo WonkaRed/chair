@@ -116,6 +116,13 @@ h1 .h1-second { color: var(--ink2); font-style: italic; font-weight: 500; }
 .reasoning { quotes: "\201C" "\201D"; margin: 0; font: 1.1rem/1.5 var(--serif); overflow-wrap: anywhere; white-space: pre-wrap; max-width: 62ch; }
 .reasoning::before { content: open-quote; } .reasoning::after { content: close-quote; }
 .minutes-paper .reasoning { font-size: clamp(1.15rem, 1.8vw, 1.45rem); line-height: 1.4; font-style: italic; color: var(--ink); }
+/* The sentence the Chair wrote itself: set apart inside the same quote, upright and in the accent ink beside a brass rule, with its plain label under it. The quote closes here, after the sentence. */
+.reasoning.has-own::after { content: none; }
+.m-own-line, .m-own-k { display: block; padding-left: 1rem; border-left: 4px solid var(--brass); white-space: normal; }
+.m-own-line { margin-top: 0.85rem; font-style: normal; font-weight: 600; color: var(--accent); }
+.m-own-line::after { content: close-quote; }
+.m-own-k { padding-top: 0.35rem; font: italic 400 0.92rem/1.3 var(--serif); color: var(--muted); -webkit-user-select: none; user-select: none; }
+.minutes-paper .m-own-line { font-size: clamp(1.3rem, 2.2vw, 1.7rem); line-height: 1.25; }
 .paper-rate { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.25rem 0.9rem; margin: 1.1rem 0 0; padding-top: 0.8rem; border-top: 1px solid var(--hair); }
 .rate-big { font: 600 2rem/1 var(--serif); font-variant-numeric: lining-nums tabular-nums; }
 .rate-bps { font-family: var(--mono); color: var(--muted); font-size: 0.85rem; }
@@ -291,6 +298,7 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 .minute.card { padding: 1rem 1.25rem 0.8rem; }
 .minute .plain-line { margin-bottom: 0.45rem; }
 .minute .reasoning { font-size: 1.02rem; font-style: italic; color: var(--ink2); }
+.minute .m-own-line { font-size: 1.2rem; line-height: 1.3; }
 .m-rows { display: grid; gap: 0.8rem; max-width: 52rem; }
 .m-line { display: flex; flex-wrap: wrap; align-items: center; gap: 0.25rem 1rem; margin: 0.8rem 0 0; color: var(--ink2); font-size: 0.92rem; }
 .m-line strong { color: var(--ink); }
@@ -401,11 +409,10 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 @keyframes skel { 50% { opacity: 0.45; } }
 .now-slot { min-height: 8.5rem; margin-top: 1.5rem; }
 .now-slot .now-plain { margin-top: 0; }
-.hero-slot { min-height: 40rem; min-width: 0; }
-.hero-slot .minutes-paper.skeleton { min-height: 40rem; }
+.hero-slot { min-height: 44rem; min-width: 0; }
+.hero-slot .minutes-paper.skeleton { min-height: 44rem; }
 .hero-empty { margin: 0; }
-.hero-slot .hero-empty { display: grid; align-content: center; min-height: 40rem; } /* the sentence fills the box the placeholder held, so the page below does not move when the hero resolves */
-@media (max-width: 40rem) { .hero-slot, .hero-slot .minutes-paper.skeleton, .hero-slot .hero-empty { min-height: 42rem; } }
+.hero-slot .hero-empty { display: grid; align-content: center; min-height: 44rem; } /* the sentence fills the box the placeholder held, so the page below does not move when the hero resolves */
 
 /* The Chair's line, big, right under the hero. */
 .pull { margin: 2.25rem 0 0; padding: 1.25rem 0 1rem; border-top: 4px double var(--ink); border-bottom: 1px solid var(--rule); min-height: 11rem; }

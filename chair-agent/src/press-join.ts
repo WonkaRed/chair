@@ -37,7 +37,7 @@ export const DEFAULT_JOIN_LIMITS = {
   /** Everything a visitor asks of this endpoint (each ask reads the chain), per address. */
   perIpRequests: 8,
   perIpRequestsWindowMs: 10 * 60_000,
-  /** Moves that go on chain, per address, then the hour's and the day's totals over all addresses. Each costs the pool account gas: see "Join the Committee" in the README. */
+  /** Moves that go on chain, per address, then the hour's and the day's totals over all addresses. Each costs the pool account gas: see "Join the Committee" in docs/overreach-and-join.md. */
   perIpSends: 3,
   perIpSendsWindowMs: 60 * 60_000,
   hourlyCap: 20,

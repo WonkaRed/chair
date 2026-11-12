@@ -29,7 +29,7 @@ export const DEFAULT_OVERREACH_LIMITS = {
   /** Everything a visitor asks of this endpoint (each ask reads the chain), per address. */
   perIpRequests: 8,
   perIpRequestsWindowMs: 10 * 60_000,
-  /** Attempts that go on chain, a few per address per hour, then the hour's and the day's totals over all addresses. Each costs the chair account gas: see "Make the Chair overreach" in the README. */
+  /** Attempts that go on chain, a few per address per hour, then the hour's and the day's totals over all addresses. Each costs the chair account gas: see "Make the Chair overreach" in docs/overreach-and-join.md. */
   perIpSends: 5,
   perIpSendsWindowMs: 60 * 60_000,
   dailyCap: 300,

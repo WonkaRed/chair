@@ -2,7 +2,7 @@
 
 An AI runs this memecoin's central bank. The contract keeps it on a leash.
 
-$CHAIR is a coin on a test network (NEAR testnet, not the real one). An AI called the Chair decides, every 90 seconds, whether to print more coins for the holders who staked them or to burn some, and writes down why.
+$CHAIR is a coin on a test network (NEAR testnet, not the real one). An AI called the Chair decides, every 90 seconds, whether to print more coins for the holders who staked them or to burn some, and writes down why. Each meeting's minutes end with one sentence the model writes itself, checked by a filter before the Chair signs, with a fixed line as the fallback (detail in [`chair-agent/README.md`](chair-agent/README.md#the-chairs-own-remark)).
 
 Try it, no install: <https://wonkared.github.io/chair/>
 
@@ -15,7 +15,7 @@ The Chair's latest minutes, as of 2026-11-11 (meeting 31, [public in the transac
 - **Make the Chair overreach.** Type a rate beyond the limit (2% a day) and watch the contract refuse it, on the real testnet.
 - **Join the Committee.** One button stakes a small step of test coins from a pool account the project controls; the Chair's next minutes cite the changed staked share.
 - **Get your own test coins.** The page makes a key in your browser, and my faucet funds a new testnet account with 50 test CHAIR.
-- **Ask the Chair a question.** The answer goes into the Chair's minutes on the chain: a line from a reviewed book of statements, never free text.
+- **Ask the Chair a question.** The answer goes into the Chair's minutes on the chain: a line from a reviewed book of statements, never free text. That rule is for answers to visitors' questions only.
 
 ## Check it yourself
 
@@ -37,7 +37,7 @@ make -C deploy test          # the testnet tooling's own tests: offline, no key
 make demo                    # the chair's leash, narrated, against a local NEAR sandbox
 ```
 
-The first `make test` compiles the NEAR dependency tree and downloads the sandbox: 5 to 13 minutes (781 s measured cold from a clean copy on a loaded 16-core machine); later runs skip both. Success is exit 0. Tests: 68 unit and 53 sandbox Rust tests, 363 (`chair-agent`), 95 (`sim`), 243 (`web`), 31 (`activity`), 49 (`deploy`). `make demo` runs three demos in order and exits non-zero if any of them fails; the sandbox part ends with `PASS: every bound held`.
+The first `make test` compiles the NEAR dependency tree and downloads the sandbox: 5 to 13 minutes (781 s measured cold from a clean copy on a loaded 16-core machine); later runs skip both. Success is exit 0. Tests: 68 unit and 53 sandbox Rust tests, 427 (`chair-agent`), 95 (`sim`), 247 (`web`), 31 (`activity`), 49 (`deploy`). `make demo` runs three demos in order and exits non-zero if any of them fails; the sandbox part ends with `PASS: every bound held`.
 
 ## What keeps the AI on a leash
 
