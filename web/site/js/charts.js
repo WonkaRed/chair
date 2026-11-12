@@ -28,7 +28,7 @@ function niceTicks(lo, hi, count = 4) {
  * `series`: `[{id, label, slot, values}]`, one value per epoch. The legend is the page's: it calls `setVisible` and `setFocus`. `fmt` formats a value for axis and tooltip.
  * `domain` fixes the y range (the rate chart is always -200..+200); otherwise it fits the visible series.
  */
-export function lineChart(doc, { title, caption, series, fmt, domain = null, guides = [], epochsLabel = "Epoch" }) {
+export function lineChart(doc, { title, caption, series, fmt, domain = null, guides = [], epochsLabel = "Meeting" }) {
   const n = series[0].values.length;
   let visible = new Set(series.map((s) => s.id));
   let focus = null;
@@ -36,7 +36,7 @@ export function lineChart(doc, { title, caption, series, fmt, domain = null, gui
 
   const figure = h(doc, "figure", { class: "chart" });
   const tooltip = h(doc, "div", { class: "tooltip", role: "status", hidden: true });
-  const plot = h(doc, "div", { class: "plot", tabindex: "0", role: "group", "aria-label": `${title}. Arrow keys move through epochs.` });
+  const plot = h(doc, "div", { class: "plot", tabindex: "0", role: "group", "aria-label": `${title}. Arrow keys move through meetings.` });
   const tableHost = h(doc, "div", { class: "chart-table", hidden: true });
   const toggle = h(doc, "button", { type: "button", class: "chip", "aria-pressed": "false" }, "Table");
   figure.append(h(doc, "figcaption", {}, h(doc, "span", { class: "chart-title" }, title), toggle), h(doc, "p", { class: "chart-sub" }, caption), plot, tooltip, tableHost);
@@ -133,7 +133,7 @@ export function lineChart(doc, { title, caption, series, fmt, domain = null, gui
     const shown = series.filter((s) => visible.has(s.id));
     const head = h(doc, "tr", {}, h(doc, "th", { scope: "col" }, epochsLabel), shown.map((s) => h(doc, "th", { scope: "col" }, s.label)));
     const rows = Array.from({ length: n }, (_, i) => h(doc, "tr", {}, h(doc, "th", { scope: "row" }, String(i)), shown.map((s) => h(doc, "td", {}, fmt(s.values[i])))));
-    tableHost.append(h(doc, "table", {}, h(doc, "caption", {}, `${title}: values per epoch`), h(doc, "thead", {}, head), h(doc, "tbody", {}, rows)));
+    tableHost.append(h(doc, "table", {}, h(doc, "caption", {}, `${title}: values per meeting`), h(doc, "thead", {}, head), h(doc, "tbody", {}, rows)));
   }
 
   /** Takes the width the plot is shown at (ignored while it is hidden or too narrow to mean anything); true when it changed. */

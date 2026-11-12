@@ -12,7 +12,7 @@ const root = join(fileURLToPath(import.meta.url), "..", "..");
 const site = (f) => import(join(root, "site", "js", f));
 const { plainPct, plainSigned, askedRate, printUnit, everyEpoch, plainDecision, renderPlain } = await site("views.js");
 const { setupReveal, openFoldsAround } = await site("reveal.js");
-const { renderHero, renderHeroPending, renderMinutes } = await site("minutes.js");
+const { renderHero, renderHeroPending, renderMinutes, overrideStat, ownLines } = await site("minutes.js");
 const { renderRefusals, renderHeroStamp } = await site("refusals.js");
 const { renderGuarantees, GUARANTEES, VERIFY_COMMAND } = await site("guarantees.js");
 const html = await readFile(join(root, "site", "index.html"), "utf8");
@@ -132,7 +132,7 @@ test("the last guarantee card is the way to check the no-admin one yourself: the
   const ol = renderGuarantees(fakeDoc(), { repoUrl: "https://example.invalid/repo", repoRef: "main" });
   const items = find(ol, (n) => n.tag === "li");
   const last = items.at(-1);
-  assert.equal(VERIFY_COMMAND, "cargo test -p sandbox-tests --test no_admin");
+  assert.equal(VERIFY_COMMAND, "make -C deploy verify");
   assert.equal(text(find(last, (n) => n.attrs?.id === "verify-cmd")[0]), VERIFY_COMMAND);
   const copy = find(last, (n) => n.attrs?.id === "copy");
   assert.equal(copy.length, 1);
@@ -218,7 +218,8 @@ test("hero: with no line of the AI's own the page's plain line leads, labelled a
   assert.ok(text(fold[0]).includes(PLAIN_TEXT), "the Chair's own words are kept whole, word for word");
   assert.match(text(plain), /Meeting 582/);
   assert.doesNotMatch(text(plain), /Epoch 582/);
-  assert.equal(find(plain, (n) => n.attrs?.class === "paper-epoch")[0].attrs.title, "Epoch 582", "the old word survives as a tooltip");
+  assert.equal(find(plain, (n) => n.attrs?.class === "paper-epoch")[0].attrs.title, undefined, "one word, meeting, everywhere visible");
+  assert.match(find(plain, (n) => n.attrs?.class === "said-why").map(text).join(""), /filter.*fixed line.*this summary leads/, "a line says when and why the card switches");
   assert.match(text(plain), /\+0\.20%/);
   assert.match(text(plain), /Before: \+0\.15%\./);
   assert.doesNotMatch(text(plain), /Previous rate/);
@@ -251,17 +252,17 @@ test("first paint: one announcement of the wait, grey bars that hold the size of
   assert.match(html, /<div id="holders-body"[^>]*><div class="hold-grid skeleton" aria-hidden="true">/);
 });
 
-test("the Chair's line sits right under the hero, is a real line from the reviewed book, and names the transaction it came from", async () => {
+test("the Chair's own words sit right under the hero: closing sentences the AI wrote, none of them a line of the reviewed book, each with its transaction", async () => {
   const book = await readFile(join(root, "..", "chair-agent", "src", "press-book.ts"), "utf8");
   const fig = html.match(/<figure id="pull" class="pull" data-tx="([^"]+)" data-epoch="(\d+)">\s*<blockquote lang="en">([^<]+)<\/blockquote>\s*<figcaption>([^<]+)<\/figcaption>/);
   assert.ok(fig, "the pull quote is in the page");
-  assert.ok(book.includes(`"${fig[3]}"`), "the fallback is a line of the reviewed book");
+  assert.ok(!book.includes(fig[3]), "the pull quote is the model's sentence, not a line the model only picks from the book");
   assert.match(fig[1], /^[1-9A-HJ-NP-Za-km-z]{43,44}$/);
   const quips = [...html.matchAll(/<li data-tx="([^"]+)" data-epoch="(\d+)"><blockquote lang="en">([^<]+)<\/blockquote><\/li>/g)];
   assert.equal(quips.length, 3, "three more lines sit under it");
-  for (const q of quips) assert.ok(book.includes(`"${q[3]}"`) && /^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(q[1]), "each is a book line with its transaction");
+  for (const q of quips) assert.ok(!book.includes(q[3].replaceAll("&#39;", "'")) && /^[1-9A-HJ-NP-Za-km-z]{43,44}$/.test(q[1]), "each is the model's own sentence with its transaction");
   assert.ok(![fig[3], ...quips.map((q) => q[3])].some((t, i, all) => all.indexOf(t) !== i), "no line is shown twice in the band");
-  assert.equal(fig[4], `A line the Chair gave the press on the earlier token, meeting ${fig[2]}.`, "labelled as a fallback until the chain's newest answer replaces it");
+  assert.equal(fig[4], `Closing sentence of the minutes of meeting ${fig[2]}, written by the AI.`, "the caption says which meeting it closed");
   const at = (n) => html.indexOf(n);
   assert.ok(at('id="pull"') > at('id="hero-minutes"') && at('id="pull"') < at('id="overreach"'));
 });
@@ -347,4 +348,39 @@ test("the page head and top: share image and card, favicon, the GitHub link, the
   for (const line of ["my own scripted test accounts voting, not a crowd", "about 1% of the coins that exist", "deliberate test calls that I made"]) assert.ok(html.slice(html.indexOf('id="limits"')).includes(line), `"${line}" is under the honest limits`);
   const top = html.slice(0, html.indexOf('id="limits"'));
   assert.doesNotMatch(top.replace(/<details[\s\S]*?<\/details>/g, ""), /scripted test accounts voting|0\.9988%|deliberate test calls that I made/, "the self-undercutting lines are not above the limits");
+});
+
+const AI_OVERRIDE = "$CHAIR decision, epoch 669, chair local:qwen3.8-27b.\nRate in effect 30 bps; decision 25 bps.\nThe formula suggested printing 0.20% a day. The Chair chose printing 0.25% a day: the Chair prefers to move the rate by less than the formula does.\nThe Committee of One has met. The Chair moves the rate from printing 0.30% a day to printing 0.25% a day. The Chair regrets its own lowering and has reprimanded itself in writing.";
+const AI_AGREED = "$CHAIR decision, epoch 665, chair local:qwen3.8-27b.\nRate in effect 25 bps; decision 25 bps.\nThe formula suggested printing 0.25% a day. The Chair agreed: fewer than half of all coins are staked.\nThe Committee of One has met. The Chair holds the rate. The Chair thanks itself for its service.";
+const resolvedAll = (pairs) => new Map(pairs.map(([tx, text]) => [tx, { text, verdict: "verified", chair: null, kind: null, source: null, onChain: true }]));
+
+test("the standing stat counts the AI's own choices from verified minutes only: overrides over decisions read, newest override linked, a visitor's press and a bad hash left out", () => {
+  const a = dec({ epoch: 669, rateBps: 25, tx: "A".repeat(44) });
+  const b = dec({ epoch: 665, rateBps: 25, tx: "B".repeat(44) });
+  const visitor = dec({ epoch: 668, rateBps: 25, tx: "C".repeat(44), byVisitor: true });
+  const unread = dec({ epoch: 667, rateBps: 25, tx: "D".repeat(44) });
+  const resolved = resolvedAll([[a.tx, AI_OVERRIDE], [b.tx, AI_AGREED], [visitor.tx, AI_OVERRIDE]]);
+  resolved.set(unread.tx, { text: AI_OVERRIDE, verdict: "mismatch" });
+  const stat = overrideStat([a, visitor, unread, b], resolved);
+  assert.deepEqual({ overrides: stat.overrides, total: stat.total, latest: stat.latest.epoch }, { overrides: 1, total: 2, latest: 669 });
+  assert.equal(overrideStat([unread], resolved), null, "nothing readable: no figure, never a guess");
+  assert.equal(overrideStat([], new Map()), null);
+  const hero = host(fakeDoc());
+  renderHero(fakeDoc(), hero, { decisions: [a, visitor, unread, b], policy, status: "complete" }, { ...ctx, resolved });
+  const [line] = find(hero, (n) => n.attrs?.class === "m-stat");
+  assert.equal(text(line), "The AI overrode the formula in 1 of its last 2 decisions. Latest: meeting 669, on chain");
+  assert.equal(find(line, (n) => n.tag === "a")[0].attrs.href, `https://example.invalid/txns/${"A".repeat(44)}`);
+  const partial = host(fakeDoc());
+  renderHero(fakeDoc(), partial, { decisions: [a, b], policy, status: "partial" }, { ...ctx, resolved });
+  assert.equal(find(partial, (n) => n.attrs?.class === "m-stat").length, 0, "a log still being read gives no standing figure");
+});
+
+test("ownLines: the newest closing sentences the AI wrote, from verified minutes only, none from a visitor's press", () => {
+  const own = (tx) => `${AI_AGREED.split("\n").slice(0, 3).join("\n")}\nThe Committee of One has met. The Chair holds the rate. The Chair thanks itself for its service ${tx}.`;
+  const ds = ["E", "F", "G"].map((c, i) => dec({ epoch: 20 - i, tx: c.repeat(44), byVisitor: i === 1 }));
+  const resolved = resolvedAll(ds.map((d) => [d.tx, own(d.epoch)]));
+  const lines = ownLines(ds, resolved, 5);
+  assert.deepEqual(lines.map((l) => l.epoch), [20, 18]);
+  assert.equal(ownLines(ds, resolved, 1).length, 1);
+  assert.deepEqual(ownLines(ds, new Map(), 5), []);
 });

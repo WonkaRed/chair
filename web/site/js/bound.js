@@ -19,8 +19,19 @@ export const IMPEACHMENT = {
   epoch: 10,
   backing: "400,000",
   staked: "400,000",
+  firstChair: "chair.chair-coin-3.testnet",
   newChair: "challenger.chair-coin-3.testnet",
 };
+
+/**
+ * What an account is to the seat, said beside its name so that "the account that signed was not the chair" is not read as a contradiction: the account `get_policy`
+ * names now (`sitting`) is the sitting Chair; the one the impeachment replaced is the first Chair. Any other account gets no label.
+ */
+export function seatRole(account, sitting) {
+  if (typeof account !== "string") return null;
+  if (account === sitting) return "sitting Chair";
+  return account === IMPEACHMENT.firstChair ? `first Chair, voted out at meeting ${IMPEACHMENT.epoch}` : null;
+}
 
 /** A ramp of this many meetings is not the contract's (it takes `ceil(MAX_RATE_BPS / MAX_STEP_BPS)`); it only keeps a malformed `max_step_bps` of 0 from looping. */
 const MAX_RAMP = 1_000;

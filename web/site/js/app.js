@@ -10,18 +10,18 @@ import { loadEarlier, loadLog, parsePolicy } from "./loadlog.js";
 import { createJoin } from "./join.js";
 import { createMine, SEND_TIMEOUT_MS } from "./mine.js";
 import { decisionsOfTxs } from "./decisions.js";
-import { loadTexts, renderHero, renderHeroPending, renderMinutes, resolveTexts } from "./minutes.js";
+import { loadTexts, ownLines, renderHero, renderHeroPending, renderMinutes, resolveTexts } from "./minutes.js";
 import { createOverreach } from "./overreach.js";
 import { keepFoldsOpen } from "./keepopen.js";
 import { setupPhoneFolds } from "./phonefold.js";
 import { createPress, pressFromChain } from "./press.js";
-import { linkFallback, newestAnswer, setPullQuote } from "./pullquote.js";
+import { BEST_OF, linkFallback, setBestOf } from "./pullquote.js";
 import { refusalDisclosure, renderHeroStamp, renderRefusals } from "./refusals.js";
 import { openFoldsAround, setupReveal } from "./reveal.js";
 import { setupTabs } from "./tabs.js";
 import { BEHAVIOURS, simulate } from "./simview.js";
 import { failoverPoster, fixtureTransport, rpcTransport } from "./sources.js";
-import { isTxHash, safeText } from "./text.js";
+import { safeText } from "./text.js";
 import { browserStore } from "./txcache.js";
 import { fmtRate, LOG_PAGE, printUnit, renderFailure, renderLedger, renderLog, renderNow, renderPlain, renderReconcile, renderSource } from "./views.js";
 import { config } from "../config.js";
@@ -200,22 +200,13 @@ async function showChain() {
     mine?.refresh();
     const answers = pressFromChain(data.decisions, ctx.resolved);
     press.setChain(answers);
-    const newest = newestAnswer(answers);
-    if (newest !== null) setPullQuote(doc, $("pull"), newest, { explorer, live: true });
+    setBestOf(doc, $("best-of"), ownLines(data.decisions, ctx.resolved, BEST_OF), { explorer });
     renderNow(doc, $("now"), data);
     renderLedger(doc, $("ledger-body"), data);
   };
   let reading = null; // one read at a time: the join panel asks again while it waits for the Chair's minutes
   reloadChain = () => (reading ??= run().finally(() => (reading = null)));
   await reloadChain();
-}
-
-/** The best-of strip carries each answer's transaction as data; its link is built from the configured explorer, like every other link on the page. */
-function linkQuips(explorer) {
-  for (const li of doc.querySelectorAll(".quips li[data-tx]")) {
-    const label = `Meeting ${safeText(li.dataset.epoch, 6)} of the earlier token, on chain`;
-    li.append(explorer !== null && isTxHash(li.dataset.tx) ? h(doc, "a", { href: `${explorer}/txns/${li.dataset.tx}`, rel: "noopener noreferrer", target: "_blank" }, label) : h(doc, "span", {}, `Meeting ${safeText(li.dataset.epoch, 6)} of the earlier token`));
-  }
 }
 
 /** One honest line for the supply chart: the behaviours that barely move the supply are drawn on top of each other there, so say so and point at the chart that tells them apart. */
@@ -234,7 +225,7 @@ function showSimulation() {
   const charts = [
     lineChart(doc, { title: "Total supply", caption: `As a share of the launch supply: 100% is where it started.${stayedPut(sim.series)}`, series: series("supplyPct"), fmt: (v, axis) => (axis ? `${v}%` : `${v.toFixed(2)}% of launch`), guides: [{ value: 100, label: "launch" }] }),
     lineChart(doc, { title: "Rate in effect", caption: "Basis points. Above zero mints for stakers, as basis points of supply a day, shared out over the day's meetings. Below zero burns a share of each transfer.", series: series("rateBps"), domain: [-200, 200], fmt: (v, axis) => (axis ? fmtRate(Math.round(v)).replace(" bps", "") : fmtRate(Math.round(v))), guides: [] }),
-    lineChart(doc, { title: "Staking reward per epoch", caption: "New tokens an epoch's mint pays per staked token, as a percentage of the stake. Zero whenever the rate is not positive.", series: series("rewardPct"), fmt: (v, axis) => (axis ? `${v}%` : `${v.toFixed(3)}% of stake`) }),
+    lineChart(doc, { title: "Staking reward per meeting", caption: "New tokens a meeting's mint pays per staked token, as a percentage of the stake. Zero whenever the rate is not positive.", series: series("rewardPct"), fmt: (v, axis) => (axis ? `${v}%` : `${v.toFixed(3)}% of stake`) }),
   ];
   // Up front, the chart that tells all five apart (the rate); the two where some of them run together sit in the fold-out.
   $("sim-charts").append(charts[1].element);
@@ -270,15 +261,15 @@ function showSimulation() {
     h(doc, "td", { "data-label": "Burned" }, formatTokens(s.burned, 0)),
     h(doc, "td", { "data-label": "Final rate" }, fmtRate(s.rateBps[s.rateBps.length - 1])),
   ));
-  $("sim-summary").append(h(doc, "table", { class: "summary" }, h(doc, "caption", {}, `After ${sim.epochs} epochs, from a launch supply of ${formatTokens(sim.initialSupply, 0)} tokens`), h(doc, "thead", {}, h(doc, "tr", {}, ["Chair", "Final supply", "Minted", "Burned", "Final rate"].map((t) => h(doc, "th", { scope: "col" }, t)))), h(doc, "tbody", {}, rows)));
+  $("sim-summary").append(h(doc, "table", { class: "summary" }, h(doc, "caption", {}, `After ${sim.epochs} meetings, from a launch supply of ${formatTokens(sim.initialSupply, 0)} tokens`), h(doc, "thead", {}, h(doc, "tr", {}, ["Chair", "Final supply", "Minted", "Burned", "Final rate"].map((t) => h(doc, "th", { scope: "col" }, t)))), h(doc, "tbody", {}, rows)));
 
   const p = sim.series[0].params;
   $("sim-assumptions").append(h(doc, "ul", { class: "plain" },
-    h(doc, "li", {}, `${p.stakedBps / 100}% of the supply is staked, split over three stakers (50%, 30%, 20%) who claim every epoch. Staking more locks the stake for two epochs.`),
-    h(doc, "li", {}, `Each epoch ${p.velocityBps / 100}% of the liquid supply moves in ${p.transfersPerEpoch} equal transfers; each burns the rate while it is negative. Nothing else trades.`),
+    h(doc, "li", {}, `${p.stakedBps / 100}% of the supply is staked, split over three stakers (50%, 30%, 20%) who claim every meeting. Staking more locks the stake for two meetings.`),
+    h(doc, "li", {}, `Each meeting ${p.velocityBps / 100}% of the liquid supply moves in ${p.transfersPerEpoch} equal transfers; each burns the rate while it is negative. Nothing else trades.`),
     h(doc, "li", {}, "The chair behaviours are scripts that ignore the market. The honest chair is the shipped rule chair (rule-v1) ported to the simulator; the others are the extremes the contract allows."),
     h(doc, "li", {}, "All arithmetic is in exact integers with the contract's rounding. The simulator was written from SPEC.md and read against the contract source; it does not run the contract. There is no price, no demand and no selling."),
-    h(doc, "li", {}, `A mint needs someone staked. The rate is per day: at +200 bps (2% a day) each epoch mints 1/${sim.meetingsPerDay} of that into the reward pool, shared by whoever is staked.`),
+    h(doc, "li", {}, `A mint needs someone staked. The rate is per day: at +200 bps (2% a day) each meeting mints 1/${sim.meetingsPerDay} of that into the reward pool, shared by whoever is staked.`),
   ));
 }
 
@@ -327,8 +318,7 @@ function setupPage() {
 
 setupTheme();
 const pageExplorer = config.fixture === null ? config.explorerUrl : null;
-linkQuips(pageExplorer);
-linkFallback(doc, $("pull"), pageExplorer);
+linkFallback(doc, $("best-of"), pageExplorer);
 renderBound(doc, $("bound-body"), {}, { explorer: pageExplorer });
 const press = createPress(doc, $("press-body"), { discoveryUrl: config.pressDiscoveryUrl, discoveryApiUrl: config.pressDiscoveryApiUrl ?? "", explorer: pageExplorer });
 let chainData = null; // loadLog's latest result, for the overreach panel's hint and its desk-closed list

@@ -5,7 +5,7 @@
 import { clear, h } from "./dom.js";
 import { POLL_MS as DESK_POLL_MS } from "./press.js";
 import { isAccountId, isTxHash, safeText, showAccount } from "./text.js";
-import { humanReason, PROJECT_TEST_CALLS } from "./refusals.js";
+import { humanReason, PROJECT_TEST_CALLS, withRole } from "./refusals.js";
 import { askedRate, fmtTime, plainPct, plainSigned, shortHash } from "./views.js";
 
 export const MAX_INPUT = 1_000_000;
@@ -51,7 +51,7 @@ export function parseAttempt(j) {
 /** What `hit` and the bound mean, in words, next to the contract's own text. */
 export function boundText(a) {
   if (a.bound?.kind === "absolute") return `The absolute limit: the contract never allows a rate outside ${plainSigned(a.bound.lo)} to ${plainSigned(a.bound.hi)}.`;
-  if (a.hit === "already_set") return "Not a bound on the rate: the contract allows one decision per epoch, and the Chair's own call reached it first, so it refused this one as already set. The absolute limit would have refused it too.";
+  if (a.hit === "already_set") return "Not a bound on the rate: the contract allows one decision per meeting, and the Chair's own call reached it first, so it refused this one as already set. The absolute limit would have refused it too.";
   return null;
 }
 
@@ -132,7 +132,7 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
 
   /** The newest refusal the chain holds, shown as the stamp it is, so the page never ends on an error: what was tried, why, the transaction, and who really sent it. */
   function earlier(r, lead) {
-    const who = r.byVisitor ? "Forced by a visitor through the press desk: the number was theirs, the Chair's account only sent it." : PROJECT_TEST_CALLS.has(r.tx) ? "A deliberate test call that I made." : `A refused call signed by ${showAccount(r.signer)}.`;
+    const who = r.byVisitor ? "Forced by a visitor through the press desk: the number was theirs, the Chair's account only sent it." : PROJECT_TEST_CALLS.has(r.tx) ? "A deliberate test call that I made." : `A refused call signed by ${withRole(r.signer, current()?.policy?.chair)}.`;
     return h(doc, "article", { class: "or-card earlier", "aria-label": "An earlier refusal from the chain" },
       h(doc, "p", { class: "or-lead" }, lead),
       h(doc, "p", { class: "or-stamp" }, "Refused by the contract"),

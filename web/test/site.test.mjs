@@ -412,7 +412,7 @@ test("the page opens with the joke: the headline, the plain words, the latest mi
   assert.doesNotMatch(html, /\u2014|\u2013/, "no en or em dashes");
 });
 
-test("the best-of strip quotes only lines in the reviewed book, carries no host, and the scripted-activity notice sits beside the ledger and the log", async () => {
+test("the best-of strip quotes only sentences the model wrote itself (none from the reviewed book), carries no host, and the scripted-activity notice sits beside the ledger and the log", async () => {
   const html = await readFile(join(dist, "index.html"), "utf8");
   const book = await readFile(join(root, "..", "chair-agent", "src", "press-book.ts"), "utf8");
   const strip = html.match(/<section id="best-of"[\s\S]*?<\/section>/)[0];
@@ -420,7 +420,7 @@ test("the best-of strip quotes only lines in the reviewed book, carries no host,
   assert.equal(quips.length, 4, "the pull quote and three more");
   assert.ok(html.indexOf('id="best-of"') > html.indexOf('id="hero-minutes"') && html.indexOf('id="best-of"') < html.indexOf('id="try"'), "right after the hero, before the toys");
   for (const [, tx, epoch, quote] of quips) {
-    assert.ok(book.includes(quote.replaceAll("&#39;", "'")), `the book holds: ${quote}`);
+    assert.ok(!book.includes(quote.replaceAll("&#39;", "'")), `a model sentence, not a book line: ${quote}`);
     assert.match(tx, /^[1-9A-HJ-NP-Za-km-z]{43,44}$/);
     assert.ok(Number(epoch) > 0);
   }

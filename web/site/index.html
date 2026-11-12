@@ -66,18 +66,18 @@
 
   <section id="best-of" class="best-of reveal" aria-labelledby="best-h">
     <h2 id="best-h">The Chair, in its own words</h2>
-    <figure id="pull" class="pull" data-tx="83mpWP962bzCPpeGzTyt3Aw566a9VQgiFtsiqVbJFsia" data-epoch="485">
-      <blockquote lang="en">The Chair is not in the business of tomorrow. The Chair is in the business of this sentence.</blockquote>
-      <figcaption>A line the Chair gave the press on the earlier token, meeting 485.</figcaption>
+    <figure id="pull" class="pull" data-tx="AFBJYnpZDuLWw3hCiM2qWGH9t211aDmHpk5dQFE4BBRX" data-epoch="658">
+      <blockquote lang="en">The Chair asks itself if the rate should move, and answers that it must not.</blockquote>
+      <figcaption>Closing sentence of the minutes of meeting 658, written by the AI.</figcaption>
     </figure>
     <ul class="quips">
-      <li data-tx="GuLkS2VJmnxq9gL6tJH7PD2tMRUnqv7FV721cbw2Fo2a" data-epoch="525"><blockquote lang="en">The Chair is neither up nor down. The Chair is seated.</blockquote></li>
-      <li data-tx="BdGPDUMdDhggLCtVa3mTV4qJWY3qr6BNLL2GAoycnbH4" data-epoch="478"><blockquote lang="en">The Chair has taken the question under advisement. The advisement is the Chair.</blockquote></li>
-      <li data-tx="EHKcA7GmruEEa8EoTdorBucK3wmMio4uP2uFHY2UFpwA" data-epoch="461"><blockquote lang="en">The Chair observes inflation as one observes weather: it arrives, it departs, and the Chair remains.</blockquote></li>
+      <li data-tx="J3EHtEEZTDBTkAHXYDSWPwNivm7Gp2pLdNf9igr8Pket" data-epoch="654"><blockquote lang="en">The Chair censures the gavel for its silence, which made the holding feel uneventful.</blockquote></li>
+      <li data-tx="71UsQRjkTPsMVaUYUkbQtp7zKraisELSqB8JaEiFf21r" data-epoch="652"><blockquote lang="en">The Chair apologizes to the Chair for failing to anticipate the need to lower the rate.</blockquote></li>
+      <li data-tx="As2DfsXzvuZazB6zi5bS2YpAz5CfixYpa2TMuSxQQbt1" data-epoch="621"><blockquote lang="en">The Chair commends the gavel for enduring the Chair's own hammering without complaint.</blockquote></li>
     </ul>
     <details class="fold">
       <summary>Where these lines come from</summary>
-      <p class="note">Answers the Chair entered into its on-chain minutes on the earlier token, <code>token.chair-coin-2.testnet</code>, the one before the contract's rate became per day. The first line changes to the Chair's newest answer once the page has read the chain. Each is a line from the reviewed book of statements it answers from; a local model only picks the line. The record keeps no questions, so none is shown.</p>
+      <p class="note">Each is the last sentence of a set of minutes the Chair signed on the current token, <code>token.chair-coin-3.testnet</code>. The AI model writes that sentence itself, in a second call, and a filter checks it before the Chair signs; if it fails the filter, a fixed line closes the minutes instead and is not shown here. These four are recorded meetings. Once the page has read the chain, the newest four closing sentences replace them, each checked against the hash the contract logged. Each links to its transaction, which holds the full text.</p>
     </details>
   </section>
 
@@ -96,7 +96,7 @@
 
     <section id="join" class="tabpanel" aria-labelledby="join-h" hidden>
       <h3 id="join-h" class="panel-h">Join the Committee</h3>
-      <p class="dare-line">Press one button. A moment later the AI's meeting room has one more member, and the AI writes down what that did to its decision.</p>
+      <p class="dare-line">Press one button. A small step of test coins from my pool joins the committee. Within 90 seconds the Chair's next minutes count it, and say what that did to its decision.</p>
       <div id="join-body" class="slot"></div>
     </section>
 
@@ -130,7 +130,7 @@
     <details class="assumptions">
       <summary>How the check works, and what it does not show</summary>
       <ul class="plain">
-        <li>The contract stores the hash and logs it in a <code>policy_set</code> event with the epoch and the rate. The chair also sends the reasoning text as an extra argument of the same <code>set_policy</code> call. The contract ignores it, but it stays in the transaction, so it is public.</li>
+        <li>The contract stores the hash and logs it in a <code>policy_set</code> event with the meeting number and the rate. The chair also sends the reasoning text as an extra argument of the same <code>set_policy</code> call. The contract ignores it, but it stays in the transaction, so it is public.</li>
         <li>This page reads that text from the transaction's arguments. Decisions made before the chair sent it have no text there: for those, the chair's own saved text is used, copied into this page's files when the page is built, from the <code>docs/</code> folder of the repo. Nothing is fetched from a model or a server of mine.</li>
         <li>Your browser computes the SHA-256 of the exact text shown and compares it with the hash read from the chain. Verified means the text matches that hash. A text read from the transaction sits in the same transaction as the hash, so it cannot be quietly rewritten afterwards. A decision with neither text shows its hash only.</li>
         <li>A match does not show the chair was right, that the text is the real reason for the rate, or that an AI wrote it: the contract stores only a hash the chair supplies. It shows the text was not edited after the decision.</li>
@@ -183,7 +183,7 @@
     <div id="sim-charts" class="charts"></div>
     <details class="fold" id="sim-more">
       <summary>More charts, the numbers, and what it assumes</summary>
-      <p class="note">The same contract rules run for 60 epochs under five behaviours of the chair. The simulation counts epochs, not time: how long an epoch lasts is a launch setting, and the live token's is in the numbers above. It is the repo's own simulator (<code>sim/</code>) running in your browser, not a recording.</p>
+      <p class="note">The same contract rules run for 60 meetings under five behaviours of the chair. The simulation counts meetings, not time: how long a meeting lasts is a launch setting, and the live token's is in the numbers above. It is the repo's own simulator (<code>sim/</code>) running in your browser, not a recording.</p>
       <div id="sim-charts-more" class="charts"></div>
       <div id="sim-summary" class="slot"></div>
       <h3>What the simulation assumes</h3>
