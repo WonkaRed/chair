@@ -1,30 +1,47 @@
-# make -C deploy verify WASM=../.scratch/deployed/chair_token.wasm  (2026-11-11T08:01:21Z)
+# make -C deploy verify WASM=/home/wonka/.scratch/tmp/chair3/chair_token.wasm  (2026-11-12T02:05:57Z)
 PASS  code hash on chain equals the recorded wasm
-      chain Ap9Us7NuZwcJrk79A9b43yvGoXBkbAKDdsaS3tCEgRAa (sha256 91cd11b6ecb44b1169fce018b9b2db42bbade12a3a5dd8cb6fee838e18abc013); record Ap9Us7NuZwcJrk79A9b43yvGoXBkbAKDdsaS3tCEgRAa (sha256 91cd11b6ecb44b1169fce018b9b2db42bbade12a3a5dd8cb6fee838e18abc013)
+      chain 5pexa4j7UxF3tHW1F1eVfDShRr7aWsU7HNdTT7CdsPCz (sha256 47a3f710a59701a14af6ca001feaf397e030e035c38cb3242f2c7bb9f218903f); record 5pexa4j7UxF3tHW1F1eVfDShRr7aWsU7HNdTT7CdsPCz (sha256 47a3f710a59701a14af6ca001feaf397e030e035c38cb3242f2c7bb9f218903f)
 PASS  the reported code hash is the hash of the code the node serves
       view_account code_hash (base58) against sha256 of view_code
 PASS  code hash on chain equals the local wasm
-      local 91cd11b6ecb44b1169fce018b9b2db42bbade12a3a5dd8cb6fee838e18abc013; chain 91cd11b6ecb44b1169fce018b9b2db42bbade12a3a5dd8cb6fee838e18abc013
+      local 47a3f710a59701a14af6ca001feaf397e030e035c38cb3242f2c7bb9f218903f; chain 47a3f710a59701a14af6ca001feaf397e030e035c38cb3242f2c7bb9f218903f
 PASS  the token account holds no access key at all
       0 keys
 PASS  chair holds only a function-call key limited to set_policy on the token
-      ed25519:5NRzm27oSnjtf3G8yV4gnVwFZuNZraBhuyb8pGEYxoaJ token.chair-coin-2.testnet.[set_policy]
+      ed25519:B37WSVA1XCtubsPnnKWYp7gXTg8zcerHjxEePAfy4jBB token.chair-coin-3.testnet.[set_policy]
 PASS  challenger holds only a function-call key limited to set_policy on the token
-      ed25519:A31gFMtexyu6BkLLcUDtC6K7L29pR4jQ4pmyoNJPK8i4 token.chair-coin-2.testnet.[set_policy]
-PASS  hard bounds: rate within +-200 bps, step at most 50 bps, backing over 5% of the supply to seat a chair
-      max_rate_bps 200, max_step_bps 50, quorum_bps 500
+      ed25519:55tYZpqx8ZfakHZs4mtJ2xVMPYwX91sxpEmRYHrcDSs8 token.chair-coin-3.testnet.[set_policy]
+PASS  hard bounds: rate within +-200 bps (a day's share of supply), step at most 50 bps, backing over 5% of the supply to seat a chair, meetings_per_day the day over the epoch
+      max_rate_bps 200, max_step_bps 50, quorum_bps 500, meetings_per_day 960
 PASS  launch parameters are the recorded ones
       epoch_ms 90000, impeach_threshold_bps 3000, nominate_bond 100000000000000000000000
 PASS  launch supply is the recorded one
       1000000000000000000000000000000
 PASS  total supply = launch + minted - burned
-      1126620344129622131057337578542 = 1000000000000000000000000000000 + 126630344129622131057337578542 - 10000000000000000000000000
+      1000100421946757719973085307804 = 1000000000000000000000000000000 + 110421946757719973085307804 - 10000000000000000000000000
 PASS  ft_total_supply equals get_supply.total_supply
-      1126620344129622131057337578542
+      1000100421946757719973085307804
+PASS  minted supply stays inside the per-day bound: no meeting mints more than 200 bps a day spread over the day's meetings
+      launch + minted 1000110421946757719973085307804, at most 1000250028647822720566078544162 after 12 meetings at +200 bps a day
 PASS  recorded accounts' balances and stake never exceed the supply
-      recorded accounts hold 1072513614741684519768000000000, unclaimed rewards 54106729387937611289337578542, supply 1126620344129622131057337578542 (the rest is in accounts not in the record)
+      recorded accounts hold 1000062659196841952828491500000, unclaimed rewards 37762749915767144593807804, supply 1000100421946757719973085307804 (the rest is in accounts not in the record)
+PASS  each reasoning text, from the transaction or docs/, hashes (SHA-256) to the reasoning_hash the chain holds
+      0 of 8 decisions on chain have a text (0 in the transaction, 0 in docs/), 0 of them match
 
-now: epoch 15: rate 0 bps, chair challenger.chair-coin-2.testnet, streak 4; supply 1126620344129622131057337578542 (launch 1000000000000000000000000000000, minted 126630344129622131057337578542, burned 10000000000000000000000000), staked 400000000000000000000000000000
+now: epoch 11: rate -10 bps, chair challenger.chair-coin-3.testnet, streak 0; supply 1000100421946757719973085307804 (launch 1000000000000000000000000000000, minted 110421946757719973085307804, burned 10000000000000000000000000), staked 400000000000000000000000000000
 
-OK: 12 checks passed
-exit 0
+latest decisions on chain (5 of 8, newest first):
+  epoch 10, rate -10 bps, reasoning_hash a13214fdcff2aa5ef280af1e737f37db4b2e62eef2a4944024f8fb0981dc8f76
+      no text in the transaction or in docs/ for this hash, so nothing to compare (not an error)
+  epoch 9, rate +40 bps, reasoning_hash 5571360282dae55ee2ded7218c05d8b5536e93a964fb59dd69934c1c4667edc9
+      no text in the transaction or in docs/ for this hash, so nothing to compare (not an error)
+  epoch 8, rate +90 bps, reasoning_hash a5c7997892d5c8841e1d36d6055082577edf555e9cbbed8c4b5ee8a49c39e4c1
+      no text in the transaction or in docs/ for this hash, so nothing to compare (not an error)
+  epoch 7, rate +140 bps, reasoning_hash 7b6ba1499b7598ade672ccbca7fddbb979b26df07be14b4d3b9bd439bc4db622
+      no text in the transaction or in docs/ for this hash, so nothing to compare (not an error)
+  epoch 4, rate +190 bps, reasoning_hash d7fc6ee842a69a7eafd6e8c694701ede0446233fb27541a60e4f476622071936
+      no text in the transaction or in docs/ for this hash, so nothing to compare (not an error)
+
+decisions with no checkable text (8 of 8), by epoch: 1 to 4, 7 to 10
+
+OK: 14 checks passed

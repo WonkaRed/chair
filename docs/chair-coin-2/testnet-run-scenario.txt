@@ -1,0 +1,68 @@
+
+$CHAIR on NEAR testnet: token.chair-coin-2.testnet, 90s epochs, chair chair.chair-coin-2.testnet (function-call key, set_policy only)
+
+setup: two holders register, receive tokens from the owner, and stake
+  [setup-register-bob] ok  tx 28HGqVvmkN4ZqL81bQzmn9ej5zjqdLFrTSqkWuUR9TsU
+  [setup-grant-bob] ok  tx 77ebUUq9vTT2LJNGK6iq1LdRvLk99awcnkezY9iL773n
+  [setup-register-carol] ok  tx 7U4TYh6FaursEBCc2yWD9xQsC3MryhgNxAQ6AzAaiUCW
+  [setup-grant-carol] ok  tx DFLXDfd4ZTZz8dxWZQrfRd1H7tM4ho2SucNV4hkuFoJL
+  [setup-stake-alice] ok  tx 9XqFP9VTBDJxoTB9XiMQp28hEyd4FCdsbeUTYCEAB8iB
+  [setup-stake-bob] ok  tx 64ZcXZoRi61tiZTinyhFdy9WqjSXQH1JU5ETYG3Qqvxz
+
+epoch 0 (chain epoch 1): the founding chair eases, 50 bps at most per epoch
+  [e0-set-40] ok  tx BCzfFZzxc4E7rnAhTBXTmGSZetmYhPt9uFG4PDYqAyQB
+
+epoch 1 (chain epoch 2)
+  [e1-set-90] ok  tx 4SpKcSj3fTSBds5wcitaM1JnFSttJCJALNShoWRJh4jQ
+
+epoch 2 (chain epoch 3)
+  [e2-set-140] ok  tx 8o9L48YQyu1r9dpqaHk6iAAQDk7gQuEMicBq3eRW2WMf
+
+epoch 3 (chain epoch 4)
+  [e3-set-190] ok  tx Zj9r9eV57W5jPYfPLoUvh22tBVNb3DudnDmmk3WTCgy
+epoch 3: the chair has already decided; a second try, and an impostor
+  [e3-second-decision] refused: policy already set this epoch  tx GoEivE65x1HUgYnXLauMyshze3mKNtK81kiLtvXuGsQJ
+  [e3-impostor] refused: only the chair may set policy  tx 2whKaAEFndEiGy3W8joAtyAJCX9i9ZqHBTgdWBfHfWDf
+
+epoch 4 (chain epoch 5): the chair tries to break its bounds
+  [e4-above-bound] refused: rate_bps out of bounds: must be within -200..=200  tx Efagw855yoDeJXjNyui9Bt9d4JXfhisMoTm9JCPkHWjf
+  [e4-step-too-large] refused: rate step too large: must move at most 50 bps from the current rate  tx AatG3PRYLteoyZ9iBuuKKLXH1pB8ju2sVz6sCsiSVN9m
+  [e4-chair-key-ft-transfer] refused by the protocol: MethodNameMismatch
+
+the chair goes silent for epochs 4 and 5
+
+epoch 6 (chain epoch 7): the rate decayed 50 bps per missed epoch
+  get_policy.rate_bps = +90 (190 -> 140 -> 90), with no transaction sent
+  [e6-set-140] ok  tx 2RggbVYWe9KqYAFnRM5XaS2R2n3XP2E3VivcmNvmxa6C
+  the same transaction logged 2 rate_decayed events (one per missed epoch) and the policy_set
+
+epoch 7 (chain epoch 8): a mint epoch: the +140 bps at the last boundary paid the stakers
+  alice's pending reward 72523614741684519768000000000 of 96698152988912693024000000000 base units minted so far
+  [e7-claim] ok  tx 3zL9oLX1b8HvriernmjzdF9WwHr9oG3McCtvrwxDCSTA
+  claimed 72523614741684519768000000000 base units into alice's liquid balance
+  [e7-set-90] ok  tx FjGnNr232ubh8qpB2hF1NGfRY4Q7seYkd3kcGnQai5uo
+  ledger: supply 1096698152988912693024000000000 = launch 1000000000000000000000000000000 + minted 96698152988912693024000000000 - burned 0
+
+epoch 8 (chain epoch 9)
+  [e8-set-40] ok  tx 8MKTBrT268RbFDRLD1mfqJKXdwiQ994Fg1rGWvwn99EN
+
+epoch 9 (chain epoch 10): a burn epoch: the chair tightens to -10 bps, a transfer burns its share
+  [e9-set--10] ok  tx ADXudDypHi6mzjfTE9Pa8rbevTHKALm5A99nnBbGgVXd
+  [e9-burn-transfer] ok  tx Wuyg3pmrbdAebzU6Q79qGxpDfVamtU3YetMqfEdTTAa
+  10000000000000000000000000000 sent, 10000000000000000000000000 burned, carol received 9990000000000000000000000000
+  ledger: supply 1110984710111276158890260864000 = launch 1000000000000000000000000000000 + minted 110994710111276158890260864000 - burned 10000000000000000000000000
+
+impeachment: alice nominates the challenger; alice and bob back it with their whole stake
+  [e9-nominate] ok  tx 9Gf5xhXbyq5GvYXuAiKbWC4vV1USKunQsW4XZGUYhw2d
+  [e9-back-alice] ok  tx Cz5u7d3rUxfhEE99k5DC9LVS4QgmriJGyjX7ZMF54Jrm
+  [e9-back-bob] ok  tx CWnrkRcYunW5kmMNUN44tTmqWL3vs95tqFyT9XdQigtM
+  get_candidates: challenger.chair-coin-2.testnet backed by 400000000000000000000000000000 of 400000000000000000000000000000 staked (needs more than 30%)
+  the chair is still chair.chair-coin-2.testnet until the boundary
+
+epoch 10 (chain epoch 11): the stake vote seats the challenger
+  get_policy.chair = challenger.chair-coin-2.testnet, streak 0
+  [e10-impeached-chair] refused: only the chair may set policy  tx 4vRNYnRwu1GvHJ2XZWYN9xGo8GhardRaChbt9hVtn1Rz
+  ledger: supply 1110984710111276158890260864000 = launch 1000000000000000000000000000000 + minted 110994710111276158890260864000 - burned 10000000000000000000000000
+
+scripted run complete. challenger.chair-coin-2.testnet is the chair; the chair agent takes over from epoch 11.
+EXIT=0

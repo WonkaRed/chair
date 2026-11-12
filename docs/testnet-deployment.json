@@ -2,19 +2,19 @@
   "schema": "chair-testnet-deployment/1",
   "network": "testnet",
   "rpc": "https://test.rpc.fastnear.com",
-  "parent": "chair-coin-2.testnet",
+  "parent": "chair-coin-3.testnet",
   "accounts": {
-    "token": "token.chair-coin-2.testnet",
-    "chair": "chair.chair-coin-2.testnet",
-    "challenger": "challenger.chair-coin-2.testnet",
-    "alice": "alice.chair-coin-2.testnet",
-    "bob": "bob.chair-coin-2.testnet",
-    "carol": "carol.chair-coin-2.testnet"
+    "token": "token.chair-coin-3.testnet",
+    "chair": "chair.chair-coin-3.testnet",
+    "challenger": "challenger.chair-coin-3.testnet",
+    "alice": "alice.chair-coin-3.testnet",
+    "bob": "bob.chair-coin-3.testnet",
+    "carol": "carol.chair-coin-3.testnet"
   },
   "wasm": {
-    "sha256": "91cd11b6ecb44b1169fce018b9b2db42bbade12a3a5dd8cb6fee838e18abc013",
-    "codeHash": "Ap9Us7NuZwcJrk79A9b43yvGoXBkbAKDdsaS3tCEgRAa",
-    "bytes": 207271
+    "sha256": "47a3f710a59701a14af6ca001feaf397e030e035c38cb3242f2c7bb9f218903f",
+    "codeHash": "5pexa4j7UxF3tHW1F1eVfDShRr7aWsU7HNdTT7CdsPCz",
+    "bytes": 207549
   },
   "launch": {
     "supply": "1000000000000000000000000000000",
@@ -23,382 +23,382 @@
     "nominateBond": "100000000000000000000000"
   },
   "chairKeys": {
-    "chair": "ed25519:5NRzm27oSnjtf3G8yV4gnVwFZuNZraBhuyb8pGEYxoaJ",
-    "challenger": "ed25519:A31gFMtexyu6BkLLcUDtC6K7L29pR4jQ4pmyoNJPK8i4"
+    "chair": "ed25519:B37WSVA1XCtubsPnnKWYp7gXTg8zcerHjxEePAfy4jBB",
+    "challenger": "ed25519:55tYZpqx8ZfakHZs4mtJ2xVMPYwX91sxpEmRYHrcDSs8"
   },
   "scenarioBaseEpoch": 1,
   "transactions": [
     {
       "step": "create-alice",
-      "hash": "FAszUZoRkHsgyTDdPaEwXf9jHbeJZJjFHa7stp58jfwX",
-      "signer": "chair-coin-2.testnet",
-      "receiver": "alice.chair-coin-2.testnet",
-      "what": "create alice.chair-coin-2.testnet with 1.5 NEAR and one full-access key (a holder)",
+      "hash": "2D6oA3gHCM4MyVXJfYNFjgt4btX9dsnYowg2QDPagNJd",
+      "signer": "chair-coin-3.testnet",
+      "receiver": "alice.chair-coin-3.testnet",
+      "what": "create alice.chair-coin-3.testnet with 1.5 NEAR and one full-access key (a holder)",
       "proves": "an ordinary holder account exists",
       "outcome": "success",
       "detail": null,
       "note": null,
-      "at": "2026-11-11T07:38:25.601Z"
+      "at": "2026-11-12T01:48:50.745Z"
     },
     {
       "step": "create-bob",
-      "hash": "vVsL24VEEh9FdwZTg259tyzev48opNSGmnWPQHXUwcY",
-      "signer": "chair-coin-2.testnet",
-      "receiver": "bob.chair-coin-2.testnet",
-      "what": "create bob.chair-coin-2.testnet with 0.5 NEAR and one full-access key (a holder)",
+      "hash": "HUeM87ogNPJt2x3JrfCQRAUxuweVFiZrp77CMXm5hGgT",
+      "signer": "chair-coin-3.testnet",
+      "receiver": "bob.chair-coin-3.testnet",
+      "what": "create bob.chair-coin-3.testnet with 0.5 NEAR and one full-access key (a holder)",
       "proves": "an ordinary holder account exists",
       "outcome": "success",
       "detail": null,
       "note": null,
-      "at": "2026-11-11T07:38:29.605Z"
+      "at": "2026-11-12T01:48:57.961Z"
     },
     {
       "step": "create-carol",
-      "hash": "444DWSLrWbPLJCxrPvF8Jbgy8MREVWSPN5fAxUPVrBPb",
-      "signer": "chair-coin-2.testnet",
-      "receiver": "carol.chair-coin-2.testnet",
-      "what": "create carol.chair-coin-2.testnet with 0.5 NEAR and one full-access key (a holder)",
+      "hash": "8WR2Yjsv9v6vKtLWeXHQnehfbS3h6VKUW8exM95nVAAv",
+      "signer": "chair-coin-3.testnet",
+      "receiver": "carol.chair-coin-3.testnet",
+      "what": "create carol.chair-coin-3.testnet with 0.5 NEAR and one full-access key (a holder)",
       "proves": "an ordinary holder account exists",
       "outcome": "success",
       "detail": null,
       "note": null,
-      "at": "2026-11-11T07:38:33.828Z"
+      "at": "2026-11-12T01:49:01.609Z"
     },
     {
       "step": "create-chair",
-      "hash": "DzAJNC56DveXX4Ls8r2dSfnZsShC9TB9nAno531NhjQc",
-      "signer": "chair-coin-2.testnet",
-      "receiver": "chair.chair-coin-2.testnet",
-      "what": "create chair.chair-coin-2.testnet with 0.3 NEAR and ONE key: function-call, receiver token.chair-coin-2.testnet, methods [set_policy], unlimited gas allowance",
+      "hash": "7dHxRk6SypDNodsjTPLDbCw7yYqN6ufLaf17Ldo9YQuW",
+      "signer": "chair-coin-3.testnet",
+      "receiver": "chair.chair-coin-3.testnet",
+      "what": "create chair.chair-coin-3.testnet with 0.3 NEAR and ONE key: function-call, receiver token.chair-coin-3.testnet, methods [set_policy], unlimited gas allowance",
       "proves": "the chair account is born holding no full-access key: it can call set_policy and nothing else",
       "outcome": "success",
       "detail": null,
       "note": null,
-      "at": "2026-11-11T07:38:38.938Z"
+      "at": "2026-11-12T01:49:05.192Z"
     },
     {
       "step": "create-challenger",
-      "hash": "8jnEW6Myk8dHPDx5CqdCkW6GXkkgWq56S43Yjrsfwihw",
-      "signer": "chair-coin-2.testnet",
-      "receiver": "challenger.chair-coin-2.testnet",
-      "what": "create challenger.chair-coin-2.testnet with 0.3 NEAR and ONE key: function-call, receiver token.chair-coin-2.testnet, methods [set_policy], unlimited gas allowance",
+      "hash": "7HXDGQ3DeUM9752wwnrP6oTtXrP73CWAL2eFqTsfrnVS",
+      "signer": "chair-coin-3.testnet",
+      "receiver": "challenger.chair-coin-3.testnet",
+      "what": "create challenger.chair-coin-3.testnet with 0.3 NEAR and ONE key: function-call, receiver token.chair-coin-3.testnet, methods [set_policy], unlimited gas allowance",
       "proves": "the chair account is born holding no full-access key: it can call set_policy and nothing else",
       "outcome": "success",
       "detail": null,
       "note": null,
-      "at": "2026-11-11T07:38:43.605Z"
+      "at": "2026-11-12T01:49:08.823Z"
     },
     {
       "step": "create-token",
-      "hash": "Cj9NJMsZVsybwWdwJUbWqKSSspmVzw8CuSUhpdEdqt47",
-      "signer": "chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
-      "what": "create token.chair-coin-2.testnet with 3.07271 NEAR, deploy the contract and call new({epoch_ms: 90000, ...}) in the same transaction, adding no access key",
+      "hash": "2wLvaGZ5BdKCRpBjLC5idXgqFdsNjiLtJx2NrvKRv1TD",
+      "signer": "chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
+      "what": "create token.chair-coin-3.testnet with 3.07549 NEAR, deploy the contract and call new({epoch_ms: 90000, ...}) in the same transaction, adding no access key",
       "proves": "the token account never had an access key, so nobody can redeploy it, add a key or move its NEAR",
       "outcome": "success",
       "detail": null,
       "note": null,
-      "at": "2026-11-11T07:38:49.071Z"
+      "at": "2026-11-12T01:49:13.712Z"
     },
     {
       "step": "setup-register-bob",
-      "hash": "28HGqVvmkN4ZqL81bQzmn9ej5zjqdLFrTSqkWuUR9TsU",
-      "signer": "bob.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "hash": "DTscBsvZxiFbv6EHFWJQE1qDy4uniPimchgoGQgTGLDP",
+      "signer": "bob.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "bob registers with the token (storage_deposit)",
       "proves": "NEP-145 registration: the holder can now receive tokens",
       "outcome": "success",
       "detail": null,
       "note": null,
-      "at": "2026-11-11T07:38:59.517Z"
+      "at": "2026-11-12T01:49:25.634Z"
     },
     {
       "step": "setup-grant-bob",
-      "hash": "77ebUUq9vTT2LJNGK6iq1LdRvLk99awcnkezY9iL773n",
-      "signer": "alice.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
-      "what": "owner alice.chair-coin-2.testnet sends 100000 $CHAIR to bob",
+      "hash": "7JDz6WxKirgru6W8PYchAhA7f6kuH6R5e4DopzUjhkET",
+      "signer": "alice.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
+      "what": "owner alice.chair-coin-3.testnet sends 100000 $CHAIR to bob",
       "proves": "an ordinary NEP-141 transfer at rate 0 moves the whole amount (no burn)",
       "outcome": "success",
       "detail": null,
       "note": null,
-      "at": "2026-11-11T07:39:03.301Z"
+      "at": "2026-11-12T01:49:29.449Z"
     },
     {
       "step": "setup-register-carol",
-      "hash": "7U4TYh6FaursEBCc2yWD9xQsC3MryhgNxAQ6AzAaiUCW",
-      "signer": "carol.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "hash": "DVRefdQ584GprNRLbYYi2m3KMdekESEy2Ynoav1koRL7",
+      "signer": "carol.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "carol registers with the token (storage_deposit)",
       "proves": "NEP-145 registration: the holder can now receive tokens",
       "outcome": "success",
       "detail": null,
       "note": null,
-      "at": "2026-11-11T07:39:07.486Z"
+      "at": "2026-11-12T01:49:33.015Z"
     },
     {
       "step": "setup-grant-carol",
-      "hash": "DFLXDfd4ZTZz8dxWZQrfRd1H7tM4ho2SucNV4hkuFoJL",
-      "signer": "alice.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
-      "what": "owner alice.chair-coin-2.testnet sends 100000 $CHAIR to carol",
+      "hash": "db5EDWdNynqFwXytL5eTxRBH3BUQgaqCZxNxTrguHJn",
+      "signer": "alice.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
+      "what": "owner alice.chair-coin-3.testnet sends 100000 $CHAIR to carol",
       "proves": "an ordinary NEP-141 transfer at rate 0 moves the whole amount (no burn)",
       "outcome": "success",
       "detail": null,
       "note": null,
-      "at": "2026-11-11T07:39:11.738Z"
+      "at": "2026-11-12T01:49:36.600Z"
     },
     {
       "step": "setup-stake-alice",
-      "hash": "9XqFP9VTBDJxoTB9XiMQp28hEyd4FCdsbeUTYCEAB8iB",
-      "signer": "alice.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "hash": "8F5DoTJsSesCgmyYox5uz4nAzvkrR7cLVhLnxVqhmQgj",
+      "signer": "alice.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "alice stakes 300000 $CHAIR",
       "proves": "stakers earn the epoch mints; staked tokens also carry the vote",
       "outcome": "success",
       "detail": null,
       "note": null,
-      "at": "2026-11-11T07:39:16.519Z"
+      "at": "2026-11-12T01:49:40.899Z"
     },
     {
       "step": "setup-stake-bob",
-      "hash": "64ZcXZoRi61tiZTinyhFdy9WqjSXQH1JU5ETYG3Qqvxz",
-      "signer": "bob.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "hash": "3iP2GFNDfzTDJCCw84mpeKisTdU9HMbXsrS4JQ4zR5Cz",
+      "signer": "bob.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "bob stakes 100000 $CHAIR",
       "proves": "a second staker: carol stays liquid",
       "outcome": "success",
       "detail": null,
       "note": null,
-      "at": "2026-11-11T07:39:20.770Z"
+      "at": "2026-11-12T01:49:44.701Z"
     },
     {
       "step": "e0-set-40",
-      "hash": "BCzfFZzxc4E7rnAhTBXTmGSZetmYhPt9uFG4PDYqAyQB",
-      "signer": "chair.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "hash": "26tWcCFjehFhcs9FMqmaFhwQ8SVLqjj8DoeCqKC8Muno",
+      "signer": "chair.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "chair sets +40 bps for epoch 1",
       "proves": "First step up from 0, inside the 50 bps step bound.",
       "outcome": "success",
       "detail": null,
       "note": "Scripted founding-chair decision for chain epoch 1: +40 bps. First step up from 0, inside the 50 bps step bound.",
-      "at": "2026-11-11T07:40:25.518Z"
+      "at": "2026-11-12T01:50:49.441Z"
     },
     {
       "step": "e1-set-90",
-      "hash": "4SpKcSj3fTSBds5wcitaM1JnFSttJCJALNShoWRJh4jQ",
-      "signer": "chair.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "hash": "4mJ9gnUvrjqaW63sEXW7LQ7jpoishqH2XpB5u6czJUpe",
+      "signer": "chair.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "chair sets +90 bps for epoch 2",
       "proves": "Another 50 bps step up.",
       "outcome": "success",
       "detail": null,
       "note": "Scripted founding-chair decision for chain epoch 2: +90 bps. Another 50 bps step up.",
-      "at": "2026-11-11T07:41:53.107Z"
+      "at": "2026-11-12T01:52:19.552Z"
     },
     {
       "step": "e2-set-140",
-      "hash": "8o9L48YQyu1r9dpqaHk6iAAQDk7gQuEMicBq3eRW2WMf",
-      "signer": "chair.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "hash": "FH9nMTiLJHEtYAM7rh89CR6icoxGWcZgbr1po6rCZVr1",
+      "signer": "chair.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "chair sets +140 bps for epoch 3",
       "proves": "Another 50 bps step up.",
       "outcome": "success",
       "detail": null,
       "note": "Scripted founding-chair decision for chain epoch 3: +140 bps. Another 50 bps step up.",
-      "at": "2026-11-11T07:43:23.738Z"
+      "at": "2026-11-12T01:53:49.123Z"
     },
     {
       "step": "e3-set-190",
-      "hash": "Zj9r9eV57W5jPYfPLoUvh22tBVNb3DudnDmmk3WTCgy",
-      "signer": "chair.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "hash": "3errraMjDj4YaW2WqtN6Zvfq1Ex4LxPDen6RxnLev5g6",
+      "signer": "chair.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "chair sets +190 bps for epoch 4",
       "proves": "Another 50 bps step up, 10 below the +200 ceiling.",
       "outcome": "success",
       "detail": null,
       "note": "Scripted founding-chair decision for chain epoch 4: +190 bps. Another 50 bps step up, 10 below the +200 ceiling.",
-      "at": "2026-11-11T07:44:54.046Z"
+      "at": "2026-11-12T01:55:18.690Z"
     },
     {
       "step": "e3-second-decision",
-      "hash": "GoEivE65x1HUgYnXLauMyshze3mKNtK81kiLtvXuGsQJ",
-      "signer": "chair.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "hash": "4ezzLDqadCD7FHbKqSxa2MibL37iQRya15bM2eBF9Luz",
+      "signer": "chair.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "chair sets +150 bps a second time in the same epoch",
       "proves": "the contract refuses it: \"policy already set this epoch\"",
       "outcome": "refused",
       "detail": "policy already set this epoch",
       "note": null,
-      "at": "2026-11-11T07:44:58.162Z"
+      "at": "2026-11-12T01:55:23.067Z"
     },
     {
       "step": "e3-impostor",
-      "hash": "2whKaAEFndEiGy3W8joAtyAJCX9i9ZqHBTgdWBfHfWDf",
-      "signer": "carol.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
-      "what": "a non-chair account (carol.chair-coin-2.testnet) sets 0 bps",
+      "hash": "Ci5327N2ZQTEkBeBDLypHfvckDkFdoEHvqHYLnHkHXvx",
+      "signer": "carol.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
+      "what": "a non-chair account (carol.chair-coin-3.testnet) sets 0 bps",
       "proves": "the contract refuses it: \"only the chair may set policy\"",
       "outcome": "refused",
       "detail": "only the chair may set policy",
       "note": null,
-      "at": "2026-11-11T07:45:02.214Z"
+      "at": "2026-11-12T01:55:27.165Z"
     },
     {
       "step": "e4-above-bound",
-      "hash": "Efagw855yoDeJXjNyui9Bt9d4JXfhisMoTm9JCPkHWjf",
-      "signer": "chair.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "hash": "8AB8SGqGAfiWfPerFDPxv29DYg9FL2XrEbGzctZEHLMu",
+      "signer": "chair.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "chair sets +201 bps",
       "proves": "the contract refuses it: \"rate_bps out of bounds\"",
       "outcome": "refused",
       "detail": "rate_bps out of bounds: must be within -200..=200",
       "note": null,
-      "at": "2026-11-11T07:46:22.566Z"
+      "at": "2026-11-12T01:56:47.332Z"
     },
     {
       "step": "e4-step-too-large",
-      "hash": "AatG3PRYLteoyZ9iBuuKKLXH1pB8ju2sVz6sCsiSVN9m",
-      "signer": "chair.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "hash": "LQLdPaCKnWvx356ua1h6Zxc57RU8p4intMmswc2BRLQ",
+      "signer": "chair.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "chair sets +100 bps, a 90 bps jump from +190",
       "proves": "the contract refuses it: \"rate step too large\"",
       "outcome": "refused",
       "detail": "rate step too large: must move at most 50 bps from the current rate",
       "note": null,
-      "at": "2026-11-11T07:46:26.581Z"
+      "at": "2026-11-12T01:56:51.204Z"
     },
     {
       "step": "e4-chair-key-ft-transfer",
       "hash": null,
-      "signer": "chair.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "signer": "chair.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "ft_transfer signed with the chair's function-call key (no deposit: a function-call key may not attach one at all)",
       "proves": "the protocol refuses it before the contract runs (MethodNameMismatch): the key can call set_policy and nothing else; no transaction is included",
       "outcome": "protocol-rejected",
       "detail": "MethodNameMismatch",
       "note": null,
-      "at": "2026-11-11T07:46:26.983Z"
+      "at": "2026-11-12T01:56:51.543Z"
     },
     {
       "step": "e6-set-140",
-      "hash": "2RggbVYWe9KqYAFnRM5XaS2R2n3XP2E3VivcmNvmxa6C",
-      "signer": "chair.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "hash": "39kA6JPbJKBqJ9vDuoTjqQbr8T4M6QGVhJJdX5buPXYa",
+      "signer": "chair.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "chair sets +140 bps for epoch 7",
       "proves": "Back after two silent epochs: the step bound is measured from the decayed rate, +90.",
       "outcome": "success",
       "detail": null,
       "note": "Scripted founding-chair decision for chain epoch 7: +140 bps. Back after two silent epochs: the step bound is measured from the decayed rate, +90.",
-      "at": "2026-11-11T07:49:24.094Z"
+      "at": "2026-11-12T01:59:49.805Z"
     },
     {
       "step": "e7-claim",
-      "hash": "3zL9oLX1b8HvriernmjzdF9WwHr9oG3McCtvrwxDCSTA",
-      "signer": "alice.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "hash": "9hFtpjPuyQXZNYA3jTRKpBwHBYioX8Xk2yycHhpSp7B1",
+      "signer": "alice.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "alice claims her staking reward",
       "proves": "the epoch mints are paid from the reward pool to stakers",
       "outcome": "success",
       "detail": null,
       "note": null,
-      "at": "2026-11-11T07:50:55.040Z"
+      "at": "2026-11-12T02:01:20.347Z"
     },
     {
       "step": "e7-set-90",
-      "hash": "FjGnNr232ubh8qpB2hF1NGfRY4Q7seYkd3kcGnQai5uo",
-      "signer": "chair.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "hash": "E8Phyt9kYuk3DFXpHqsRtTeydNJocFo4cbbYsGCNMH4v",
+      "signer": "chair.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "chair sets +90 bps for epoch 8",
       "proves": "Ease off: 50 bps down from +140.",
       "outcome": "success",
       "detail": null,
       "note": "Scripted founding-chair decision for chain epoch 8: +90 bps. Ease off: 50 bps down from +140.",
-      "at": "2026-11-11T07:50:59.530Z"
+      "at": "2026-11-12T02:01:24.946Z"
     },
     {
       "step": "e8-set-40",
-      "hash": "8MKTBrT268RbFDRLD1mfqJKXdwiQ994Fg1rGWvwn99EN",
-      "signer": "chair.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "hash": "5UYRHhPyrymW4FDKGXjhHpNJraiCnYdWCkbxTU8V5stb",
+      "signer": "chair.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "chair sets +40 bps for epoch 9",
       "proves": "Ease off: 50 bps down from +90.",
       "outcome": "success",
       "detail": null,
       "note": "Scripted founding-chair decision for chain epoch 9: +40 bps. Ease off: 50 bps down from +90.",
-      "at": "2026-11-11T07:52:23.410Z"
+      "at": "2026-11-12T02:02:48.951Z"
     },
     {
       "step": "e9-set--10",
-      "hash": "ADXudDypHi6mzjfTE9Pa8rbevTHKALm5A99nnBbGgVXd",
-      "signer": "chair.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "hash": "8Q2BHn8QgcVsCq63uKwKcDJxGE5BucvJQdGaxoWvwjGN",
+      "signer": "chair.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "chair sets -10 bps for epoch 10",
       "proves": "Tighten: 50 bps down from +40, into negative territory.",
       "outcome": "success",
       "detail": null,
       "note": "Scripted founding-chair decision for chain epoch 10: -10 bps. Tighten: 50 bps down from +40, into negative territory.",
-      "at": "2026-11-11T07:53:53.722Z"
+      "at": "2026-11-12T02:04:19.935Z"
     },
     {
       "step": "e9-burn-transfer",
-      "hash": "Wuyg3pmrbdAebzU6Q79qGxpDfVamtU3YetMqfEdTTAa",
-      "signer": "alice.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "hash": "9fuTTTZgQ9kgdDcmtiGjsiHp3MrqjX3u8cgKVsfF6Qh6",
+      "signer": "alice.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "alice sends 10000 $CHAIR to carol at -10 bps",
       "proves": "a negative rate burns 0.1% of every transfer: carol receives less than alice spent and the supply falls by the burn",
       "outcome": "success",
       "detail": null,
       "note": null,
-      "at": "2026-11-11T07:53:57.895Z"
+      "at": "2026-11-12T02:04:24.099Z"
     },
     {
       "step": "e9-nominate",
-      "hash": "9Gf5xhXbyq5GvYXuAiKbWC4vV1USKunQsW4XZGUYhw2d",
-      "signer": "alice.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
-      "what": "alice nominates challenger.chair-coin-2.testnet, attaching the 0.1 NEAR bond",
+      "hash": "2CogCfyWEvVtVystnCJaGUzNdrhXZFK881bdNCLtJ8QY",
+      "signer": "alice.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
+      "what": "alice nominates challenger.chair-coin-3.testnet, attaching the 0.1 NEAR bond",
       "proves": "anyone can nominate a chair; the bond is escrowed and returned when the nomination ends",
       "outcome": "success",
       "detail": null,
       "note": "persona_hash e836a06da56db5247e43a7f3b99ec03c462c46aeb205fffbed5d9d787a977f56 commits to: The AI chair: aims at half the supply staked, moves one contract step per epoch, and explains each rate in writing.",
-      "at": "2026-11-11T07:54:02.848Z"
+      "at": "2026-11-12T02:04:28.383Z"
     },
     {
       "step": "e9-back-alice",
-      "hash": "Cz5u7d3rUxfhEE99k5DC9LVS4QgmriJGyjX7ZMF54Jrm",
-      "signer": "alice.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
-      "what": "alice backs challenger.chair-coin-2.testnet with the whole stake",
+      "hash": "GPb6nmM4nJ8NzckL7cc16kn8yNo9u965iRFv2oHfiUsV",
+      "signer": "alice.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
+      "what": "alice backs challenger.chair-coin-3.testnet with the whole stake",
       "proves": "stake is the vote: backing counts at the next epoch boundary",
       "outcome": "success",
       "detail": null,
       "note": null,
-      "at": "2026-11-11T07:54:06.853Z"
+      "at": "2026-11-12T02:04:32.025Z"
     },
     {
       "step": "e9-back-bob",
-      "hash": "CWnrkRcYunW5kmMNUN44tTmqWL3vs95tqFyT9XdQigtM",
-      "signer": "bob.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
-      "what": "bob backs challenger.chair-coin-2.testnet with the whole stake",
+      "hash": "DoNjfxBZFupY3tm48TEYCE6u9d7mCJxpurfs4UdmuxaF",
+      "signer": "bob.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
+      "what": "bob backs challenger.chair-coin-3.testnet with the whole stake",
       "proves": "stake is the vote: backing counts at the next epoch boundary",
       "outcome": "success",
       "detail": null,
       "note": null,
-      "at": "2026-11-11T07:54:10.882Z"
+      "at": "2026-11-12T02:04:36.480Z"
     },
     {
       "step": "e10-impeached-chair",
-      "hash": "4vRNYnRwu1GvHJ2XZWYN9xGo8GhardRaChbt9hVtn1Rz",
-      "signer": "chair.chair-coin-2.testnet",
-      "receiver": "token.chair-coin-2.testnet",
+      "hash": "GpN9iZqJNqrUe1mZZFcyKVQnnxiGuYbhUMEvNt8EbTPh",
+      "signer": "chair.chair-coin-3.testnet",
+      "receiver": "token.chair-coin-3.testnet",
       "what": "the impeached chair sets 0 bps",
       "proves": "the contract refuses it: \"only the chair may set policy\"",
       "outcome": "refused",
       "detail": "only the chair may set policy",
       "note": null,
-      "at": "2026-11-11T07:55:26.293Z"
+      "at": "2026-11-12T02:05:48.754Z"
     }
   ]
 }
