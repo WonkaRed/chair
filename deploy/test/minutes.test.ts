@@ -47,7 +47,7 @@ function docs(name: string, records: { epoch: number; reasoning: string; hash: s
 
 test("a recorded text that hashes to the chain's hash is verified; a decision without one says so", async () => {
   const dir = docs("match", [{ epoch: 1, reasoning: text(1), hash: sha256Hex(text(1)) }]);
-  const m = await gatherMinutes("https://rpc.invalid", TOKEN, dir, indexer([tx(1, 1, 10, sha256Hex(text(1))), tx(2, 2, 20, "b".repeat(64))]));
+  const m = await gatherMinutes(["https://rpc.invalid"], TOKEN, dir, indexer([tx(1, 1, 10, sha256Hex(text(1))), tx(2, 2, 20, "b".repeat(64))]));
   assert.equal(m.error, null);
   assert.deepEqual(m.warnings, []);
   assert.deepEqual(m.decisions.map((d) => [d.epoch, d.rateBps, d.verdict]), [[2, 20, null], [1, 10, "verified"]]);
@@ -63,7 +63,7 @@ test("a recorded text that hashes to the chain's hash is verified; a decision wi
 
 test("a text in the transaction's arguments is checked against the event's hash, and a wrong one is a mismatch", async () => {
   const txs = [tx(1, 1, 10, sha256Hex(text(1)), text(1)), tx(2, 2, 20, sha256Hex(text(2)), "not what was hashed"), tx(3, 3, 30, "e".repeat(64))];
-  const m = await gatherMinutes("https://rpc.invalid", TOKEN, docs("empty-chain", []), indexer(txs));
+  const m = await gatherMinutes(["https://rpc.invalid"], TOKEN, docs("empty-chain", []), indexer(txs));
   assert.deepEqual(m.decisions.map((d) => [d.epoch, d.onChain, d.verdict]), [[3, false, null], [2, true, "mismatch"], [1, true, "verified"]]);
   const lines = describeMinutes(m);
   assert.ok(lines.includes("      SHA-256 of the text in the transaction's arguments equals the hash on chain"));
@@ -80,11 +80,11 @@ test("the epochs without a checkable text are listed in order, runs of three or 
 test("a recorded text that does not hash to the chain's hash is a mismatch, never a pass", async () => {
   const dir = docs("mismatch", [{ epoch: 1, reasoning: text(1), hash: sha256Hex(text(1)) }]);
   // The chain holds a different hash for this decision than the one the record claims: the recorded text cannot be the chair's.
-  const m = await gatherMinutes("https://rpc.invalid", TOKEN, dir, indexer([tx(1, 1, 10, sha256Hex("something else"))]));
+  const m = await gatherMinutes(["https://rpc.invalid"], TOKEN, dir, indexer([tx(1, 1, 10, sha256Hex("something else"))]));
   assert.deepEqual(m.decisions.map((d) => d.verdict), [null]);
   // A record whose text was edited after the hash was written is refused by the bundler and reported, which fails the check.
   const edited = docs("edited", [{ epoch: 1, reasoning: `${text(1)} edited`, hash: sha256Hex(text(1)) }]);
-  const e = await gatherMinutes("https://rpc.invalid", TOKEN, edited, indexer([tx(1, 1, 10, sha256Hex(text(1)))]));
+  const e = await gatherMinutes(["https://rpc.invalid"], TOKEN, edited, indexer([tx(1, 1, 10, sha256Hex(text(1)))]));
   assert.equal(e.warnings.length, 1);
   assert.match(e.warnings[0] ?? "", /does not hash to its reasoning_hash/);
   assert.deepEqual(e.decisions.map((d) => d.verdict), [null]);
@@ -92,7 +92,7 @@ test("a recorded text that does not hash to the chain's hash is a mismatch, neve
 
 test("the list shows only the newest five, and a text is cut to 100 characters with control characters neutralised", async () => {
   const txs = [1, 2, 3, 4, 5, 6].map((n) => tx(n, n, 0, "c".repeat(64)));
-  const m = await gatherMinutes("https://rpc.invalid", TOKEN, docs("empty", []), indexer(txs));
+  const m = await gatherMinutes(["https://rpc.invalid"], TOKEN, docs("empty", []), indexer(txs));
   const lines = describeMinutes(m);
   assert.equal(lines[0], "latest decisions on chain (5 of 6, newest first):");
   assert.equal(lines.filter((l) => l.startsWith("  epoch ")).length, 5);
@@ -106,7 +106,7 @@ test("the list shows only the newest five, and a text is cut to 100 characters w
 test("older decisions with a recorded text are listed after the newest five when those have none", async () => {
   const dir = docs("older", [{ epoch: 1, reasoning: text(1), hash: sha256Hex(text(1)) }]);
   const txs = [tx(1, 1, 10, sha256Hex(text(1))), ...[2, 3, 4, 5, 6, 7].map((n) => tx(n, n, 0, "d".repeat(64)))];
-  const lines = describeMinutes(await gatherMinutes("https://rpc.invalid", TOKEN, dir, indexer(txs)));
+  const lines = describeMinutes(await gatherMinutes(["https://rpc.invalid"], TOKEN, dir, indexer(txs)));
   const at = lines.indexOf("latest decisions with a checkable text (1 more):");
   assert.ok(at > 0, lines.join("\n"));
   assert.equal(lines[at - 1], "");
@@ -117,7 +117,7 @@ test("older decisions with a recorded text are listed after the newest five when
 
 test("an index that cannot be read is reported, not hidden, and a missing docs folder is a warning", async () => {
   const down: typeof fetch = async () => new Response("no", { status: 503 });
-  const m = await gatherMinutes("https://rpc.invalid", TOKEN, join(root, "does-not-exist"), down);
+  const m = await gatherMinutes(["https://rpc.invalid"], TOKEN, join(root, "does-not-exist"), down);
   assert.equal(m.error, "indexer: HTTP 503");
   assert.equal(m.warnings.length, 1);
   assert.deepEqual(describeMinutes(m), ["NOTE: the decisions on chain could not be read (indexer: HTTP 503), so the reasoning-hash check was skipped and is not counted; the other checks read the RPC only."]);

@@ -24,14 +24,14 @@ const CONCURRENCY = 3;
 
 // One POST to one URL. Everything thrown here is the transport failing (no answer, throttled, a server error, a body that
 // is not JSON), which is what failover is for. A JSON-RPC error is a real answer: it comes back as a reply, not a throw.
-async function postJson(fetchImpl, source, url, body) {
+async function postJson(fetchImpl, source, url, body, timeoutMs) {
   let res;
   try {
     res = await fetchImpl(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
-      signal: AbortSignal.timeout(TIMEOUT_MS),
+      signal: AbortSignal.timeout(timeoutMs),
       credentials: "omit",
       referrerPolicy: "no-referrer",
     });
@@ -51,9 +51,9 @@ async function postJson(fetchImpl, source, url, body) {
 /**
  * POSTs to the first endpoint of `urls` that answers, starting at the one that answered last. A failed endpoint hands
  * the call to the next at once; after a whole failed round it pauses and tries one more round, then throws the last
- * failure. `inUse()` is the endpoint that answered last (the first until one has).
+ * failure. `inUse()` is the endpoint that answered last (the first until one has). `timeoutMs` is how long one endpoint may take.
  */
-export function failoverPoster(fetchImpl, source, urls, sleep = (ms) => new Promise((done) => setTimeout(done, ms))) {
+export function failoverPoster(fetchImpl, source, urls, sleep = (ms) => new Promise((done) => setTimeout(done, ms)), timeoutMs = TIMEOUT_MS) {
   if (!Array.isArray(urls) || urls.length === 0) throw new Error(`no ${source} endpoint is configured`);
   let sticky = 0;
   const post = async (path, body) => {
@@ -64,7 +64,7 @@ export function failoverPoster(fetchImpl, source, urls, sleep = (ms) => new Prom
       for (let i = 0; i < urls.length; i++) {
         const at = (sticky + i) % urls.length;
         try {
-          const reply = await postJson(fetchImpl, source, `${urls[at]}${path}`, body);
+          const reply = await postJson(fetchImpl, source, `${urls[at]}${path}`, body, timeoutMs);
           sticky = at;
           return reply;
         } catch (e) {

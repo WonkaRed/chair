@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="style.css">
 <link rel="stylesheet" href="overreach.css">
 <link rel="stylesheet" href="join.css">
+<link rel="stylesheet" href="mine.css">
 <script type="module" src="js/app.js"></script>
 </head>
 <body>
@@ -57,6 +58,12 @@
     <h2 id="join-h">Join the Committee</h2>
     <p class="dare-line">Press one button. A moment later the AI's meeting room has one more member, and the AI writes down what that did to its decision.</p>
     <div id="join-body" class="slot"></div>
+  </section>
+
+  <section id="mine" class="reveal" aria-labelledby="mine-h" hidden>
+    <h2 id="mine-h">Your own test coins</h2>
+    <p class="dare-line">Press one button and this page makes you a test account, right in your browser. My faucet puts 50 test coins in it. Then lock them up to earn more, collect what they earn, and send some on. You sign every step yourself.</p>
+    <div id="mine-body" class="slot"></div>
   </section>
 
   <section id="press" class="reveal" aria-labelledby="press-h">
@@ -115,12 +122,12 @@
       <summary>Show the ledger and every mint and burn</summary>
       <section id="ledger" aria-labelledby="ledger-h">
         <h3 id="ledger-h">The supply ledger</h3>
-        <p class="scripted"><strong>Scripted test activity.</strong> The three holders behind these stakes, transfers and claims are test accounts I run, not users.</p>
+        <p class="scripted"><strong>Scripted test activity.</strong> The three holders behind these stakes, transfers and claims are test accounts I run, not users. Test accounts funded by the faucet for page visitors may appear here too.</p>
         <div id="ledger-body" class="slot">Loading…</div>
       </section>
       <section id="log" aria-labelledby="log-h">
         <h3 id="log-h">Every mint and burn</h3>
-        <p class="scripted"><strong>Scripted test activity.</strong> The three holders whose stakes and transfers move these numbers are test accounts I run, not users.</p>
+        <p class="scripted"><strong>Scripted test activity.</strong> The three holders whose stakes and transfers move these numbers are test accounts I run, not users. Test accounts funded by the faucet for page visitors may appear here too.</p>
         <div id="reconcile" class="slot"></div>
         <div id="log-body" class="slot"></div>
       </section>
@@ -166,7 +173,7 @@
   </section>
 </main>
 <footer class="wrap foot">
-  <p id="foot">$CHAIR is a hackathon project and a toy monetary experiment. Nothing here is advice. The transfers, stakes and claims in the log are scripted test activity by three accounts I control, not users.</p>
+  <p id="foot">$CHAIR is a hackathon project and a toy monetary experiment. Nothing here is advice. The transfers, stakes and claims in the log are scripted test activity by three accounts I control, not users, plus test accounts funded by the faucet for page visitors.</p>
   <details class="fold">
     <summary>Where this page reads from</summary>
     <p id="source" class="source" role="note">Loading the chain…</p>

@@ -49,12 +49,12 @@ interface Resolved extends Bundled {
 }
 
 /** `fetchImpl` is the network boundary (a stub in tests). `docsDir` holds the `testnet-run-agent-*` records. */
-export async function gatherMinutes(rpcUrl: string, token: string, docsDir: string, fetchImpl: typeof fetch = fetch): Promise<Minutes> {
+export async function gatherMinutes(rpcUrls: readonly string[], token: string, docsDir: string, fetchImpl: typeof fetch = fetch): Promise<Minutes> {
   const { bundle, warnings } = await bundleMinutes(docsDir);
   const texts = new Map<string, Bundled>(Object.entries(bundle.texts as Record<string, Bundled>));
   let raw: RawDecision[];
   try {
-    const transport = rpcTransport({ rpcUrls: [rpcUrl], indexerUrl: webConfig.indexerUrl, account: token, fetchImpl, sleep: undefined }); // undefined: the transport's own pause between rounds
+    const transport = rpcTransport({ rpcUrls, indexerUrl: webConfig.indexerUrl, account: token, fetchImpl, sleep: undefined }); // undefined: the transport's own pause between rounds
     raw = decisionsOfTxs(await transport.transactions(await transport.txHashes()), token).decisions;
   } catch (e) {
     if (!(e instanceof SourceError)) throw e;

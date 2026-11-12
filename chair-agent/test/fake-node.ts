@@ -19,6 +19,8 @@ export class FakeNode {
   nonce = 100n;
   /** The next this-many `send_tx` calls fail with an RPC error (a node that is down or refusing). */
   failSends = 0;
+  /** The next this-many requests of any kind are answered HTTP 429 (a busy public node). */
+  throttle = 0;
   /** Every `send_tx` that reached the node, failed or not. */
   sendCalls = 0;
   /** Every reply is an error whose text is full of terminal escape sequences and fake lines. */
@@ -33,6 +35,12 @@ export class FakeNode {
       const chunks: Buffer[] = [];
       req.on("data", (c: Buffer) => chunks.push(c));
       req.on("end", () => {
+        if (this.throttle > 0) {
+          this.throttle--;
+          res.statusCode = 429;
+          res.end("slow down");
+          return;
+        }
         const body = JSON.parse(Buffer.concat(chunks).toString("utf8")) as { id: string; method: string; params: Record<string, unknown> };
         let reply: unknown;
         try {

@@ -307,8 +307,19 @@ export function createPress(doc, host, { discoveryUrl = "", discoveryApiUrl = ""
   const lookUp = (eager) => discovering ?? (eager || now() - lastDiscovery >= POLL_MS ? discover() : null);
   const isResting = (url) => url === resting.url && now() < resting.until;
 
+  /** Whether `reply` came from the desk itself: below 500, its own 503, or a server error whose body is JSON with an `error` text (the faucet's 502). A tunnel's 502 or 524 page is none of these. */
+  async function fromDesk(reply) {
+    if (reply.status < 500 || reply.status === 503) return true;
+    try {
+      const j = await reply.clone().json();
+      return isObj(j) && typeof j.error === "string";
+    } catch {
+      return false;
+    }
+  }
+
   /**
-   * One try at `url`. A reply the desk did not send itself (a 5xx other than its own 503) or no connection puts the address to rest, so a dead tunnel is
+   * One try at `url`. A reply the desk did not send itself (see `fromDesk`) or no connection puts the address to rest, so a dead tunnel is
    * not asked again (and does not fill the console with failed requests) until its rest is over; each miss doubles the rest.
    */
   async function tryDesk(url, path, init) {
@@ -320,7 +331,7 @@ export function createPress(doc, host, { discoveryUrl = "", discoveryApiUrl = ""
     } catch (err) {
       failure = err;
     }
-    const answered = reply !== null && (reply.status < 500 || reply.status === 503);
+    const answered = reply !== null && (await fromDesk(reply));
     if (answered && url === resting.url) resting = { url: "", wait: 0, until: 0 };
     if (!answered) {
       const wait = url === resting.url ? Math.min(resting.wait * 2, REST_MAX_MS) : POLL_MS;
@@ -331,7 +342,7 @@ export function createPress(doc, host, { discoveryUrl = "", discoveryApiUrl = ""
 
   /**
    * A request to the desk. With no desk known it looks one up first (at most every POLL_MS); an address that did not answer is left alone while it rests,
-   * and the document is read again meanwhile in case the desk has moved. When the desk does not connect, or its tunnel answers with a server error, it looks
+   * and the document is read again meanwhile in case the desk has moved. When the desk does not connect, or its tunnel answers with a server error that is not the desk's own JSON, it looks
    * again once and retries only if the address changed. Anything else is the caller's to read. `eager` (a visitor's "Check again") ignores the rest.
    */
   async function call(path, init, eager = false) {

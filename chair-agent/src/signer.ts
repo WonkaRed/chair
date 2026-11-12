@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
-import { actions, baseDecode, createTransaction, KeyPairSigner, type Action, type SignedTransaction } from "near-api-js";
+import { actions, baseDecode, baseEncode, createTransaction, KeyPairSigner, type Action, type SignedTransaction } from "near-api-js";
 import { DEFAULT_BOUNDS, type Rate, type RefusedRate } from "./bounds.js";
-import { NearRpc, type AccessKeyInfo } from "./rpc.js";
+import { DeadlineError, NearRpc, RpcError, withinDeadline, type AccessKeyInfo, type TxStatus } from "./rpc.js";
 import type { Decision } from "./types.js";
 import { cleanReasoning, MAX_REASONING_CHARS, reasoningHash } from "./reasoning.js";
 import { accountId as checkAccountId } from "./validate.js";
@@ -120,25 +121,45 @@ abstract class TokenCaller {
     return (await this.keys.getPublicKey()).toString();
   }
 
-  /** Sign one call. */
-  protected async sign(call: Action, nonce: bigint, blockHash: string): Promise<SignedTransaction> {
+  /** Sign one action, to the token unless the subclass names another receiver. */
+  protected async sign(call: Action, nonce: bigint, blockHash: string, receiver: string = this.token): Promise<SignedTransaction> {
     const publicKey = await this.keys.getPublicKey();
-    const tx = createTransaction(this.accountId, publicKey, this.token, nonce + 1n, [call], baseDecode(blockHash));
+    const tx = createTransaction(this.accountId, publicKey, receiver, nonce + 1n, [call], baseDecode(blockHash));
     const { signedTransaction } = await this.keys.signTransaction(tx);
     return signedTransaction;
   }
 
+  /** The nonce of the last transaction this signer signed: a transaction still pending on the chain is not yet in the chain's own count, so the next one starts above whichever is higher. */
+  private lastNonce = 0n;
+
+  /** Never sign at or below `nonce`: a transaction of it may still sit in a pool, where the chain's own count does not show it. */
+  protected raiseNonce(nonce: bigint): void {
+    if (nonce > this.lastNonce) this.lastNonce = nonce;
+  }
+
   /**
    * The nonce is read at `optimistic` finality: a call this key sent moments ago is already counted, where `final` lags it by a block or two and would
-   * reuse its nonce. `allowed` throws when the key is not the kind this caller may use. `onBroadcast` runs once, just before the transaction is sent;
-   * a throw before it means nothing was sent.
+   * reuse its nonce; and it is never lower than the last one this signer used, in case the node answering is behind. `allowed` throws when the key is not
+   * the kind this caller may use. `onBroadcast` runs once, just before the transaction is sent; a throw before it means nothing was sent.
    */
   protected async send(call: (nonce: bigint, blockHash: string) => Promise<SignedTransaction>, allowed: (info: AccessKeyInfo) => void, onBroadcast: () => void): Promise<SubmitResult> {
+    const signed = await this.prepare(call, allowed);
+    onBroadcast();
+    return this.sendSigned(signed);
+  }
+
+  /** Signs the call at the next nonce without sending it. */
+  protected async prepare(call: (nonce: bigint, blockHash: string) => Promise<SignedTransaction>, allowed: (info: AccessKeyInfo) => void): Promise<SignedTransaction> {
     const info = await this.rpc.accessKey(this.accountId, await this.publicKey(), "optimistic");
     allowed(info);
     const block = await this.rpc.finalBlock();
-    const signed = await call(info.nonce, block.hash);
-    onBroadcast();
+    const nonce = info.nonce > this.lastNonce ? info.nonce : this.lastNonce;
+    const signed = await call(nonce, block.hash);
+    this.lastNonce = nonce + 1n;
+    return signed;
+  }
+
+  protected sendSigned(signed: SignedTransaction): Promise<SubmitResult> {
     return this.rpc.sendTx(Buffer.from(signed.encode()).toString("base64"));
   }
 }
@@ -222,7 +243,209 @@ export class PoolSigner extends TokenCaller implements PoolSender {
   }
 }
 
-/** `stake` and `unstake` need a deposit, which only a full-access key can attach: a function-call key would fail every call, so say so up front. */
+/** The pool's calls and the faucet's attach a deposit or move NEAR, which only a full-access key can do: a function-call key would fail every call, so say so up front. */
 export function assertFullAccess(info: AccessKeyInfo): void {
-  if (info.permission !== "FullAccess") throw new KeyError("the pool key must be a full-access key: stake and unstake attach a deposit, which a function-call key cannot");
+  if (info.permission !== "FullAccess") throw new KeyError("the signing key must be a full-access key: its calls attach a deposit or move NEAR, which a function-call key cannot");
+}
+
+const CHAIR_UNIT = 10n ** 24n;
+
+/** The transaction's hash as the network names it: the base58 of the sha256 of the unsigned transaction. */
+export const hashOf = (signed: SignedTransaction): string => baseEncode(createHash("sha256").update(signed.transaction.encode()).digest());
+
+/** What one visitor gets from the press desk's faucet: 50 CHAIR (24 decimals, `ft_metadata`) and 0.05 NEAR. 0.03 measured too little on testnet: a visitor's first stake with 30 Tgas attached failed, as each call reserves its gas up front. Nothing else depends on these values. */
+export const FAUCET_GRANT_CHAIR = 50n * CHAIR_UNIT;
+export const FAUCET_GRANT_NEAR = 5n * 10n ** 22n;
+/** The token's storage registration for one account, exactly: `storage_balance_bounds` reports min = max = 0.00125 NEAR (read from the live token). */
+export const FAUCET_STORAGE_DEPOSIT = 125n * 10n ** 19n;
+/** The faucet's two function calls: `ft_transfer` may roll the epoch over, so it gets the same 30 Tgas as the pool's calls (unused gas is refunded). */
+export const FAUCET_GAS = 30_000_000_000_000n;
+export const FAUCET_MEMO = "chair faucet: test coins for a page visitor";
+
+/** The three transactions of one grant, in the order they are sent. */
+export const FAUCET_STEPS = ["transfer", "storage_deposit", "ft_transfer"] as const;
+export type FaucetStep = (typeof FAUCET_STEPS)[number];
+
+/** A NEAR implicit account: the 64 lowercase hex characters of an ed25519 public key. */
+const IMPLICIT_RE = /^[0-9a-f]{64}$/;
+
+export interface FaucetOutcome {
+  /** The hashes of the steps that executed in this call, in order. */
+  readonly txs: readonly string[];
+  /** Null when every step is done; else the step that did not go through and the contract's refusal text (null when its outcome is unknown, e.g. the node did not answer). */
+  readonly failed: { readonly step: FaucetStep; readonly failure: string | null } | null;
+  /** Set when `hooks.halt()` stopped the grant before a step was started. */
+  readonly halted?: true;
+}
+
+/** A signed transaction of a grant: its hash and its signed bytes (base64; a signature and a public key, no secret), so the very same transaction can be looked up, or sent again. */
+export interface PendingTx {
+  readonly step: FaucetStep;
+  readonly hash: string;
+  readonly tx: string;
+}
+
+export interface FaucetHooks {
+  /** Called with each new transaction just before it first leaves: record it. A throw means nothing was sent, and `grant` rejects. */
+  onPending(tx: PendingTx): void;
+  /** Called after each step executed, with its transaction hash. */
+  onStep(step: FaucetStep, txHash: string): void;
+  /** Asked before a new step is started: true means stop here (the faucet was switched off). */
+  halt(): boolean;
+  /** Asked before each new signature: the highest nonce of any transaction still recorded as pending, for any visitor, so a restart (which forgets what the signer used) never signs at the nonce of one that may still land. */
+  nonceFloor(): bigint;
+}
+
+export interface FaucetSender {
+  /**
+   * Sends the steps of one grant to `receiver` (an implicit account id) that are not in `finished`, in order, stopping at the first that fails.
+   * `pending` is the transaction of an earlier call that was sent and never seen to finish: it is settled first, never replaced while it can still land.
+   * `deadlineAt` (ms since 1970) is when the whole call must be over: past it the step in hand is left pending and the call answers `failed` with no failure text.
+   */
+  grant(receiver: string, finished: ReadonlySet<FaucetStep>, pending: PendingTx | null, hooks: FaucetHooks, deadlineAt: number): Promise<FaucetOutcome>;
+}
+
+/** How a send whose answer got lost is settled: look the transaction up by its hash, and send the same signed bytes again if it was not seen to execute. */
+export interface SettleOptions {
+  readonly attempts?: number;
+  readonly backoffMs?: number;
+  readonly sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * The press desk's faucet signer. The only actions it can construct are the three of one grant to a visitor's own new account: a Transfer of
+ * `FAUCET_GRANT_NEAR`, the token's `storage_deposit` for that account with `FAUCET_STORAGE_DEPOSIT`, and `ft_transfer` of `FAUCET_GRANT_CHAIR`
+ * with 1 yoctoNEAR. The amounts are the constants above and the receiver is checked to be exactly 64 lowercase hex characters (a key's account, never
+ * the faucet's own or a named one), so no input can change what is signed beyond which new account gets it. The key is full-access (a Transfer
+ * needs it); the account holds only the faucet's budget.
+ */
+export class FaucetSigner extends TokenCaller implements FaucetSender {
+  private readonly settle: Required<SettleOptions>;
+
+  /** `archival` is asked after the ordinary nodes, because it still knows a transaction they forgot (about 31 hours); it settles nothing by not knowing one (see `settleKnown`). */
+  constructor(secretKey: string, accountId: string, token: string, rpc: NearRpc, private readonly archival: NearRpc, settle: SettleOptions = {}) {
+    super(secretKey, accountId, token, rpc);
+    this.settle = { attempts: settle.attempts ?? 4, backoffMs: settle.backoffMs ?? 1000, sleep: settle.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))) };
+  }
+
+  private checkReceiver(receiver: string): void {
+    if (!IMPLICIT_RE.test(receiver) || receiver === this.accountId) throw new RangeError("the receiver must be a 64-character lowercase hex implicit account");
+  }
+
+  /** Sign one step of a grant. Exposed for tests; `grant` is the normal path. */
+  async build(step: FaucetStep, receiver: string, nonce: bigint, blockHash: string): Promise<SignedTransaction> {
+    this.checkReceiver(receiver);
+    switch (step) {
+      case "transfer":
+        return this.sign(actions.transfer(FAUCET_GRANT_NEAR), nonce, blockHash, receiver);
+      case "storage_deposit":
+        return this.sign(actions.functionCall("storage_deposit", { account_id: receiver }, FAUCET_GAS, FAUCET_STORAGE_DEPOSIT), nonce, blockHash);
+      case "ft_transfer":
+        return this.sign(actions.functionCall("ft_transfer", { receiver_id: receiver, amount: FAUCET_GRANT_CHAIR.toString(), memo: FAUCET_MEMO }, FAUCET_GAS, 1n), nonce, blockHash);
+      default:
+        throw new RangeError(`no such faucet step: ${String(step)}`);
+    }
+  }
+
+  /** The caller serializes grants (one in flight); each new transaction signs above the last nonce this signer used, so one still pending is never overwritten. */
+  async grant(receiver: string, finished: ReadonlySet<FaucetStep>, pending: PendingTx | null, hooks: FaucetHooks, deadlineAt: number): Promise<FaucetOutcome> {
+    this.checkReceiver(receiver);
+    const txs: string[] = [];
+    let carried = pending;
+    for (const step of FAUCET_STEPS) {
+      if (finished.has(step)) continue;
+      let sent = false;
+      try {
+        let res: SubmitResult | null = null;
+        const stored = carried;
+        if (stored !== null && stored.step === step) {
+          sent = true;
+          carried = null;
+          res = await withinDeadline(() => this.settleKnown(stored), deadlineAt);
+        }
+        if (res === null) {
+          sent = false; // from here on a throw means the fresh transaction was not sent
+          if (hooks.halt()) return { txs, failed: null, halted: true };
+          this.raiseNonce(hooks.nonceFloor());
+          const signed = await withinDeadline(() => this.prepare((nonce, block) => this.build(step, receiver, nonce, block), assertFullAccess), deadlineAt);
+          const fresh = { step, hash: hashOf(signed), tx: Buffer.from(signed.encode()).toString("base64") };
+          hooks.onPending(fresh);
+          sent = true;
+          res = await withinDeadline(() => this.deliver(fresh), deadlineAt);
+        }
+        if (res.failure !== null) return { txs, failed: { step, failure: res.failure } };
+        txs.push(res.txHash);
+        hooks.onStep(step, res.txHash);
+      } catch (err) {
+        if (!sent && !(err instanceof DeadlineError)) throw err;
+        return { txs, failed: { step, failure: null } };
+      }
+    }
+    return { txs, failed: null };
+  }
+
+  /** Waits out the pause between two looks at a transaction, doubling each time; false once the looks are used up. */
+  private async pause(attempt: number): Promise<boolean> {
+    if (attempt >= this.settle.attempts) return false;
+    await this.settle.sleep(this.settle.backoffMs * 2 ** (attempt - 1));
+    return true;
+  }
+
+  /**
+   * The rule: a step gets a fresh signature ONLY after its stored transaction is seen executed with an ACTION failure on the chain (`TxStatus.executed`
+   * with a `failure`: one of its actions failed, so its nonce is used and it ran). Nothing else ever leads to a new signature: not a rejected resend
+   * (a congested shard refuses a transaction that still sits in a pool), not "unknown" from any node (an ordinary node forgets after about 31 hours,
+   * and no node can say a transaction in some pool will never land), not an `InvalidTxError` (a refused transaction that may be included later), not
+   * expiry, not time. Executed and succeeded, the step is done; executed with an action failure, null (sign a new one); anything else (included and
+   * not executed, unknown anywhere, no answer): the same bytes are sent once more, however that is refused and whatever it answers, one more look is
+   * taken, and if it is still not executed this throws and the step stays pending. A transaction that truly never lands thus leaves its visitor on
+   * "try again" for good, which costs nothing; a second payment is impossible. This is the only place that decides a signature, and it is told only
+   * by `lookUp`, never by what a send answered.
+   */
+  private async settleKnown(p: PendingTx): Promise<SubmitResult | null> {
+    const first = await this.lookUp(p);
+    const seen = first?.executed === true ? first : (await this.resend(p), await this.lookUp(p));
+    if (seen?.executed !== true) throw new RpcError("the transaction is not executed yet", false, true);
+    return seen.failure === null ? { txHash: p.hash, failure: null } : null;
+  }
+
+  /** What the ordinary nodes say of the transaction, else what the archival node says (it keeps what they forgot); null when neither says anything, whether they do not know it or did not answer. */
+  private async lookUp(p: PendingTx): Promise<TxStatus | null> {
+    for (const rpc of [this.rpc, this.archival]) {
+      const seen = await rpc.txOutcome(p.hash, this.accountId).catch((err: unknown) => {
+        if (err instanceof RpcError) return null;
+        throw err;
+      });
+      if (seen !== null) return seen;
+    }
+    return null;
+  }
+
+  /** Sends the stored bytes again and ignores the answer, a refusal of any kind or an outcome: the same bytes can never be paid twice, and `lookUp` is what says where they stand. */
+  private async resend(p: PendingTx): Promise<void> {
+    try {
+      await this.rpc.sendTx(p.tx);
+    } catch (err) {
+      if (!(err instanceof RpcError)) throw err;
+    }
+  }
+
+  /**
+   * Sends a new transaction. An answer that never came (timeout, throttle, dropped connection) does not say whether the node took it: so look it up
+   * by its hash, wait while it is still on its way, and send the identical signed bytes again when the node does not know it. The same bytes cannot be
+   * paid twice (the network keeps one transaction per nonce), and a transaction this young is not yet forgotten, so no archival look is needed here.
+   */
+  private async deliver(p: PendingTx): Promise<SubmitResult> {
+    try {
+      return await this.rpc.sendTx(p.tx);
+    } catch (err) {
+      if (!(err instanceof RpcError) || !err.transient) throw err;
+      for (let attempt = 1; await this.pause(attempt); attempt++) {
+        const seen = await this.rpc.txOutcome(p.hash, this.accountId).catch(() => undefined);
+        if (seen?.executed === true) return { txHash: p.hash, failure: seen.failure };
+        if (seen === null) return this.rpc.sendTx(p.tx);
+      }
+      throw err;
+    }
+  }
 }

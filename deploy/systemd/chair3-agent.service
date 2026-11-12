@@ -12,6 +12,8 @@ Environment=CHAIR_KEY_FILE=%h/.claude/secrets/survival-testnet/chair3/challenger
 Environment=PATH=%h/.local/share/mise/installs/node/26/bin:%h/.local/share/mise/installs/gh/latest/gh_2.103.3_linux_amd64/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 # Fresh state dir: the decisions, the console logs and the runner lock of this token only (the old token's are in ~/.local/state/chair-agent).
 Environment=CHAIR_STATE_DIR=%h/.local/state/chair3-agent
+# The agent tries these in order: a read that fails (429, down) moves to the next, a send only when the node refused it before taking it.
+Environment=CHAIR_RPC_URL=https://rpc.testnet.fastnear.com,https://near-testnet.drpc.org,https://rpc.testnet.near.org
 Restart=always
 RestartSec=30
 

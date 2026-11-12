@@ -352,6 +352,45 @@ test("a send that keeps failing: one model call, one logged decision, three send
   assert.equal(chain.refusals.length, 0);
 });
 
+test("a read that gets HTTP 429 is retried, and a dead first endpoint fails over to the next, in one run", async () => {
+  nextEpoch();
+  const waits: number[] = [];
+  const sleep = (ms: number) => {
+    waits.push(ms);
+    return Promise.resolve();
+  };
+  node.throttle = 1;
+  const o = io();
+  const argv = ["run", "--rpc", `http://127.0.0.1:1,${node.url}`, "--token", TOKEN, "--account", CHAIR, "--once", "--log", join(dir, "failover.jsonl")];
+  const code = await main(argv, env(), o, { sleep });
+  assert.equal(code, 0, o.err_.join("\n"));
+  assert.equal(node.throttle, 0, "the 429 was met and survived");
+  const records = readFileSync(join(dir, "failover.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+  assert.equal(records.at(-1)?.["status"], "executed");
+});
+
+test("a tick whose send fails once is tried again in the same epoch and lands", async () => {
+  nextEpoch();
+  const logPath = join(dir, "recover.jsonl");
+  const argv = ["run", "--rpc", node.url, "--token", TOKEN, "--account", CHAIR, "--log", logPath];
+  const sleeps: number[] = [];
+  const ac = new AbortController();
+  node.failSends = 1;
+  const o = io();
+  await main(argv, env(), o, {
+    signal: ac.signal,
+    sleep: (ms) => {
+      sleeps.push(ms);
+      if (sleeps.length === 2) ac.abort();
+      return Promise.resolve();
+    },
+  });
+  node.failSends = 0;
+  const records = readFileSync(logPath, "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+  assert.deepEqual(records.map((r) => r["status"]).slice(-2), ["send_failed", "executed"], o.err_.join("\n") + o.out_.join("\n"));
+  assert.equal(sleeps[0], 10_000, "retried after 10 s, inside the 90 s meeting");
+});
+
 test("verify-log reports the token and account, and flags a log shared by two of them", async () => {
   const p = join(dir, "log.jsonl");
   const lines = readFileSync(p, "utf8").trim().split("\n");

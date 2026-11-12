@@ -281,7 +281,7 @@ test("GET /record: newest first, default 20, at most 50, a bad limit is a 400; /
     assert.equal((await get("?limit=3")).entries.length, 3);
     assert.equal((await get("?limit=500")).entries.length, 50);
     for (const bad of ["?limit=0", "?limit=-1", "?limit=abc", "?limit=1.5", "?limit="]) assert.equal((await get(bad)).status, 400, bad);
-    assert.deepEqual(await (await fetch(`${d.base}/health`)).json(), { ok: true, overreach: false, join: false });
+    assert.deepEqual(await (await fetch(`${d.base}/health`)).json(), { ok: true, overreach: false, join: false, faucet: false });
     assert.equal((await fetch(`${d.base}/nope`)).status, 404);
     assert.equal((await fetch(`${d.base}/__proto__`)).status, 404);
     assert.equal((await fetch(`${d.base}/ask`)).status, 405);

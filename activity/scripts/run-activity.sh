@@ -5,7 +5,7 @@
 # Required: CHAIR_ACTIVITY_KEY_DIR, the directory with one `<account>.key` file per holder (the files are read by the
 # bot, never by this script, and never printed or copied).
 # Optional, with the values of the live testnet deployment as defaults:
-#   CHAIR_RPC_URL, CHAIR_TOKEN, CHAIR_ACTIVITY_HOLDERS (three accounts, comma separated), CHAIR_ACTIVITY_SEED
+#   CHAIR_RPC_URL (one endpoint or several, comma separated: reads move to the next on a failure, sends use the first), CHAIR_TOKEN, CHAIR_ACTIVITY_HOLDERS (three accounts, comma separated), CHAIR_ACTIVITY_SEED
 #   CHAIR_ACTIVITY_EVERY  act in one epoch of every N (whole number, default 1; the live deployment sets 6 to save gas)
 #   CHAIR_ACTIVITY_STATE_DIR  where the runner lock and the action log live (default ~/.local/state/chair-activity)
 #   CHAIR_ACTIVITY_LOG   the JSON-lines action log (default activity.jsonl in the state dir)
@@ -16,7 +16,7 @@ set -euo pipefail
 
 : "${CHAIR_ACTIVITY_KEY_DIR:?set CHAIR_ACTIVITY_KEY_DIR to the directory with the holders key files}"
 export CHAIR_ACTIVITY_KEY_DIR
-export CHAIR_RPC_URL="${CHAIR_RPC_URL:-https://test.rpc.fastnear.com}"
+export CHAIR_RPC_URL="${CHAIR_RPC_URL:-https://rpc.testnet.fastnear.com,https://near-testnet.drpc.org,https://rpc.testnet.near.org}"
 export CHAIR_TOKEN="${CHAIR_TOKEN:-token.chair-coin-3.testnet}"
 export CHAIR_ACTIVITY_HOLDERS="${CHAIR_ACTIVITY_HOLDERS:-alice.chair-coin-3.testnet,bob.chair-coin-3.testnet,carol.chair-coin-3.testnet}"
 

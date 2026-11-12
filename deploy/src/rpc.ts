@@ -1,6 +1,8 @@
 // The read side: NEAR JSON-RPC over fetch, every response checked before it is used. Public RPCs answer HTTP 429
-// under load, so a 429 (and a 5xx) is retried with a doubling wait. Signing and sending go through near-api-js
-// (actor.ts); this file is all `verify` needs, so a stranger's read-only check pulls in no key handling.
+// under load, so a 429 (and a 5xx) is retried with a doubling wait. The url may be a comma-separated list: a failed
+// try moves on to the next endpoint and the wait comes only after every endpoint has been tried once. Signing and
+// sending go through near-api-js (run.ts, activity/src/chain.ts), on the first endpoint; this file is all `verify`
+// needs, so a stranger's read-only check pulls in no key handling.
 
 import { assertTestnetChain, type TestnetAccount } from "./guard.ts";
 
@@ -49,31 +51,43 @@ function str(v: unknown, what: string): string {
 
 export class Rpc {
   private id = 0;
-  readonly url: string;
+  /** Every endpoint, in the order given. Reads start on the first and stay on the one that last answered. */
+  readonly urls: readonly string[];
+  private cursor = 0;
   private readonly fetchImpl: Fetch;
   private readonly sleep: Sleep;
-  private constructor(url: string, fetchImpl: Fetch, sleep: Sleep) {
-    this.url = url;
+  private constructor(urls: readonly string[], fetchImpl: Fetch, sleep: Sleep) {
+    this.urls = urls;
     this.fetchImpl = fetchImpl;
     this.sleep = sleep;
   }
 
-  /** The only way to get an `Rpc`: the node must report chain_id "testnet". */
+  /** The first endpoint: the one near-api-js signs and sends through, which has no failover of its own. */
+  get url(): string {
+    return this.urls[0]!;
+  }
+
+  /** The only way to get an `Rpc`: the first node to answer must report chain_id "testnet". `url` is one endpoint or several, comma separated. */
   static async connect(url: string, fetchImpl: Fetch = fetch, sleep: Sleep = (ms) => new Promise((r) => setTimeout(r, ms))): Promise<Rpc> {
-    const u = new URL(url);
-    if (u.protocol !== "https:" && u.hostname !== "127.0.0.1" && u.hostname !== "localhost") throw new Error("the RPC url must be https");
-    const rpc = new Rpc(url, fetchImpl, sleep);
+    const urls = url.split(",").map((one) => one.trim());
+    for (const one of urls) {
+      const u = new URL(one);
+      if (u.protocol !== "https:" && u.hostname !== "127.0.0.1" && u.hostname !== "localhost") throw new Error("the RPC url must be https");
+    }
+    const rpc = new Rpc(urls, fetchImpl, sleep);
     assertTestnetChain(obj(await rpc.call("status", []), "status")["chain_id"]);
     return rpc;
   }
 
   async call(method: string, params: unknown): Promise<unknown> {
     const body = JSON.stringify({ jsonrpc: "2.0", id: `chair-deploy-${++this.id}`, method, params });
+    const first = this.cursor;
     for (let attempt = 0; ; attempt++) {
+      const at = (first + attempt) % this.urls.length;
       let status: number;
       let text: string;
       try {
-        const res = await this.fetchImpl(this.url, {
+        const res = await this.fetchImpl(this.urls[at]!, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body,
@@ -85,12 +99,18 @@ export class Rpc {
         status = 0; // transport failure: retry like a 5xx
         text = "";
       }
-      const wait = WAITS_MS[attempt];
-      if ((status === 429 || status >= 500 || status === 0) && wait !== undefined) {
-        await this.sleep(wait);
-        continue;
+      // With one endpoint any other status is an answer; with several, an endpoint that refuses (a key-gated one says 401 or 403) is skipped.
+      if (status === 429 || status >= 500 || status === 0 || (this.urls.length > 1 && status !== 200)) {
+        const round = (attempt + 1) / this.urls.length;
+        if (!Number.isInteger(round)) continue; // an endpoint is left to try before the pause
+        const wait = WAITS_MS[round - 1];
+        if (wait !== undefined) {
+          await this.sleep(wait);
+          continue;
+        }
       }
       if (status !== 200) throw new RpcError(`rpc ${method}: HTTP ${status}`);
+      this.cursor = at; // answered: the next read starts here
       let parsed: unknown;
       try {
         parsed = JSON.parse(text);

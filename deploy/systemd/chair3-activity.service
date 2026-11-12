@@ -10,6 +10,8 @@ Environment=CHAIR_ACTIVITY_KEY_DIR=%h/.claude/secrets/survival-testnet/chair3
 Environment=CHAIR_ACTIVITY_EVERY=6
 # The runner lock and the action log of this token only (the old token's are in ~/.local/state/chair-activity).
 Environment=CHAIR_ACTIVITY_STATE_DIR=%h/.local/state/chair3-activity
+# Reads try these in order: a failure (429, down) moves to the next endpoint. Sends go to the first (near-api-js has no failover across endpoints).
+Environment=CHAIR_RPC_URL=https://rpc.testnet.fastnear.com,https://near-testnet.drpc.org,https://rpc.testnet.near.org
 Environment=PATH=%h/.local/share/mise/installs/node/26/bin:%h/.local/share/mise/installs/gh/latest/gh_2.103.3_linux_amd64/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Restart=always
 RestartSec=30

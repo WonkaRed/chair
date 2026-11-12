@@ -51,6 +51,70 @@ test("a node that keeps answering 429 is given up on, not retried forever", asyn
   await assert.rejects(Rpc.connect("https://test.rpc.fastnear.com", fetchImpl, noSleep), /HTTP 429/);
 });
 
+const A = "https://a.example";
+const B = "https://b.example";
+const C = "https://c.example";
+const TESTNET = { jsonrpc: "2.0", id: "x", result: { chain_id: "testnet" } };
+
+/** A fake network: `behaviour` says what each endpoint answers (a status, or "refused" for a transport failure); `seen` lists the endpoints asked, in order. */
+function network(behaviour: Record<string, number | "refused">) {
+  const seen: string[] = [];
+  const fetchImpl = async (url: string) => {
+    seen.push(url);
+    const how = behaviour[url];
+    if (how === "refused") throw new TypeError("fetch failed");
+    return how === 200 ? reply(TESTNET) : reply({}, how);
+  };
+  return { seen, fetchImpl };
+}
+
+test("a 429 on the first endpoint is answered by the second at once, and the second is then asked first", async () => {
+  const net = network({ [A]: 429, [B]: 200 });
+  const waits: number[] = [];
+  const rpc = await Rpc.connect(`${A},${B}`, net.fetchImpl, async (ms) => void waits.push(ms));
+  assert.deepEqual(net.seen, [A, B]);
+  assert.deepEqual(waits, []);
+  assert.deepEqual(rpc.urls, [A, B]);
+  assert.equal(rpc.url, A);
+  await rpc.call("status", []);
+  assert.deepEqual(net.seen, [A, B, B]);
+});
+
+test("the wait comes after every endpoint has been tried, doubles per round, and ends in the last status", async () => {
+  const net = network({ [A]: 429, [B]: "refused", [C]: 503 });
+  const waits: number[] = [];
+  await assert.rejects(Rpc.connect(`${A}, ${B} ,${C}`, net.fetchImpl, async (ms) => void waits.push(ms)), /HTTP 503/);
+  assert.deepEqual(waits, [1000, 2000, 4000, 8000, 16000, 32000]);
+  assert.equal(net.seen.length, 7 * 3);
+  assert.deepEqual(net.seen.slice(0, 4), [A, B, C, A]);
+});
+
+test("with several endpoints one that refuses outright (403) is skipped; with one it is the answer, as before", async () => {
+  const net = network({ [A]: 403, [B]: 200 });
+  await Rpc.connect(`${A},${B}`, net.fetchImpl, noSleep);
+  assert.deepEqual(net.seen, [A, B]);
+  const single = network({ [A]: 403 });
+  await assert.rejects(Rpc.connect(A, single.fetchImpl, noSleep), /HTTP 403/);
+  assert.deepEqual(single.seen, [A]);
+});
+
+test("a node's own error is an answer and is not retried on another endpoint", async () => {
+  const seen: string[] = [];
+  const fetchImpl = async (url: string) => {
+    seen.push(url);
+    return reply({ error: { name: "HANDLER_ERROR", message: "x", cause: { name: "UNKNOWN_BLOCK" } } });
+  };
+  await assert.rejects(Rpc.connect(`${A},${B}`, fetchImpl, noSleep), /UNKNOWN_BLOCK/);
+  assert.deepEqual(seen, [A]);
+});
+
+test("every endpoint in a list must be https unless local, and an empty entry is refused", async () => {
+  const net = network({ [A]: 200 });
+  await assert.rejects(Rpc.connect(`${A},http://example.com`, net.fetchImpl, noSleep), /https/);
+  await assert.rejects(Rpc.connect(`${A},`, net.fetchImpl, noSleep));
+  assert.deepEqual(net.seen, []);
+});
+
 test("a missing account is null, any other node error is raised", async () => {
   const answers: unknown[] = [
     { result: { chain_id: "testnet" } },

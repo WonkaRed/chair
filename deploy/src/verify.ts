@@ -66,7 +66,7 @@ export async function gather(rpc: Rpc, record: DeploymentRecord, docsDir: string
     totalSupplyView: await views.totalSupply(),
     policy: await views.policy(),
     recordedHoldings: held,
-    minutes: await gatherMinutes(rpc.url, token, docsDir),
+    minutes: await gatherMinutes(rpc.urls, token, docsDir),
   };
 }
 

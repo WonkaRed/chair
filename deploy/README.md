@@ -50,7 +50,7 @@ node src/cli.ts scenario                                           # the scripte
 node src/cli.ts verify [--wasm <file.wasm>]                        # read-only checks (below)
 ```
 
-Options: `--record <file>` (default `docs/testnet-deployment.json`), `--rpc <url>` (default `https://test.rpc.fastnear.com`),
+Options: `--record <file>` (default `docs/testnet-deployment.json`), `--rpc <url>` (default `https://test.rpc.fastnear.com`; several endpoints may be given comma separated: reads move to the next on a 429 or a failure, transactions are sent through the first),
 `--keys <dir>`.
 
 `deploy` and `scenario` are **resumable**: each step has an id, and a step already in the record is skipped. A step that ends

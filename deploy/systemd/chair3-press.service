@@ -17,6 +17,16 @@ Environment=CHAIR_STATE_DIR=%h/.local/state/chair3-agent
 # The Join the Committee panel: the visitor pool account and its full-access key (a stake needs an attached deposit). Remove both lines to switch the feature off.
 Environment=CHAIR_VISITOR_ACCOUNT=visitors.chair-coin-3.testnet
 Environment=CHAIR_VISITOR_KEY_FILE=%h/.claude/secrets/survival-testnet/chair3/visitors.chair-coin-3.testnet.key
+# The test-coin faucet (POST /faucet: 0.05 NEAR + 50 CHAIR per address, 200 grants in all). Its own account and key hold only its budget; no other account may be this one. Remove the key line to switch the faucet off; `touch` the kill file to stop it at once (rm to resume).
+Environment=CHAIR_FAUCET_KEY_FILE=%h/.claude/secrets/survival-testnet/chair3/chair-faucet-3.testnet.key
+Environment=CHAIR_FAUCET_ACCOUNT=chair-faucet-3.testnet
+# The grants ledger: keep this path stable. If it goes missing after the faucet has run, the faucet stays off (see the README) instead of starting a new budget.
+Environment=CHAIR_FAUCET_STATE_FILE=%h/.local/state/chair3-agent/faucet.json
+Environment=CHAIR_FAUCET_KILL_FILE=%h/.local/state/chair3-agent/faucet.kill
+# The agent tries these in order: a read that fails (429, down) moves to the next, a send only when the node refused it before taking it.
+Environment=CHAIR_RPC_URL=https://rpc.testnet.fastnear.com,https://near-testnet.drpc.org,https://rpc.testnet.near.org
+# The faucet asks these (archival: they keep every transaction, the ones above forget after about 31 hours) whether an old unfinished step ever landed; if none answers the step waits and is never paid again.
+Environment=CHAIR_ARCHIVAL_RPC_URL=https://archival-rpc.testnet.fastnear.com
 Restart=always
 RestartSec=5
 

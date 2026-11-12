@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { parseArgs } from "node:util";
 import { MAX_SEND_ATTEMPTS, tick, type TickResult } from "./agent.js";
 import { ChainReader } from "./chain.js";
@@ -7,13 +7,14 @@ import type { DecideOptions } from "./decide.js";
 import { AnthropicLlmClient, LlmChair, LocalLlmClient, llmConfigured, type LlmClient } from "./llm-chair.js";
 import { DecisionLog, findReasoning, verifyLog } from "./log.js";
 import { answerQuestion, ModelWatch, RECENT_LINES, stayOffTheModel } from "./press-answer.js";
+import { Faucet, limitsFromEnv, Refused, RpcFaucetReader } from "./press-faucet.js";
 import { DEFAULT_JOIN_LIMITS, Join } from "./press-join.js";
 import { Overreach } from "./press-overreach.js";
 import { createPressServer, listen } from "./press-server.js";
 import { PressStore } from "./press-store.js";
 import { NearRpc } from "./rpc.js";
 import { ruleChair } from "./rule-chair.js";
-import { ChairSigner, PoolSigner, assertFullAccess, assertScoped, loadKeyFile, loadSecretKey, METHOD } from "./signer.js";
+import { ChairSigner, FaucetSigner, KeyError, PoolSigner, assertFullAccess, assertScoped, loadKeyFile, loadSecretKey, METHOD } from "./signer.js";
 import { sanitize } from "./text.js";
 import { accountId, int } from "./validate.js";
 import type { Decision } from "./types.js";
@@ -25,7 +26,7 @@ const USAGE = `chair-agent: sets the $CHAIR rate once per epoch.
   chair-agent press [options]        take questions from the public page on 127.0.0.1 and answer them (see "press options")
 
 run options (each also read from the environment variable in brackets):
-  --rpc <url>          JSON-RPC endpoint [CHAIR_RPC_URL]            required
+  --rpc <url>          JSON-RPC endpoint, or several separated by commas [CHAIR_RPC_URL]   required
   --token <account>    the $CHAIR token contract [CHAIR_TOKEN]      required
   --account <account>  the chair account [CHAIR_ACCOUNT]            required
   --log <file>         decision log, JSON lines [CHAIR_LOG]         default ./decisions.jsonl
@@ -59,6 +60,14 @@ export interface CliDeps {
   /** Replaces real sleeping; resolves early when aborted. */
   sleep?: (ms: number, signal: AbortSignal) => Promise<void>;
   signal?: AbortSignal;
+}
+
+/**
+ * The chain client every command uses. `url` may list several endpoints separated by commas: a read that gets no answer (HTTP 429, a timeout, a dropped
+ * connection) is tried up to four times, 0.5 s, 1 s and 2 s apart, each on the next endpoint; a send moves on only when the node refused before accepting it.
+ */
+function nearRpc(url: string, sleep?: (ms: number) => Promise<void>): NearRpc {
+  return new NearRpc(url, 15_000, undefined, { attempts: 4, backoffMs: 500, ...(sleep === undefined ? {} : { sleep }) });
 }
 
 const realSleep = (ms: number, signal: AbortSignal): Promise<void> =>
@@ -174,7 +183,9 @@ async function runCommand(args: readonly string[], env: NodeJS.ProcessEnv, io: I
   }
   const decideOptions: DecideOptions = { chair: llm ?? chair, marginMs, timeoutMs };
 
-  const rpc = new NearRpc(rpcUrl);
+  const signal = deps.signal ?? new AbortController().signal;
+  const sleep = deps.sleep ?? realSleep;
+  const rpc = nearRpc(rpcUrl, (ms) => sleep(ms, signal));
   const chainId = await rpc.chainId();
   if (chainId === "mainnet") throw new Error("refusing to run against mainnet: this is a test-network experiment");
 
@@ -195,8 +206,6 @@ async function runCommand(args: readonly string[], env: NodeJS.ProcessEnv, io: I
   const agent = { reader: new ChainReader(rpc, token), log, decideOptions, chairAccount: account, submitter, ...(press === undefined ? {} : { press }) };
   io.out(`chair-agent on ${chainId}: token ${token}, chair ${account}, chair kind ${decideOptions.chair.name}${dryRun ? ", dry run" : ""}${press === undefined ? "" : ", press record on"}`);
 
-  const signal = deps.signal ?? new AbortController().signal;
-  const sleep = deps.sleep ?? realSleep;
   for (;;) {
     let wait = 10_000;
     let code = 1;
@@ -228,7 +237,7 @@ async function overreachFrom(env: NodeJS.ProcessEnv, io: Io): Promise<Overreach 
     if (rpcUrl === undefined) throw new Error("CHAIR_RPC_URL is required");
     const token = accountId(env["CHAIR_TOKEN"], "CHAIR_TOKEN");
     const account = accountId(env["CHAIR_ACCOUNT"], "CHAIR_ACCOUNT");
-    const rpc = new NearRpc(rpcUrl);
+    const rpc = nearRpc(rpcUrl);
     if ((await rpc.chainId()) === "mainnet") throw new Error("refusing to run against mainnet: this is a test-network experiment");
     const sender = new ChairSigner(loadKeyFile(keyFile, "CHAIR_OVERREACH_KEY_FILE", (m) => io.err(`WARNING: ${m}`)), account, token, rpc);
     assertScoped(await rpc.accessKey(account, await sender.publicKey()), token);
@@ -254,7 +263,7 @@ async function joinFrom(env: NodeJS.ProcessEnv, io: Io): Promise<Join | null> {
     const token = accountId(env["CHAIR_TOKEN"], "CHAIR_TOKEN");
     const pool = accountId(env["CHAIR_VISITOR_ACCOUNT"], "CHAIR_VISITOR_ACCOUNT");
     const idleResetMs = int(Number(env["CHAIR_JOIN_IDLE_RESET_S"] ?? DEFAULT_JOIN_LIMITS.idleResetMs / 1000), "CHAIR_JOIN_IDLE_RESET_S", 1, 86_400) * 1000;
-    const rpc = new NearRpc(rpcUrl);
+    const rpc = nearRpc(rpcUrl);
     if ((await rpc.chainId()) === "mainnet") throw new Error("refusing to run against mainnet: this is a test-network experiment");
     const sender = new PoolSigner(loadKeyFile(keyFile, "CHAIR_VISITOR_KEY_FILE", (m) => io.err(`WARNING: ${m}`)), pool, token, rpc);
     assertFullAccess(await rpc.accessKey(pool, await sender.publicKey()));
@@ -262,6 +271,59 @@ async function joinFrom(env: NodeJS.ProcessEnv, io: Io): Promise<Join | null> {
     return new Join({ reader: new ChainReader(rpc, token, pool), sender, poolAccount: pool, limits: { idleResetMs }, log: (line) => io.out(line) });
   } catch (err) {
     io.err(`join off: ${err instanceof Error ? sanitize(err.message, 200) : "unknown error"}`);
+    return null;
+  }
+}
+
+/** Where a faucet step's stored transaction is also looked up, because it may have landed long ago and an ordinary node forgets it after about 31 hours: an archival one does not. */
+const DEFAULT_ARCHIVAL_RPC_URL = "https://archival-rpc.testnet.fastnear.com";
+
+/** The archival lookup: one short try on each listed endpoint, no pauses, so a node that is down costs seconds and the request stays within the signer's deadline. */
+function archivalRpc(url: string): NearRpc {
+  return new NearRpc(url, 8_000, undefined, { attempts: url.split(",").length, backoffMs: 0 });
+}
+
+/**
+ * The test-coin faucet needs its account (CHAIR_FAUCET_ACCOUNT), that account's full-access key file (CHAIR_FAUCET_KEY_FILE), the file where it keeps its grants
+ * (CHAIR_FAUCET_STATE_FILE) and the chain (CHAIR_RPC_URL, which may list several endpoints separated by commas; CHAIR_TOKEN). Optional: CHAIR_FAUCET_KILL_FILE, a file
+ * whose existence closes the faucet at once, and CHAIR_FAUCET_HOURLY, CHAIR_FAUCET_DAILY and CHAIR_FAUCET_LIFETIME, positive whole numbers that replace the caps on grants, and CHAIR_ARCHIVAL_RPC_URL, archival endpoints
+ * separated by commas (default `DEFAULT_ARCHIVAL_RPC_URL`) that find an old step that did land; a wrong one can only leave a grant stuck, never pay twice (see `FaucetSigner.settleKnown`).
+ * Without the key file the faucet is off silently; with a setting missing or unusable it is off and says so in the log, like the overreach. The checks that need
+ * the chain (not mainnet, a full-access key) are made by the faucet itself, in the background, and tried again until the chain answers. The faucet's account must not be
+ * CHAIR_VISITOR_ACCOUNT or CHAIR_ACCOUNT. `stateDir` (the press record's directory) holds a marker, `faucet-<account>.began`, made with the first state file: a state file that is
+ * gone while the marker is there keeps the faucet off (see `Ledger`), so changing CHAIR_FAUCET_STATE_FILE cannot quietly give the budget out again.
+ */
+function faucetFrom(env: NodeJS.ProcessEnv, io: Io, stateDir: string): Faucet | null {
+  const keyFile = env["CHAIR_FAUCET_KEY_FILE"];
+  if (keyFile === undefined) return null;
+  try {
+    const rpcUrl = env["CHAIR_RPC_URL"];
+    if (rpcUrl === undefined) throw new Error("CHAIR_RPC_URL is required");
+    const token = accountId(env["CHAIR_TOKEN"], "CHAIR_TOKEN");
+    const account = accountId(env["CHAIR_FAUCET_ACCOUNT"], "CHAIR_FAUCET_ACCOUNT");
+    const stateFile = env["CHAIR_FAUCET_STATE_FILE"];
+    if (stateFile === undefined) throw new Error("CHAIR_FAUCET_STATE_FILE is required: the faucet's budget must survive a restart");
+    for (const [name, other] of [["CHAIR_VISITOR_ACCOUNT", env["CHAIR_VISITOR_ACCOUNT"]], ["CHAIR_ACCOUNT", env["CHAIR_ACCOUNT"]]] as const) {
+      if (other === account) throw new Error(`CHAIR_FAUCET_ACCOUNT is also ${name}: the faucet's account may hold nothing but the faucet's budget`);
+    }
+    const killFile = env["CHAIR_FAUCET_KILL_FILE"];
+    const limits = limitsFromEnv(env);
+    const rpc = nearRpc(rpcUrl);
+    const archival = archivalRpc(env["CHAIR_ARCHIVAL_RPC_URL"] ?? DEFAULT_ARCHIVAL_RPC_URL);
+    const sender = new FaucetSigner(loadKeyFile(keyFile, "CHAIR_FAUCET_KEY_FILE", (m) => io.err(`WARNING: ${m}`)), account, token, rpc, archival);
+    const check = async (): Promise<void> => {
+      if ((await rpc.chainId()) === "mainnet") throw new Refused("refusing to run against mainnet: this is a test-network experiment");
+      try {
+        assertFullAccess(await rpc.accessKey(account, await sender.publicKey()));
+      } catch (err) {
+        throw err instanceof KeyError ? new Refused(err.message) : err;
+      }
+    };
+    const faucet = new Faucet({ reader: new RpcFaucetReader(rpc, token, account), sender, stateFile, markerFile: join(stateDir, `faucet-${account}.began`), ...(killFile === undefined ? {} : { killFile }), check, limits, log: (line) => io.out(line) });
+    io.out(`faucet on: ${account} gives new testnet accounts a grant of ${token} coins${killFile === undefined ? "" : `; the file ${killFile} closes it`}`);
+    return faucet;
+  } catch (err) {
+    io.err(`faucet off: ${err instanceof Error ? sanitize(err.message, 200) : "unknown error"}`);
     return null;
   }
 }
@@ -289,10 +351,12 @@ async function pressCommand(args: readonly string[], env: NodeJS.ProcessEnv, io:
   const store = new PressStore(file);
   const overreach = await overreachFrom(env, io);
   const committee = await joinFrom(env, io);
+  const faucet = faucetFrom(env, io, dirname(file));
   const server = createPressServer({
     store,
     ...(overreach === null ? {} : { overreach }),
     ...(committee === null ? {} : { join: committee }),
+    ...(faucet === null ? {} : { faucet }),
     answer: async (question) => {
       await stayOffTheModel(() => store.decisionBusy());
       return answerQuestion(llm, question, store.recent(RECENT_LINES).map((e) => e.answer));
@@ -301,12 +365,14 @@ async function pressCommand(args: readonly string[], env: NodeJS.ProcessEnv, io:
     log: (line) => io.out(line),
   });
   const stopWatching = committee?.watch();
+  const stopFaucet = faucet?.watch();
   const bound = await listen(server, port);
   io.out(`chair-agent press on 127.0.0.1:${bound}, record ${file}, model ${watch === null ? "stand-in" : model}${watch?.available === false ? " (not reachable yet; answering 503 until it is)" : ""}`);
   const signal = deps.signal ?? new AbortController().signal;
   if (!signal.aborted) await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
   watch?.stop();
   stopWatching?.();
+  stopFaucet?.();
   await new Promise<void>((resolve) => {
     server.close(() => resolve());
     server.closeAllConnections();

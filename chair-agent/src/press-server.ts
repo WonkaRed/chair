@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { isIP } from "node:net";
 import type { Answered } from "./press-answer.js";
+import { closed, OFF_STATE, type Faucet } from "./press-faucet.js";
 import type { Join } from "./press-join.js";
 import type { Overreach } from "./press-overreach.js";
 import { cleanQuestion, toPublic, type PressEntry, type PressStore } from "./press-store.js";
@@ -72,6 +73,8 @@ export interface PressServerOptions {
   readonly overreach?: Pick<Overreach, "start" | "poll">;
   /** "Join the Committee" (POST /join, GET /join); absent, those routes answer that the desk is closed. */
   readonly join?: Pick<Join, "start" | "state">;
+  /** The test-coin faucet (POST /faucet, GET /faucet/state); absent, /faucet answers 503 off and the state says so. */
+  readonly faucet?: Pick<Faucet, "start" | "state" | "live">;
   readonly now?: () => number;
   /** One line per answered question: id, hash, source. Never the question and never the asker. */
   readonly log?: (line: string) => void;
@@ -184,6 +187,22 @@ export function createPressServer(opts: PressServerOptions): Server {
     reply(res, r.status, r.body, cors);
   }
 
+  async function faucet(req: IncomingMessage, res: ServerResponse, cors: Record<string, string>): Promise<void> {
+    if (opts.faucet === undefined) {
+      const off = closed("off");
+      return reply(res, off.status, off.body, cors);
+    }
+    const data = await jsonObject(req, res, cors, 'the body must be {"public_key": "ed25519:<base58>"}');
+    if (data === null) return;
+    const r = await opts.faucet.start(data["public_key"], clientKey(req));
+    reply(res, r.status, r.body, { ...cors, ...r.headers });
+  }
+
+  function faucetState(res: ServerResponse, cors: Record<string, string>): void {
+    const r = opts.faucet === undefined ? OFF_STATE : opts.faucet.state();
+    reply(res, r.status, r.body, cors);
+  }
+
   function record(url: URL, res: ServerResponse, cors: Record<string, string>): void {
     const param = url.searchParams.get("limit");
     const limit = param === null ? RECORD_DEFAULT : /^\d{1,6}$/.test(param) ? Number(param) : 0;
@@ -214,7 +233,9 @@ export function createPressServer(opts: PressServerOptions): Server {
       "/overreach": { method: "POST", run: () => overreach(req, res, cors) },
       "/join": { method: "POST", run: () => join(req, res, cors) },
       "/join/state": { method: "GET", run: () => joinState(res, cors) },
-      "/health": { method: "GET", run: () => reply(res, 200, { ok: true, overreach: opts.overreach !== undefined, join: opts.join !== undefined }, cors) },
+      "/faucet": { method: "POST", run: () => faucet(req, res, cors) },
+      "/faucet/state": { method: "GET", run: () => faucetState(res, cors) },
+      "/health": { method: "GET", run: () => reply(res, 200, { ok: true, overreach: opts.overreach !== undefined, join: opts.join !== undefined, faucet: opts.faucet?.live() ?? false }, cors) },
     };
     const attempt = /^\/overreach\/([^/]{1,64})$/.exec(url.pathname);
     if (attempt !== null) {

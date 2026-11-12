@@ -22,6 +22,8 @@ export const config = {
   // minutes even with a cache-busting query (measured 2026-11-11), so after a desk restart it would keep naming the dead address. The API lets one address
   // read 60 times an hour, so the page reads it at most every 90 s, and only while the desk is not answering. Empty: the raw file only. The build adds this host to connect-src.
   pressDiscoveryApiUrl: "https://api.github.com/gists/03480ab34ee914911577adfd2a8b6a63",
+  // A holder the "Your own test coins" panel suggests as a receiver. It must be registered with the token: the contract refuses coins for an account that is not.
+  sampleReceiver: "alice.chair-coin-3.testnet",
   // null reads the live chain. A path (fixtures/sandbox-run.json) shows a recorded sandbox run instead, with a banner saying so.
   fixture: null,
 };

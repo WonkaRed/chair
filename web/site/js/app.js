@@ -6,6 +6,7 @@ import { renderGuarantees, VERIFY_COMMAND } from "./guarantees.js";
 import { holdersModel, renderHolders, renderHoldersUnavailable } from "./holders.js";
 import { loadLog } from "./loadlog.js";
 import { createJoin } from "./join.js";
+import { createMine, SEND_TIMEOUT_MS } from "./mine.js";
 import { loadTexts, renderHero, renderMinutes, resolveTexts } from "./minutes.js";
 import { createOverreach } from "./overreach.js";
 import { createPress, pressFromChain } from "./press.js";
@@ -13,7 +14,7 @@ import { linkFallback, newestAnswer, setPullQuote } from "./pullquote.js";
 import { renderRefusals } from "./refusals.js";
 import { openFoldsAround, setupReveal } from "./reveal.js";
 import { BEHAVIOURS, simulate } from "./simview.js";
-import { fixtureTransport, rpcTransport } from "./sources.js";
+import { failoverPoster, fixtureTransport, rpcTransport } from "./sources.js";
 import { isTxHash, safeText } from "./text.js";
 import { fmtRate, LOG_PAGE, printUnit, renderFailure, renderLedger, renderLog, renderNow, renderPlain, renderReconcile, renderSource } from "./views.js";
 import { config } from "../config.js";
@@ -120,6 +121,7 @@ async function showChain() {
     resolvedTexts = ctx.resolved;
     overreach.refresh();
     committee.refresh();
+    mine?.refresh();
     const answers = pressFromChain(data.decisions, ctx.resolved);
     press.setChain(answers);
     const newest = newestAnswer(answers);
@@ -249,6 +251,10 @@ let resolvedTexts = null; // the minutes texts that match their chain hashes, fo
 let reloadChain = async () => undefined;
 const overreach = createOverreach(doc, $("overreach-body"), { request: press.request, explorer: pageExplorer, rpcUrl: config.rpcUrls[0], refusals: () => chainData });
 const committee = createJoin(doc, $("join-body"), { section: $("join"), request: press.request, explorer: pageExplorer, chain: () => ({ data: chainData, resolved: resolvedTexts }), reload: () => reloadChain() });
+// Your own test coins: the visitor's key, the faucet's coins, and calls signed in this browser and sent to the same RPC nodes the page reads from (not in the recorded-run mode, which has none).
+const wire = (ms) => failoverPoster(fetch.bind(globalThis), "rpc", config.rpcUrls, undefined, ms);
+const [readNodes, sendNodes] = config.fixture === null ? [wire(10_000), wire(SEND_TIMEOUT_MS)] : [null, null]; // a node may take some seconds to run a transaction
+const mine = readNodes === null ? null : createMine(doc, $("mine-body"), { section: $("mine"), request: press.request, post: (body) => (body.method === "send_tx" ? sendNodes : readNodes).post("", body), token: config.account, explorer: pageExplorer, sample: config.sampleReceiver, supply: () => chainData?.supply.totalSupply ?? null });
 showGuarantees();
 showSimulation();
 setupPage();

@@ -47,7 +47,9 @@ const manual = () => {
     tick: async () => { const t = queue.shift(); await t.f(); },
   };
 };
-const reply = (status, body) => async () => ({ ok: status >= 200 && status < 300, status, json: async () => body });
+const reply = (status, body) => async () => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
+/** A tunnel's own error page (Cloudflare's 502, 524 or 530): HTML, never the desk's JSON. */
+const tunnelPage = (status) => async () => new Response("<!doctype html><title>Error</title>error code: 1033", { status, headers: { "content-type": "text/html" } });
 /** The discovery document as a fetch boundary: `doc.url` is what it names now; other requests go to `onDesk(url, init)`. `seen` lists every URL asked for. */
 const routed = (onDesk, doc = { url: DESK }, seen = []) => async (u, init) => {
   seen.push(u);
@@ -241,7 +243,8 @@ test("a desk that does not answer in time, or whose tunnel answers 5xx, is not s
   const cases = [
     ["a timeout", async () => { throw new DOMException("The operation timed out.", "TimeoutError"); }, late],
     ["a tunnel's 502", reply(502, { error: "bad gateway" }), late],
-    ["a tunnel's 524", reply(524, null), late],
+    ["a tunnel's 524", tunnelPage(524), late],
+    ["a tunnel's HTML 502", tunnelPage(502), late],
     ["a reply that cannot be read", reply(200, { id: "x", answer: 5 }), /If the question was answered, the answer will appear in the record below/],
     ["a refusal is still a refusal", reply(400, { error: "the question must be 1 to 140 characters" }), /not accepted/],
   ];
@@ -369,11 +372,11 @@ test("a desk that does not connect makes the page read the document once more an
   assert.equal(press.state().online, false);
   assert.ok(text(root).includes(OFFLINE));
 
-  // A tunnel that answers with a server error (not the desk's own 503) is treated the same way.
+  // A tunnel that answers with its own error page (not the desk's JSON, not its 503) is treated the same way.
   down.clear();
   doc.url = DESK;
   const errs = [];
-  const f2 = routed(async (u) => (u.startsWith(DESK_B) ? reply(530, { error: "tunnel" })() : OPEN()), { url: DESK_B }, errs);
+  const f2 = routed(async (u) => (u.startsWith(DESK_B) ? tunnelPage(530)() : OPEN()), { url: DESK_B }, errs);
   const second = await make({ discoveryUrl: DISCOVERY, fetchImpl: f2, now: clock() });
   assert.equal(second.press.state().online, false);
   assert.equal(errs.filter((u) => u.startsWith(DISCOVERY)).length, 2, "the server error triggered one more look");
@@ -521,4 +524,28 @@ test("a visitor's Check again ignores the rest of a dead address, and the desk's
   const shut = await make({ discoveryUrl: DISCOVERY, fetchImpl: routed(reply(503, { error: "not taking questions" })), now: clock() });
   const r = await shut.press.request("/health", () => ({}));
   assert.equal(r.status, 503, "a desk that answers 503 can be asked again at once");
+});
+
+test("a server error the desk sent itself (JSON with an error text, like the faucet's 502) is an answer: the address is not rested; a tunnel's HTML 502 still rests it", async () => {
+  const seen = [];
+  let next = reply(502, { error: "the token transfer failed", failed_step: "ft_transfer" });
+  const fetchImpl = routed((u, init) => (init?.method === "POST" ? next() : OPEN()), { url: DESK }, seen);
+  const { press } = await make({ discoveryUrl: DISCOVERY, fetchImpl, now: clock() });
+  const post = () => press.request("/faucet", () => ({ method: "POST", body: "{}" }));
+  const res = await post();
+  assert.equal(res.status, 502);
+  assert.deepEqual(await res.json(), { error: "the token transfer failed", failed_step: "ft_transfer" }, "the caller can still read the body");
+  assert.equal(seen.filter((u) => u.startsWith(DISCOVERY)).length, 1, "no second look at the document: the desk answered");
+  await post(); // not rested: asked again at once
+  assert.equal(seen.filter((u) => u === `${DESK}/faucet`).length, 2);
+  for (const answer of [reply(500, { code: "x" }), reply(500, { error: 5 }), reply(500, [{ error: "x" }]), reply(500, null), async () => new Response("not json", { status: 502 })]) {
+    next = answer;
+    const { press: p } = await make({ discoveryUrl: DISCOVERY, fetchImpl: routed((u, init) => (init?.method === "POST" ? next() : OPEN()), { url: DESK }, []), now: clock() });
+    await p.request("/faucet", () => ({ method: "POST", body: "{}" }));
+    await assert.rejects(p.request("/faucet", () => ({ method: "POST", body: "{}" })), /not answering/, "a 5xx that is not the desk's JSON rests the address");
+  }
+  next = tunnelPage(502);
+  const rested = await make({ discoveryUrl: DISCOVERY, fetchImpl: routed((u, init) => (init?.method === "POST" ? next() : OPEN()), { url: DESK }, []), now: clock() });
+  await rested.press.request("/faucet", () => ({ method: "POST", body: "{}" }));
+  await assert.rejects(rested.press.request("/faucet", () => ({ method: "POST", body: "{}" })), /not answering/);
 });
