@@ -286,7 +286,7 @@ function archivalRpc(url: string): NearRpc {
 /**
  * The test-coin faucet needs its account (CHAIR_FAUCET_ACCOUNT), that account's full-access key file (CHAIR_FAUCET_KEY_FILE), the file where it keeps its grants
  * (CHAIR_FAUCET_STATE_FILE) and the chain (CHAIR_RPC_URL, which may list several endpoints separated by commas; CHAIR_TOKEN). Optional: CHAIR_FAUCET_KILL_FILE, a file
- * whose existence closes the faucet at once, and CHAIR_FAUCET_HOURLY, CHAIR_FAUCET_DAILY and CHAIR_FAUCET_LIFETIME, positive whole numbers that replace the caps on grants, and CHAIR_ARCHIVAL_RPC_URL, archival endpoints
+ * whose existence closes the faucet at once, and CHAIR_FAUCET_PER_ADDRESS, CHAIR_FAUCET_HOURLY, CHAIR_FAUCET_DAILY and CHAIR_FAUCET_LIFETIME, positive whole numbers that replace the caps on grants (per network address a day, per hour and per day over all visitors, and in all), and CHAIR_ARCHIVAL_RPC_URL, archival endpoints
  * separated by commas (default `DEFAULT_ARCHIVAL_RPC_URL`) that find an old step that did land; a wrong one can only leave a grant stuck, never pay twice (see `FaucetSigner.settleKnown`).
  * Without the key file the faucet is off silently; with a setting missing or unusable it is off and says so in the log, like the overreach. The checks that need
  * the chain (not mainnet, a full-access key) are made by the faucet itself, in the background, and tried again until the chain answers. The faucet's account must not be

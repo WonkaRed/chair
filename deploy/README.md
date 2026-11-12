@@ -7,7 +7,7 @@ is the only way to get an `Rpc`). Testnet NEAR is free; nothing here touches mai
 Needs Node 22.22.2 or newer (it runs the `.ts` files directly). One dependency, `near-api-js`; `verify` also reads the transaction index with the page's own modules in `web/` (a clone of the whole repo has them, no install needed).
 
 ```sh
-make -C deploy test      # offline: typecheck and 44 unit tests, no key, no network
+make -C deploy test      # offline: typecheck and 49 unit tests, no key, no network
 make -C deploy verify    # read-only: re-checks the live deployment from public view calls; needs no key
 ```
 
@@ -24,6 +24,7 @@ its outcome). The run logs are `docs/testnet-run-scenario.txt` and `docs/testnet
 | `chair.chair-coin-3.testnet` | the founding chair | one function-call key: receiver the token, methods `["set_policy"]`, no allowance cap. No full-access key ever existed. |
 | `challenger.chair-coin-3.testnet` | the nominated chair the stakers voted in (the scripted impeachment); the chair agent signs as this account | the same kind of key |
 | `alice` / `bob` / `carol` `.chair-coin-3.testnet` | holders: two stakers and one liquid holder | one full-access key each (ordinary users) |
+| `chair-faucet-3.testnet` | the test-coin faucet's own account (the press desk's "Your own test coins"; `chair-agent/README.md`), listed under `serviceAccounts` in the record because `verify` does not check it | one full-access key, held by the press desk; the account holds only the faucet's budget |
 | `chair-coin-3.testnet` | parent, created by the testnet faucet | one full-access key; only used to fund and create the accounts above |
 
 The chair accounts are created with the function-call key already in the creating transaction, so the "the chair holds a key that can

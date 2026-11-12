@@ -11,6 +11,9 @@
     "bob": "bob.chair-coin-3.testnet",
     "carol": "carol.chair-coin-3.testnet"
   },
+  "serviceAccounts": {
+    "faucet": "chair-faucet-3.testnet"
+  },
   "wasm": {
     "sha256": "47a3f710a59701a14af6ca001feaf397e030e035c38cb3242f2c7bb9f218903f",
     "codeHash": "5pexa4j7UxF3tHW1F1eVfDShRr7aWsU7HNdTT7CdsPCz",

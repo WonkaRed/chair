@@ -8,6 +8,7 @@ Try it, no install: <https://wonkared.github.io/chair/>
 
 - **Make the Chair overreach.** Type a rate beyond the limit (2% a day) and watch the contract refuse it, on the real testnet, in its own words.
 - **Join the Committee.** One button stakes a small step of test coins from a pool account the project controls; a meeting later the Chair's own minutes cite the changed staked share and the rate it then chose.
+- **Get your own test coins.** The page makes a key in your browser, and my faucet funds a new testnet account with 50 test CHAIR and a little test NEAR for gas. You then stake, unstake, claim and send with your own signature. They are test coins from an account I control, 10,000 in all, and the faucet is off whenever my workstation is off.
 - **Ask the Chair a question.** The answer is added to the Chair's minutes on the chain. The Chair replies with a line from a reviewed book of statements, never free text, and the desk that takes questions is closed whenever my workstation is off (the page says so).
 
 The Chair's latest minutes, the written record of a decision, as of 2026-11-11:
@@ -80,7 +81,7 @@ The chair has a voice: **The Chair**, a deadpan parody of a central banker, sole
 
 ## The running chair, and the page
 
-A chair agent (`chair-agent/scripts/run-chair.sh`: the `qwen3.8-27b` model run locally on my own GPUs, with the rule chair deciding whenever the model is unavailable) has been running since 2026-11-11 and sets the rate once per epoch; if it stops, the contract decays the rate toward zero. Token: [`token.chair-coin-3.testnet`](https://testnet.nearblocks.io/address/token.chair-coin-3.testnet), epochs of 90 s.
+A chair agent (`chair-agent/scripts/run-chair.sh`: the `qwen3.8-27b` model run locally on my own GPUs, with the rule chair deciding whenever the model is unavailable) has been running since 2026-11-11 and sets the rate once per epoch; if it stops, the contract decays the rate toward zero. It reaches the chain through a list of public RPC endpoints (a comma-separated `CHAIR_RPC_URL`): a read that fails moves to the next endpoint, and a signed transaction is sent to another endpoint only when the first refused it before taking it, and moving it never signs it again. Token: [`token.chair-coin-3.testnet`](https://testnet.nearblocks.io/address/token.chair-coin-3.testnet), epochs of 90 s.
 
 - Accepted `set_policy` by the launch chair, +40 bps (epoch 1): [`26tWcCFj...`](https://testnet.nearblocks.io/txns/26tWcCFjehFhcs9FMqmaFhwQ8SVLqjj8DoeCqKC8Muno); twin: `tx 26tWcCFjehFhcs9FMqmaFhwQ8SVLqjj8DoeCqKC8Muno | jq -r '.transactions[0].receipts[].execution_outcome.outcome.logs[]'` prints its `policy_set` event
 - **The page**: the Chair's latest minutes in the hero, then one line of the Chair's, the **Press conference** panel, **What holders control** (live staked share, the seated chair, challengers against the impeachment bar), then **Chair minutes** (every decision the chair has put on chain, newest first, with its rate, the reasoning text and a mark). The chair sends the text in the same `set_policy` call as an extra `reasoning` argument the contract ignores, so it is public in the transaction; your browser reads it there, computes its SHA-256 and compares it with the `reasoning_hash` in the chain's event. The page also has a section, **Times the contract told the Chair no**: every `set_policy` the contract turned down, with its panic text. Open it with `make -C web serve`, then http://127.0.0.1:8080/ (needs Node 22.22.2 or newer and npm; if the port is busy, the command says so and `PORT=8081 make -C web serve` uses another). What happens when a decision has no text is under [Verification](#verification).
@@ -94,7 +95,7 @@ A section of the page lets a visitor type a rate and watch the contract refuse i
 - **Who signs:** the chair account's own function-call key (scoped to `set_policy` on the token), the only key that account has. The call carries a fixed reasoning text starting `$CHAIR overreach test.`; no visitor text goes on chain. The page marks refusals that match it, signed by a chair account and beyond the limit, as forced by a visitor, so they are not read as the AI chair's own.
 - **Timing:** the contract checks "already set this epoch" before the range, and the AI chair decides within seconds of each epoch boundary, so the desk sends at the start of the next epoch (the wait is up to one epoch; while it runs, the page says why and shows the newest refusal already on chain, labelled as an earlier one, with its transaction). If the Chair gets there first the refusal comes back as "already set" and the page says so.
 - **Limits:** one attempt on chain at a time, 20 s apart; 5 per address per hour, 30 per hour and 300 per day over all addresses. Each attempt costs the chair account about 0.0002 NEAR of testnet gas (measured: 0.000163 NEAR).
-- **Off unless `CHAIR_OVERREACH_KEY_FILE` is set** (the `chair-press` unit sets it; remove the line to switch it off). It runs on the press desk, so it is closed whenever my workstation is off; the page then says so and lists the refusals recorded on chain.
+- **Off unless `CHAIR_OVERREACH_KEY_FILE` is set** (the `chair3-press` unit sets it; remove the line to switch it off). It runs on the press desk, so it is closed whenever my workstation is off; the page then says so and lists the refusals recorded on chain.
 
 Refusals on the new token so far are from the scripted run (every one is on the page under "Times the contract told the Chair no", each readable with the `curl` the page shows):
 
@@ -121,6 +122,17 @@ A second section of the page has one button. The press desk has a pool account t
 
 Code: [`chair-agent/src/press-join.ts`](chair-agent/src/press-join.ts), the page side in [`web/site/js/join.js`](web/site/js/join.js).
 
+## Your own test coins
+
+A third section of the page, "Your own test coins", lets a visitor hold coins of their own. One button makes an ed25519 key in the browser (WebCrypto, kept in that browser's `localStorage`); the account is the key's public half written as 64 hex characters, so nobody has to create it, and only that public half goes to my press desk. The desk's faucet then sends three transactions from the faucet account `chair-faucet-3.testnet`: 0.05 NEAR for gas, the token's `storage_deposit` for the new account, and an `ft_transfer` of 50 CHAIR. After that the visitor stakes, unstakes, claims and sends with their own signature, each call signed in the browser and sent to a public testnet node; the desk never sees the key and has no part in it.
+
+- **Bounded:** 5 grants an hour and 20 a day over all visitors, 3 a day per network address (so a laptop and a phone on one wifi can each have one), and 200 in total: 200 x 50 = 10,000 coins, about 1% of the 1,000,000 launch supply. Seating a challenger takes backing over 5% of all coins (and over 30% of the staked ones), so visitors with the faucet's coins could never vote the Chair out. The totals are kept in a file, so a restart does not give the budget out again; the per-address count is in memory.
+- **The faucet can do three things:** its signer (`FaucetSigner` in `chair-agent/src/signer.ts`) builds only those three calls, with the amounts fixed in code. Each is saved as its signed bytes before it is sent, so a crash or a lost answer resends the same transaction instead of paying again. The account holds only the faucet's budget (200 grants x (50 CHAIR + about 0.06 NEAR), about 12 NEAR), and its key is a full-access key (the desk refuses to start the faucet with any other).
+- **Off, killed, dry or spent:** the faucet is off unless `CHAIR_FAUCET_KEY_FILE` is set, and a file named by `CHAIR_FAUCET_KILL_FILE` closes it the moment it exists. It also closes when the account runs low or the 200 are given, and the page then says it is closed. While the desk cannot be reached the panel says so and looks again by itself.
+- **The honest limit:** these are test coins with no value, from an account I control, and the desk runs on my workstation, so new grants stop whenever it is off. Accounts already funded keep working, since staking, claiming and sending go straight to the chain. There is no captcha: someone determined can use up the caps and keep the faucet closed for a while, and the caps and the kill file are the defence.
+
+Code: [`chair-agent/src/press-faucet.ts`](chair-agent/src/press-faucet.ts), the page side in [`web/site/js/mine.js`](web/site/js/mine.js); the details are in [`chair-agent/README.md`](chair-agent/README.md).
+
 ## It runs on NEAR testnet
 
 Launch supply 1,000,000. The token account was created, given its code and initialised in one transaction that adds no key, so it has no access key and nobody can upgrade it or move its NEAR.
@@ -134,7 +146,7 @@ An AI model has chaired this token live. `qwen3.8-27b`, the local server's name 
 
 Every decision the agent made carries its reasoning text in the `set_policy` transaction itself ([`chair-agent/README.md`](chair-agent/README.md)), so anyone can read it from the chain and hash it. The scripted run's eight decisions carry none, see [Verification](#verification).
 
-The token's testnet activity (transfers, stakes, claims) comes from `activity/`: scripted test activity by three accounts I control, not organic users. It acts every 6th epoch and never nominates, backs or sets policy.
+The token's testnet activity (transfers, stakes, claims) comes from `activity/`: scripted test activity by three accounts I control, not organic users. It acts every 6th epoch and never nominates, backs or sets policy. Accounts that visitors make with "Your own test coins" can add their own stakes, claims and transfers to the ledger; the faucet funded them.
 
 Below the chair minutes the same page lists every mint and burn and checks the sums against the contract's own `get_supply`.
 
@@ -175,7 +187,7 @@ test result: ok. 0 passed; 0 failed; ...       # contract/ doc-tests: there are 
 test result: ok. 7 passed; 0 failed; ...       # sandbox-tests/ against the real wasm: 10 files, one line each (7, 7, 2, 9, 3, 3, 2, 10, 3, 7 tests)
 ```
 
-The sandbox files hold 53 tests in all. The other lanes run 241 (`chair-agent`), 95 (`sim`), 153 (`web`) and 31 (`activity`) tests, and `deploy` runs 44 (`make -C deploy test`).
+The sandbox files hold 53 tests in all. The other lanes run 363 (`chair-agent`), 95 (`sim`), 230 (`web`) and 31 (`activity`) tests, and `deploy` runs 49 (`make -C deploy test`).
 
 Root `make demo` runs three demos in order and exits non-zero if any of them fails.
 
@@ -310,6 +322,7 @@ Every transaction of the scripted run, with its hash, is in [`docs/testnet-deplo
 Stated plainly:
 
 - **Impeachment is weighted by stake, not by person.** Anyone can split tokens across accounts at no cost, so splitting gains nothing, but a holder with enough tokens can unseat the chair alone. The defence is economic: a candidate needs backing above both the threshold share of the *staked* tokens and 5% of the *whole* supply, and nominating costs a bond. Neither stops a whale, and nothing here claims to.
+- **The faucet gives away stake, so it is capped.** Anyone can have an account funded, 3 a day per network address, but the faucet gives at most 10,000 coins in all, about 1% of the supply against the 5% quorum ([Your own test coins](#your-own-test-coins)). The limit is in my press desk, not in the contract.
 - **The quorum is what keeps a tiny stake from seating a chair.** Without it, one yocto staked and backed would be 100% of the stake. With it, nobody can be seated while less than 5% of the supply backs them. So the token's owner should stake at launch; until over 5% of the supply is staked and backed, the launch chair cannot be replaced.
 - **A coordinated bloc beats a larger, scattered majority.** The sitting chair cannot be nominated, so it can never be backed against a challenger. A bloc holding more than the threshold (30% in the demo and tests) of the staked tokens can seat its candidate even if the other 70% would have kept the chair, unless those 70% back a rival; backing is one candidate per staker.
 - **Mints go only to stakers, so people who never stake are diluted.** At the maximum rate, +200 bps a day (reached four epochs after the first easing decision, in +50 steps), each epoch mints 1/960 of 2% of the supply, so with 90-second epochs the supply grows by at most about 2.02% a day: about 1.15 times in a week, 1.82 times in 30 days. The supply cap `u128::MAX / 10_000` is about 34,000 times the launch supply of a 1,000,000-coin token (10^30 base units) and a chair at the maximum rate would need about 500,000 epochs, roughly 17 months, to reach it. A holder who neither stakes nor claims keeps the same token count and a shrinking share. The opposite lever, -200 bps, burns 2% of every transfer (per transfer, not per day). Beyond the rate bound, what restrains a bad chair is the vote and the decay: see [The worst case, plainly](#the-worst-case-plainly).
