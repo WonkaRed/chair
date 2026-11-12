@@ -31,7 +31,7 @@ async function decisions() {
     ["three silent epochs at -40, one refusal", 450, -40, 41, 446, 800_000, 80_000, flat(450, 800_000), { sameRateEpochs: 0, refusals: 1 }],
     ["never decided", 3, 0, 0, null, 1_000_000, 0, [], { sameRateEpochs: 0, refusals: 0 }],
     ["rate near the bound at 195, 3 in a row", 460, 195, 9, 459, 1_000_000, 900_000, flat(460, 1_000_000), { sameRateEpochs: 3, refusals: 0 }],
-    ["supply grown past the brake, 2 in a row at 30", 470, 30, 12, 469, 1_200_000, 100_000, grow(470, 1_000_000, 4), { sameRateEpochs: 2, refusals: 0 }],
+    ["supply up 4% over six meetings, 2 in a row at 30", 470, 30, 12, 469, 1_200_000, 100_000, grow(470, 1_000_000, 4), { sameRateEpochs: 2, refusals: 0 }],
     ["no staking figures", 480, 15, 7, 479, 1_000_000, null, flat(480, 1_000_000), { sameRateEpochs: 0, refusals: 0 }],
     ["nothing staked, 5 in a row, three refusals", 490, 25, 50, 489, 1_000_000, 0, flat(490, 1_000_000), { sameRateEpochs: 5, refusals: 3 }],
     ["long seat, 20 in a row, no refusals", 500, 10, 218, 499, 1_000_000, 200_000, flat(500, 1_000_000), { sameRateEpochs: 20, refusals: 0 }],
@@ -41,7 +41,7 @@ async function decisions() {
     const endsMs = startMs + (epoch + 1) * epochMs;
     const snap = {
       blockTimeMs: endsMs - 80_000,
-      params: { ...DEFAULT_BOUNDS, epochMs, startMs, impeachThresholdBps: 5000, quorumBps: 500, nominateBond: 1n },
+      params: { ...DEFAULT_BOUNDS, epochMs, meetingsPerDay: Math.ceil(86_400_000 / epochMs), startMs, impeachThresholdBps: 5000, quorumBps: 500, nominateBond: 1n },
       policy: { epoch, rateBps: rate, chair: "chair.example", streak, lastSetEpoch: lastSet, epochEndsMs: endsMs },
       totalSupply: BigInt(supply) * U,
       staking: staked === null ? null : { totalStaked: BigInt(staked) * U, rewardPool: 0n },

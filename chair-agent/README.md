@@ -9,11 +9,12 @@ additionally never proposes a call the contract would reject.
 
 The chair writes in a voice: "The Chair", a deadpan parody of a central banker, solemn and self-important about tiny moves.
 The minutes are for a reader who has never seen a blockchain: the decision comes first and says what the rate does in plain words, every
-rate and change is a percent with two decimals (5 bps is 0.05%), and "meetings" or "every 90 seconds" stand for epochs. Basis points stay
-in the code, the contract and the first lines of the on-chain text (`Rate in effect 5 bps; decision 5 bps.`), where the web page reads them.
+rate and change is a percent with two decimals (5 bps is 0.05%), and "meetings" and the "90-second meeting" stand for epochs. Basis points stay
+in the code, the contract and the first lines of the on-chain text (`Rate in effect 5 bps; decision 5 bps.`), where the web page reads them;
+there a positive figure is basis points of supply per day and a negative one is basis points of each transfer.
 The voice changes only the wording of the reasoning text; the rate rules and the contract's bounds are untouched, and every
 sentence must stay true to the numbers the chair was given (it names no real person, institution or currency and says nothing about price).
-For example, from the rule chair: "The Committee of One has met. The Chair moves the rate from zero to a printing rate of 0.05%: 0.05% more coins are printed every 90 seconds for holders who staked. 48.00% of all coins are staked, and the Chair would like 50.00%. The Chair thanks itself for its service."
+For example, from the rule chair: "The Committee of One has met. The Chair moves the rate from zero to a printing rate of 0.05%: 0.05% more coins are printed a day, a little at every 90-second meeting, for holders who staked. 48.00% of all coins are staked, and the Chair would like 50.00%. The Chair thanks itself for its service."
 Decisions recorded before the voice keep their old text, because their hashes are on chain.
 
 This is a toy monetary experiment. Nothing here predicts or promises a price, a return, or any effect on
@@ -85,28 +86,47 @@ The units in [`../deploy/systemd/`](../deploy/systemd/) are how the live demo ru
 
 ## The rule chair (`rule-v1`)
 
-It wants half of the supply staked: it asks for `(5000 - staked share in bps) / 40` bps, so thin staking
-eases (up to +125) and heavy staking tightens (down to -125). It never eases after supply grew more than 3% over
-the last 6 epochs and never tightens after it shrank more than 3%. It moves toward the wanted rate one contract
-step at a time, ignores gaps under 5 bps unless the wanted rate is 0, and with no staking figures at all it
-walks the rate back to 0. It reads `get_params`, `get_policy`, `ft_total_supply` and `get_reward_pool` at one
-final block; supply history comes from its own decision log.
+I want half of the supply staked, so I ask for `(5000 - staked share in bps) / 40` bps: thin staking
+eases (up to +125) and heavy staking tightens (down to -125). That rate is my mandate, "the more holders stake, the
+less the Chair prints", and every chair works to it. A positive rate is per day: +35 is 0.35% of supply a day, and
+the contract mints a 960th of that at each 90-second meeting. I move toward the wanted rate one contract
+step at a time, ignore gaps under 5 bps unless the wanted rate is 0, and with no staking figures at all I
+walk the rate back to 0. I read `get_params`, `get_policy`, `ft_total_supply` and `get_reward_pool` at one
+final block; supply history comes from my own decision log.
 
 Its text is in the chair's voice, from a small set of fixed sentences chosen by the situation (a hold, a move, a move held back by the contract's
-step limit, an easing or tightening held back by the 3% brake, nothing staked, no staking figures, and after silent meetings a line saying
+step limit, nothing staked, no staking figures, and after silent meetings a line saying
 the Chair was silent for that many meetings and the contract moves the rate toward zero without asking). Each says what the rate does
-(prints new coins for the holders who staked, burns a slice of every transfer, or neither), in percent, and the epoch length is the chain's own.
+(prints a percent of new coins a day, a little at every meeting, for the holders who staked; burns a slice of every transfer; or neither), in percent, and the meeting length is the chain's own.
 Every figure in a sentence is an input or the computed rate, so the same inputs give the same text. When the model fails, the decision
 opens with `Chair <name> failed (<reason>). The rule chair decided instead. The Chair has no comment.` and then the rule chair's text.
 
+### The rate is per day
+
+The contract reads a positive rate as basis points of supply per day. Each meeting mints
+`supply * rate / (10_000 * meetings_per_day)`, with `meetings_per_day = ceil(86_400_000 / epoch_ms)`, which is 960 at 90 s. With a supply
+of 1_000_001_000, a rate of 33 and 500 staked, a meeting mints 3437 (3437.5034 floored); the fake chain in `src/fake-chain.ts` and its test
+use that vector. The most the contract allows is +200, which is 2.02% of supply in a day (exactly 2.02011%, because each meeting compounds),
+about 1.15 times in a week and about 1.82 times in 30 days. The contract holds that line, so I keep no second budget of my own and no brake on
+supply growth. A negative rate burns that percent of every transfer, as before, and stays per transfer.
+
+I read `meetings_per_day` from `get_params`. A token that does not report it is the old one, where the rate was per meeting, and I refuse to
+run against it (as I do against one that reports a figure other than the day divided by its epoch), so the minutes never say "a day" of a
+token that prints every meeting.
+
+Each decision line in the log also carries `mandate_rate_bps` (what the mandate asks for, per day), `followed` (`mandate` when the rate set is
+the mandate's as near as the contract's step allows, within the rule's 5 bps dead band, and `judgment` when the chair chose its own),
+`supply_change_24h_bps` and `supply_change_24h_meetings` (supply over the last day, over the meetings the log really covers; null with no
+history). Lines written before this lack the four fields.
+
 ## The LLM chair
 
-`LlmChair` sends the model only numbers (the rate in effect, the bounds, the meeting length, the supply change and the staked share each as a finished sentence in percent, the meetings missed since the last decision and, when the agent has its decision log, how many meetings before this one the Chair itself set the rate now in effect and how many times the contract refused one of the Chair's own calls, as that log records them), asks for a JSON object
+`LlmChair` sends the model only numbers (the rate in effect, the mandate rate and what it does, the bounds, the meeting length, the supply change and the staked share each as a finished sentence in percent, the meetings missed since the last decision and, when the agent has its decision log, how many meetings before this one the Chair itself set the rate now in effect and how many times the contract refused one of the Chair's own calls, as that log records them), asks for a JSON object
 `{rate_bps, reasoning}` through structured output, and uses model `claude-sonnet-5-5` via the official SDK (the chair name `llm:claude-sonnet-5-5` is reported by that client only; any other client is `llm:unlabelled-client` unless it names itself). The
 agent then clamps the rate into the bounds of the window read after the model answered (see below). Any error, timeout (`--llm-timeout-ms`, default 30000), refusal,
 truncated answer, wrong or duplicate keys, non-integer or out-of-range type falls back to the rule chair, and the reasoning
 text says so. The system prompt asks the model for the voice and fences it in: it may state the decision and the figures it was given and nothing the numbers do
-not show (no cause, purpose, forecast, price talk or real names), and it is told how to read the silence and run fields. Every figure reaches it already converted to percent, so it copies; its text is refused, once asked again and then replaced by the rule chair's, when it says "basis points", "bps" or "epoch", writes a percent the numbers do not give (the rate it decided, the rate in effect, the staked share and the supply change are the only ones), writes a printing rate as a burn or the reverse, claims a run of meetings the Chair may not, or leaves a rate without its unit. [`docs/chair-voice-probe.txt`](../docs/chair-voice-probe.txt) holds
+not show (no cause, purpose, forecast, price talk or real names), and it is told that a printing rate is per day, with the sentence to use ("printing 0.05% more coins a day, a little at every 90-second meeting, for holders who staked"), and how to read the silence and run fields. Every figure reaches it already converted to percent, so it copies; its text is refused, once asked again and then replaced by the rule chair's, when it says "basis points", "bps" or "epoch", writes a percent the numbers do not give (the rate it decided, the rate in effect, the staked share and the supply change are the only ones), writes a printing rate as a burn or the reverse, gives a printing rate without its day or ties it to each meeting or each stretch of seconds, claims a run of meetings the Chair may not, or leaves a rate without its unit. [`docs/chair-voice-probe.txt`](../docs/chair-voice-probe.txt) holds
 every answer of the probe runs against the local model, each checked sentence by sentence against its prompt, with the prompt rounds that tightened it. Model text is never used for anything but the logged reasoning: it does not reach a shell, a path,
 or a transaction field other than through the SHA-256 hash.
 

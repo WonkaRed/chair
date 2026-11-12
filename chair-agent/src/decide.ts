@@ -2,8 +2,8 @@ import { RateWindow, type Rate } from "./bounds.js";
 import { pressSection } from "./press-section.js";
 import type { PressEntry } from "./press-store.js";
 import { cleanReasoning, MAX_REASONING_CHARS, reasoningHash } from "./reasoning.js";
-import { ruleChair, ruleDecision } from "./rule-chair.js";
-import type { Chair, ChairKind, ChairMemory, Decision, HistoryPoint, Proposal, Snapshot } from "./types.js";
+import { DEADBAND_BPS, mandateRate, ruleChair, ruleDecision, supplyMoved } from "./rule-chair.js";
+import type { Chair, ChairKind, ChairMemory, Decision, DecisionInput, HistoryPoint, Proposal, Snapshot } from "./types.js";
 
 /** Longest chair-written body; the agent's own header and notes come on top of it. */
 const BODY_CHARS = 1500;
@@ -114,16 +114,17 @@ export function finalize(
   const { policy } = fresh;
   const rolled = policy.epoch !== proposed.basedOnEpoch;
   const window = windowFor(fresh, opts.marginMs);
+  const input: DecisionInput = { snapshot: fresh, history: before(history, policy.epoch), window: { lo: window.lo, hi: window.hi } };
   let { proposal } = proposed;
-  if (rolled && proposed.used === ruleChair) {
-    proposal = ruleDecision({ snapshot: fresh, history: before(history, policy.epoch), window: { lo: window.lo, hi: window.hi } });
-  }
+  if (rolled && proposed.used === ruleChair) proposal = ruleDecision(input);
   const rate: Rate = window.pick(proposal.rateBps);
   const rolloverNote = rolled && proposed.used !== ruleChair ? "\nThe epoch rolled over while the Chair was deliberating. Time does not wait for the Committee of One." : "";
   const clampNote =
     rate === proposal.rateBps
       ? ""
       : `\nThe Chair asked for ${proposal.rateBps} bps; the contract accepts ${window.lo}..${window.hi} bps here, so ${rate} bps is set. The Chair defers.`;
+  const mandate = mandateRate(fresh);
+  const day = supplyMoved(input, fresh.params.meetingsPerDay);
   const body = cleanReasoning(proposal.reasoning, BODY_CHARS) ?? "";
   const base =
     `$CHAIR decision, epoch ${policy.epoch}, chair ${proposed.used.name}.\n${proposed.fallbackNote}` +
@@ -139,6 +140,13 @@ export function finalize(
     reasoningHash: reasoningHash(text),
     chair: proposed.used.name,
     kind: proposed.kind,
+    mandate: {
+      rateBps: mandate,
+      supplyChangeBps: day === null ? null : Number(day.bps),
+      supplyChangeMeetings: day === null ? null : day.meetings,
+      // The rule's own dead band is not a deviation: a rate within it of what the mandate allows counts as the mandate's.
+      followed: Math.abs(rate - window.pick(mandate)) < DEADBAND_BPS ? "mandate" : "judgment",
+    },
   };
 }
 

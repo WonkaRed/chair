@@ -13,8 +13,8 @@ test("the prompt is numbers only: no account ids and no free-form chain text", (
   const { system, user } = buildPrompt({ snapshot: snap, history: [{ epoch: 4, totalSupply: 100n }], window: { lo: -20, hi: 80 } });
   const data = JSON.parse(user) as Record<string, unknown>;
   assert.deepEqual(Object.keys(data).sort(), [
-    "meeting_length", "meetings_missed_since_the_last_decision", "rate_in_effect_bps", "rate_in_effect_does", "rate_in_effect_percent",
-    "rate_window_bps", "staked_share_in_words", "supply_change_in_words",
+    "mandate_does", "mandate_rate_bps", "mandate_rate_percent", "meeting_length", "meetings_missed_since_the_last_decision",
+    "rate_in_effect_bps", "rate_in_effect_does", "rate_in_effect_percent", "rate_window_bps", "staked_share_in_words", "supply_change_in_words",
   ]);
   assert.ok(!user.includes("chair.test") && !user.includes("123456789"), "no account id and no supply in full");
   assert.deepEqual(data["rate_window_bps"], [-20, 80]);
@@ -43,9 +43,9 @@ test("every figure arrives as a finished percent with two decimals, so the minut
   assert.equal(field("staked_share_in_words", 0n, 0n), null, "no supply: nothing to say");
   assert.equal(field("meeting_length", 0n), "60 seconds", "the epoch length of the snapshot, not a constant");
   assert.equal(field("rate_in_effect_percent", 0n, 10_000n, 5), "0.05%");
-  assert.equal(field("rate_in_effect_does", 5n, 10_000n, 5), "0.05% more coins are printed every 60 seconds for holders who staked");
+  assert.equal(field("rate_in_effect_does", 5n, 10_000n, 5), "0.05% more coins are printed a day, a little at every 60-second meeting, for holders who staked");
   assert.equal(field("rate_in_effect_does", 0n, 10_000n, 5), "no coins are printed while nobody has staked");
-  assert.equal(field("rate_in_effect_does", null, 10_000n, 5), "0.05% more coins are printed every 60 seconds for holders who staked", "unknown staking is not nobody");
+  assert.equal(field("rate_in_effect_does", null, 10_000n, 5), "0.05% more coins are printed a day, a little at every 60-second meeting, for holders who staked", "unknown staking is not nobody");
   assert.equal(field("rate_in_effect_does", 5n, 10_000n, -10), "0.10% of every transfer is burned");
   assert.equal(field("rate_in_effect_does", 5n, 10_000n, 0), "no coins are printed and none are burned");
   const { system } = buildPrompt({ snapshot: snapshot(), history: [], window: WINDOW });
@@ -88,6 +88,22 @@ test("the run of meetings describes the rate before the decision, and a run of o
   assert.match(system, /when you change the rate it says nothing about the new rate, so do not mention it and never write "in a row"/);
 });
 
+test("the prompt gives the mandate rate as figures, the objective in one sentence, and the rate as per day", () => {
+  const prompt = (o: Parameters<typeof snapshot>[0]) => buildPrompt({ snapshot: snapshot({ epoch: 1000, ...o }), history: [], window: WINDOW });
+  const calm = JSON.parse(prompt({ supply: 10_000n, staked: 4_000n, rate: 0 }).user) as Record<string, unknown>;
+  assert.equal(calm["mandate_rate_bps"], 25, "(5000 - 4000) / 40");
+  assert.equal(calm["mandate_rate_percent"], "0.25%");
+  assert.equal(calm["mandate_does"], "0.25% more coins are printed a day, a little at every 60-second meeting, for holders who staked");
+  assert.equal(calm["rate_in_effect_does"], "no coins are printed and none are burned");
+  const { system } = prompt({});
+  assert.match(system, /Your objective, in one sentence: the more holders stake, the less the Chair prints, aiming for half of all coins staked\./);
+  assert.match(system, /you may set another rate inside the window, and the log records which of the two you did/);
+  assert.match(system, /that percent of all coins in a day, for the holders who staked, a little at every meeting/);
+  assert.match(system, /"printing 0\.05% more coins a day, a little at every 90-second meeting, for holders who staked"/);
+  assert.match(system, /The percent is per day, never per meeting/);
+  assert.doesNotMatch(system, /budget|every 90 seconds|each epoch|per epoch/i);
+});
+
 const input = (rate: number, sameRateEpochs: number, o: Parameters<typeof snapshot>[0] = {}): DecisionInput => ({
   snapshot: snapshot({ rate, supply: 1_003_000n, staked: 463_100n, epoch: 20, ...o }),
   history: [{ epoch: 14, totalSupply: 1_000_000n }],
@@ -97,14 +113,49 @@ const input = (rate: number, sameRateEpochs: number, o: Parameters<typeof snapsh
 
 test("wordingFault passes the minutes the prompt asks for, in every case the Chair meets", () => {
   const fault = (reasoning: string, rateBps: number, i: DecisionInput) => wordingFault({ rateBps, reasoning }, i);
-  const hold = "The Committee of One has met. The Chair keeps printing 0.05% more coins every 90 seconds for holders who staked, as it has for the last 14 meetings. Supply is up 0.30% over the last 6 meetings. 46.17% of all coins are staked. The Chair asks that this be recorded.";
+  const hold = "The Committee of One has met. The Chair keeps printing 0.05% more coins a day, a little at every 90-second meeting, for holders who staked, as it has for the last 14 meetings. Supply is up 0.30% over the last 6 meetings. 46.17% of all coins are staked. The Chair asks that this be recorded.";
   assert.equal(fault(hold, 5, input(5, 14)), null);
-  assert.equal(fault("The Chair changes the rate from printing 0.05% to printing 0.10%. 46.17% of all coins are staked.", 10, input(5, 14)), null);
-  assert.equal(fault("The Chair changes the rate from burning 0.10% of every transfer to printing 0.05% more coins every 90 seconds for holders who staked.", 5, input(-10, 0)), null, "the old rate's burn is not the new rate's");
-  assert.equal(fault("The Chair changes the rate from neither printing nor burning to printing 0.05%.", 5, input(0, 0)), null);
+  assert.equal(fault("The Chair changes the rate from printing 0.05% a day to printing 0.10% a day. 46.17% of all coins are staked.", 10, input(5, 14)), null);
+  assert.equal(fault("The Chair changes the rate from burning 0.10% of every transfer to printing 0.05% more coins a day, a little at every 90-second meeting, for holders who staked.", 5, input(-10, 0)), null, "the old rate's burn is not the new rate's");
+  assert.equal(fault("The Chair changes the rate from neither printing nor burning to printing 0.05% a day.", 5, input(0, 0)), null);
   assert.equal(fault("The Chair now burns 0.10% of every transfer.", -10, input(5, 0)), null);
   assert.equal(fault("The Chair keeps the rate at 0.00%, printing no coins and burning none.", 0, input(0, 3)), null, "zero needs no figure");
   assert.equal(fault("The Chair stops the printing. Supply has moved less than 0.01% over the last 6 meetings.", 0, input(5, 0, { supply: 1_000_050n })), null, "the sentence the prompt gives for a near-zero change");
+});
+
+test("wordingFault allows the mandate rate as a figure and still refuses invented ones", () => {
+  // 40.00% staked asks for 25 bps.
+  const i: DecisionInput = { snapshot: snapshot({ epoch: 1000, rate: 5, supply: 1_000n, staked: 400n }), history: [], window: WINDOW };
+  const fault = (reasoning: string) => wordingFault({ rateBps: 5, reasoning }, i);
+  assert.equal(fault("The Chair keeps printing 0.05% more coins a day. The mandate asks for printing 0.25% a day."), null, "the mandate rate");
+  assert.match(fault("The Chair keeps printing 0.05% more coins a day. The mandate asks for printing 0.26% a day.")!, /percent the numbers do not give \(0\.26%\)/);
+  assert.match(fault("The Chair keeps printing 0.05% more coins a day. The ceiling is 2.00% a day.")!, /2\.00%/, "a bound the prompt does not give is not a figure to quote");
+});
+
+test("wordingFault refuses a printing rate that is not per day: no day word, or each meeting or each stretch of seconds in its place", () => {
+  const i = input(5, 0);
+  const fault = (reasoning: string, rateBps = 5, at = i) => wordingFault({ rateBps, reasoning }, at);
+  const ok = "The Chair keeps printing 0.05% more coins a day, a little at every 90-second meeting, for holders who staked.";
+  assert.equal(fault(ok), null);
+  assert.equal(fault("The Chair keeps printing 0.05% more coins every day for holders who staked."), null);
+  assert.equal(fault("The Chair keeps printing 0.05% more coins daily for holders who staked."), null);
+  assert.equal(fault("The Chair keeps printing 0.05% more coins per day, at each meeting, for holders who staked."), null, "a day named first, then the meetings");
+  assert.match(fault("The Chair keeps printing 0.05% more coins for holders who staked.")!, /without its day/);
+  for (const bad of [
+    "The Chair keeps printing 0.05% more coins every 90 seconds for holders who staked, a day at a time.",
+    "The Chair keeps printing 0.05% more coins every 90-second meeting for holders who staked, a day at a time.",
+    "The Chair keeps printing 0.05% more coins at every meeting for holders who staked, a day at a time.",
+    "The Chair keeps printing 0.05% more coins each meeting for holders who staked, a day at a time.",
+    "The Chair is minting 0.05% per meeting for holders who staked, a day at a time.",
+    "The Chair keeps printing 0.05% more coins every 2 minutes for holders who staked, a day at a time.",
+  ]) {
+    assert.match(fault(bad)!, /per meeting instead of per day/, bad);
+  }
+  assert.equal(fault("The Chair keeps printing 0.05% more coins a day. The Committee meets every 90 seconds."), null, "a meeting length outside a printing sentence says nothing of the rate");
+  assert.equal(fault("The Chair is neither printing nor burning.", 0, input(0, 0)), null, "nothing printed, nothing to date");
+  assert.equal(fault("The Chair burns 0.10% of every transfer.", -10, input(-10, 0)), null, "burning stays per transfer");
+  const nobody = input(5, 0, { staked: 0n });
+  assert.equal(fault("The Chair keeps the rate, but no coins are printed while nobody has staked.", 5, nobody), null, "no day word is owed when nothing prints");
 });
 
 test("wordingFault refuses basis points, epochs and field names: the reader is not a blockchain engineer", () => {
@@ -118,30 +169,30 @@ test("wordingFault refuses basis points, epochs and field names: the reader is n
 
 test("wordingFault refuses a percent the numbers do not give, and a rate written as the wrong act", () => {
   const fault = (reasoning: string, rateBps: number, i: DecisionInput) => wordingFault({ rateBps, reasoning }, i);
-  assert.match(fault("The Chair keeps printing 0.50% more coins.", 5, input(5, 0))!, /percent the numbers do not give \(0\.50%\)/);
-  assert.match(fault("The Chair keeps printing 0.05% more coins. 46% of all coins are staked.", 5, input(5, 0))!, /percent the numbers do not give \(46%\)/, "two decimals, as given");
-  assert.match(fault("The Chair keeps printing 0.05% more coins. 46.18% of all coins are staked.", 5, input(5, 0))!, /46\.18%/);
+  assert.match(fault("The Chair keeps printing 0.50% more coins a day.", 5, input(5, 0))!, /percent the numbers do not give \(0\.50%\)/);
+  assert.match(fault("The Chair keeps printing 0.05% more coins a day. 46% of all coins are staked.", 5, input(5, 0))!, /percent the numbers do not give \(46%\)/, "two decimals, as given");
+  assert.match(fault("The Chair keeps printing 0.05% more coins a day. 46.18% of all coins are staked.", 5, input(5, 0))!, /46\.18%/);
   assert.match(fault("Supply is up 0.31% over the last 6 meetings.", 5, input(5, 0))!, /0\.31%/);
-  assert.match(fault("The Chair changes the rate from printing 0.05% to printing 0.07%.", 8, input(5, 0))!, /percent the numbers do not give \(0\.07%\)/, "the rate written is not the rate decided");
+  assert.match(fault("The Chair changes the rate from printing 0.05% a day to printing 0.07% a day.", 8, input(5, 0))!, /percent the numbers do not give \(0\.07%\)/, "the rate written is not the rate decided");
   assert.match(fault("The Chair keeps burning 0.05% of every transfer.", 5, input(5, 0))!, /prints written as a burn/);
-  assert.match(fault("The Chair keeps printing 0.10% more coins.", -10, input(-10, 0))!, /burns written as a print/);
+  assert.match(fault("The Chair keeps printing 0.10% more coins a day.", -10, input(-10, 0))!, /burns written as a print/);
   // The 0.01% of "less than 0.01%" is a given figure.
-  assert.equal(fault("The Chair keeps printing 0.05% more coins. Supply has moved less than 0.01% over the last 6 meetings.", 5, input(5, 0, { supply: 1_000_050n })), null);
-  assert.match(fault("The Chair keeps printing 0.05% more coins. Supply has moved less than 0.01% over the last 6 meetings.", 5, input(5, 0))!, /0\.01%/, "only when the supply really barely moved");
+  assert.equal(fault("The Chair keeps printing 0.05% more coins a day. Supply has moved less than 0.01% over the last 6 meetings.", 5, input(5, 0, { supply: 1_000_050n })), null);
+  assert.match(fault("The Chair keeps printing 0.05% more coins a day. Supply has moved less than 0.01% over the last 6 meetings.", 5, input(5, 0))!, /0\.01%/, "only when the supply really barely moved");
 });
 
 test("wordingFault refuses a run of meetings the Chair may not claim, and a rate with no unit", () => {
   const fault = (reasoning: string, rateBps: number, i: DecisionInput) => wordingFault({ rateBps, reasoning }, i);
   // The finding: a change that claims the old rate's run.
-  assert.match(fault("The Chair changes the rate from printing 0.05% to printing 0.10%, as it has for the last 14 meetings.", 10, input(5, 14))!, /run of meetings/);
-  assert.match(fault("The Chair keeps printing 0.05% more coins, as it has for the last 14 meetings.", 5, input(5, 1))!, /run of meetings/, "no run of two or more on record");
-  assert.match(fault("The Chair keeps printing 0.05% more coins, as it has for the last 14 meetings.", 5, { ...input(5, 0), memory: undefined })!, /run of meetings/, "no log, no run");
-  assert.match(fault("The Chair keeps printing 0.05% more coins, as it has for the last 9 meetings.", 5, input(5, 14))!, /run of meetings/, "the count is the logged one");
-  assert.match(fault("The Chair keeps printing 0.05% more coins, 14 meetings in a row.", 10, input(5, 14))!, /run of meetings/);
-  assert.equal(fault("The Chair keeps printing 0.05% more coins, as it has for the last 14 meetings.", 5, input(5, 14)), null);
-  assert.equal(fault("The Chair keeps printing 0.05% more coins, 14 meetings in a row.", 5, input(5, 14)), null);
+  assert.match(fault("The Chair changes the rate from printing 0.05% a day to printing 0.10% a day, as it has for the last 14 meetings.", 10, input(5, 14))!, /run of meetings/);
+  assert.match(fault("The Chair keeps printing 0.05% more coins a day, as it has for the last 14 meetings.", 5, input(5, 1))!, /run of meetings/, "no run of two or more on record");
+  assert.match(fault("The Chair keeps printing 0.05% more coins a day, as it has for the last 14 meetings.", 5, { ...input(5, 0), memory: undefined })!, /run of meetings/, "no log, no run");
+  assert.match(fault("The Chair keeps printing 0.05% more coins a day, as it has for the last 9 meetings.", 5, input(5, 14))!, /run of meetings/, "the count is the logged one");
+  assert.match(fault("The Chair keeps printing 0.05% more coins a day, 14 meetings in a row.", 10, input(5, 14))!, /run of meetings/);
+  assert.equal(fault("The Chair keeps printing 0.05% more coins a day, as it has for the last 14 meetings.", 5, input(5, 14)), null);
+  assert.equal(fault("The Chair keeps printing 0.05% more coins a day, 14 meetings in a row.", 5, input(5, 14)), null);
   // Supply over a span is not a run.
-  assert.equal(fault("The Chair keeps printing 0.05% more coins. Supply is up 0.30% over the last 6 meetings.", 5, input(5, 0)), null);
+  assert.equal(fault("The Chair keeps printing 0.05% more coins a day. Supply is up 0.30% over the last 6 meetings.", 5, input(5, 0)), null);
   // No unit.
   assert.match(fault("The Chair cuts the rate to 12.", 12, input(5, 0))!, /without its unit/);
   assert.match(fault("The Chair moves the rate from 22 to \u22125.", -5, input(22, 0))!, /without its unit/);
@@ -155,7 +206,7 @@ test("the chair tries once more when the first answer is refused by the lint, an
     return { chair, asked };
   };
   const bad = "The Chair raises the rate by 5 basis points, to 0.10%.";
-  const good = "The Committee of One has met. The Chair changes the rate from printing 0.05% to printing 0.10%.";
+  const good = "The Committee of One has met. The Chair changes the rate from printing 0.05% a day to printing 0.10% a day.";
   const retried = answers(bad, good);
   assert.equal((await retried.chair.propose(i, new AbortController().signal)).reasoning, good);
   assert.equal(retried.asked.length, 2);

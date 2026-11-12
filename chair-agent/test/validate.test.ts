@@ -4,7 +4,7 @@ import { parseParams } from "../src/validate.js";
 
 const NEAR = 10n ** 24n;
 const params = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
-  epoch_ms: 60_000, start_ms: 0, max_rate_bps: 200, max_step_bps: 50,
+  epoch_ms: 60_000, meetings_per_day: 1440, start_ms: 0, max_rate_bps: 200, max_step_bps: 50,
   impeach_threshold_bps: 5000, quorum_bps: 500, nominate_bond: "1", ...over,
 });
 
@@ -33,5 +33,14 @@ test("quorum_bps must be present and a share of the supply", () => {
   assert.throws(() => parseParams(withoutQuorum), /quorum_bps: expected an integer in 1\.\.10000/);
   for (const bad of [0, 10_001, 5.5, "500"]) {
     assert.throws(() => parseParams(params({ quorum_bps: bad })), /quorum_bps/, String(bad));
+  }
+});
+
+test("meetings_per_day must be present and a positive integer", () => {
+  assert.equal(parseParams(params()).meetingsPerDay, 1440);
+  const { meetings_per_day: _omitted, ...old } = params();
+  assert.throws(() => parseParams(old), /meetings_per_day: expected an integer in 1\.\./);
+  for (const bad of [0, -1, 960.5, "960", null]) {
+    assert.throws(() => parseParams(params({ meetings_per_day: bad })), /meetings_per_day/, String(bad));
   }
 });

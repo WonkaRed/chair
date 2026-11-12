@@ -120,7 +120,7 @@ export async function runScenario(run: Run): Promise<void> {
   };
 
   // --- the chair eases
-  await atEpoch(0, "the founding chair eases, 50 bps at most per epoch");
+  await atEpoch(0, "the founding chair eases, moving the rate 50 bps at most per epoch");
   await decision(0, 40, "First step up from 0, inside the 50 bps step bound.");
   await atEpoch(1, "");
   await decision(1, 90, "Another 50 bps step up.");
@@ -160,7 +160,7 @@ export async function runScenario(run: Run): Promise<void> {
   }
 
   // --- a mint epoch pays a staker
-  await atEpoch(7, "a mint epoch: the +140 bps at the last boundary paid the stakers");
+  await atEpoch(7, "a mint epoch: the rate of +140 bps a day, a 960th of it at each boundary, paid the stakers");
   const pending = (await views.staking(a.alice)).pendingReward;
   const supply = await views.supply();
   if (pending === 0n || supply.minted === 0n) throw new Error("no reward after epochs at a positive rate");

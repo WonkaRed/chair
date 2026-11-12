@@ -6,6 +6,8 @@ import type { Rpc } from "./rpc.ts";
 
 export interface Params {
   readonly epochMs: number;
+  /** Meetings in a day: the divisor of a mint, since a positive rate is basis points of supply per day. */
+  readonly meetingsPerDay: number;
   readonly startMs: number;
   readonly maxRateBps: number;
   readonly maxStepBps: number;
@@ -77,7 +79,7 @@ export class TokenViews {
 
   async params(): Promise<Params> {
     const w = await this.rpc.view<Wire>(this.token, "get_params");
-    return { epochMs: num(w, "epoch_ms"), startMs: num(w, "start_ms"), maxRateBps: num(w, "max_rate_bps"), maxStepBps: num(w, "max_step_bps"), impeachThresholdBps: num(w, "impeach_threshold_bps"), quorumBps: num(w, "quorum_bps"), nominateBond: big(w, "nominate_bond") };
+    return { epochMs: num(w, "epoch_ms"), meetingsPerDay: num(w, "meetings_per_day"), startMs: num(w, "start_ms"), maxRateBps: num(w, "max_rate_bps"), maxStepBps: num(w, "max_step_bps"), impeachThresholdBps: num(w, "impeach_threshold_bps"), quorumBps: num(w, "quorum_bps"), nominateBond: big(w, "nominate_bond") };
   }
 
   async policy(): Promise<Policy> {

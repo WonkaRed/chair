@@ -3,6 +3,7 @@ import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
 import { tick } from "../src/agent.js";
+import { decide } from "../src/decide.js";
 import { nextWaitMs } from "../src/cli.js";
 import { FakeChain } from "../src/fake-chain.js";
 import { LlmChair } from "../src/llm-chair.js";
@@ -287,4 +288,28 @@ test("backoff after a failed send: 10 s, 20 s, then until the next epoch", () =>
   assert.equal(nextWaitMs({ status: "already-set", snapshot: snapshot({ timeLeftMs: 5_000 }) }), 6_000);
   assert.equal(nextWaitMs(failed(2)), 20_000);
   assert.equal(nextWaitMs({ ...failed(2), snapshot: snapshot({ timeLeftMs: 4_000 }) }), 5_000, "never sleeps past the epoch end plus a second");
+});
+
+test("the agent reads the day's supply from its own log and logs the change over the meetings that log covers", async () => {
+  const { chain, log, path, done } = setup();
+  try {
+    // An earlier decision, 60 meetings back, when supply stood 10% lower than the chain's now.
+    const then = snapshot({ epoch: 40, supply: 900_000n * 10n ** 24n, staked: 90_000n * 10n ** 24n });
+    log.recordDecision(await decide(then, [], { chair: ruleChair, marginMs: 0, timeoutMs: PATIENT_MS }), then);
+    chain.advanceTo(chain.params.startMs + 100 * chain.params.epochMs + 1000);
+    const res = await tick(deps(chain, log, new LlmChair({ label: "llm:greedy", complete: () => Promise.resolve({ text: JSON.stringify({ rate_bps: 40, reasoning: "The Chair is printing 0.40% more coins a day." }), stopReason: "end_turn" }) })));
+    assert.equal(res.status, "executed");
+    if (res.status !== "executed") return;
+    assert.equal(res.decision.rate, 40, "the model's own rate stands: the contract, not the agent, holds the day's printing");
+    assert.doesNotMatch(res.decision.reasoning, /budget/i);
+    assert.equal(chain.refusals.length, 0);
+    const logged = readFileSync(path, "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>).filter((r) => r["epoch"] === 100 && r["kind"] === "decision");
+    assert.equal(logged.length, 1);
+    assert.ok(!("budget" in logged[0]!));
+    assert.equal(logged[0]!["supply_change_24h_bps"], 1111);
+    assert.equal(logged[0]!["supply_change_24h_meetings"], 60);
+    assert.equal(logged[0]!["rate_bps"], 40);
+  } finally {
+    done();
+  }
 });

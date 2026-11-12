@@ -7,10 +7,10 @@ const START = 1_700_000_000_000;
 const EPOCH_MS = 60_000;
 const NOW = START + 5 * EPOCH_MS + 1000; // epoch 5
 
-function reader(o: { policyEpoch?: number; epochEndsMs?: number; maxRate?: number; maxStep?: number } = {}): ChainReader {
+function reader(o: { policyEpoch?: number; epochEndsMs?: number; maxRate?: number; maxStep?: number; meetingsPerDay?: number | null } = {}): ChainReader {
   const epoch = o.policyEpoch ?? 5;
   const views: Record<string, unknown> = {
-    get_params: { epoch_ms: EPOCH_MS, start_ms: START, max_rate_bps: o.maxRate ?? 200, max_step_bps: o.maxStep ?? 50, impeach_threshold_bps: 5000, quorum_bps: 500, nominate_bond: "1" },
+    get_params: { epoch_ms: EPOCH_MS, ...(o.meetingsPerDay === null ? {} : { meetings_per_day: o.meetingsPerDay ?? Math.ceil(86_400_000 / EPOCH_MS) }), start_ms: START, max_rate_bps: o.maxRate ?? 200, max_step_bps: o.maxStep ?? 50, impeach_threshold_bps: 5000, quorum_bps: 500, nominate_bond: "1" },
     get_policy: { epoch, rate_bps: 10, chair: "chair.test", streak: 1, last_set_epoch: null, epoch_ends_ms: o.epochEndsMs ?? START + (epoch + 1) * EPOCH_MS },
     ft_total_supply: "1000000",
     get_reward_pool: { total_staked: "100", reward_pool: "0", reward_per_share: "0" },
@@ -42,4 +42,16 @@ test("params that differ from the contract's hard-coded bounds are refused, not 
   await assert.rejects(reader({ maxRate: 10_000 }).snapshot(), /differ from the contract's 200\/50; refusing to act/);
   await assert.rejects(reader({ maxStep: 51 }).snapshot(), /differ from the contract's 200\/50/);
   await assert.rejects(reader({ maxRate: 199 }).snapshot(), /differ from the contract's 200\/50/);
+});
+
+test("a token that does not report meetings_per_day (the old per-meeting rate) is refused, so the agent never writes per-day minutes for it", async () => {
+  await assert.rejects(reader({ meetingsPerDay: null }).snapshot(), /meetings_per_day: expected an integer in 1\.\./);
+});
+
+test("a meetings_per_day that is not the epoch's own day divided up is refused", async () => {
+  const day = Math.ceil(86_400_000 / EPOCH_MS);
+  for (const bad of [1, day - 1, day + 1]) {
+    await assert.rejects(reader({ meetingsPerDay: bad }).snapshot(), /is not \d+, the day divided into .* ms epochs; refusing to act/, String(bad));
+  }
+  assert.equal((await reader({ meetingsPerDay: day }).snapshot()).params.meetingsPerDay, day);
 });

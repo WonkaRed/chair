@@ -65,7 +65,7 @@ export function snapshot(o: Partial<{
   const staked = o.staked === undefined ? 0n : o.staked;
   return {
     blockTimeMs: endsMs - (o.timeLeftMs ?? 30_000),
-    params: { ...DEFAULT_BOUNDS, epochMs, startMs, impeachThresholdBps: 5000, quorumBps: 500, nominateBond: 1n },
+    params: { ...DEFAULT_BOUNDS, epochMs, meetingsPerDay: 1440, startMs, impeachThresholdBps: 5000, quorumBps: 500, nominateBond: 1n },
     policy: { epoch, rateBps: o.rate ?? 0, chair: o.chair ?? "chair.test", streak: epoch, lastSetEpoch: o.lastSet ?? null, epochEndsMs: endsMs },
     totalSupply: o.supply ?? 1_000_000n,
     staking: staked === null ? null : { totalStaked: staked, rewardPool: 0n },

@@ -135,3 +135,37 @@ test("a chair only ever sees history strictly before the epoch being decided", a
   await decide(snapshot({ epoch: 5 }), history, opts(spy));
   assert.deepEqual(seen, [3, 4]);
 });
+
+// The test snapshot's epochs are 60 s, so a day is 1440 meetings.
+const dayAgo = [{ epoch: 900, totalSupply: 1_000_000n }];
+
+test("the decision records which it followed, the mandate or its own judgment, and supply over the last day", async () => {
+  const s = snapshot({ epoch: 1000, supply: 1_000_000n, staked: 400_000n, rate: 0 }); // 40.00% staked asks for +25
+  const followed = await decide(s, dayAgo, opts(llmReturning(answer(25, "Mandate."))));
+  assert.deepEqual(followed.mandate, { rateBps: 25, supplyChangeBps: 0, supplyChangeMeetings: 100, followed: "mandate" });
+  const near = await decide(s, dayAgo, opts(llmReturning(answer(21, "Near."))));
+  assert.equal(near.mandate?.followed, "mandate", "within the rule's 5 bps dead band");
+  const own = await decide(s, dayAgo, opts(llmReturning(answer(-30, "Own."))));
+  assert.equal(own.mandate?.followed, "judgment");
+  assert.equal(own.rate, -30);
+  assert.equal((await decide(s, dayAgo, opts(ruleChair))).mandate?.followed, "mandate");
+});
+
+test("the mandate is the one the contract's step lets the rate reach: a far rate steered toward it is still the mandate's", async () => {
+  const s = snapshot({ epoch: 1000, supply: 1_000_000n, staked: 100_000n, rate: 0 }); // 10.00% staked asks for +100, one step reaches +50
+  const d = await decide(s, dayAgo, opts(ruleChair));
+  assert.equal(d.rate, 50);
+  assert.deepEqual(d.mandate, { rateBps: 100, supplyChangeBps: 0, supplyChangeMeetings: 100, followed: "mandate" });
+});
+
+test("supply over the last day is read over the meetings the history really covers, and none older than a day", async () => {
+  const s = snapshot({ epoch: 2000, supply: 1_030_000n, staked: 400_000n });
+  const young = await decide(s, [{ epoch: 1997, totalSupply: 1_000_000n }], opts(ruleChair));
+  assert.deepEqual([young.mandate?.supplyChangeBps, young.mandate?.supplyChangeMeetings], [300, 3]);
+  const edge = await decide(s, [{ epoch: 559, totalSupply: 1_000_000n }, { epoch: 560, totalSupply: 1_020_000n }], opts(ruleChair));
+  assert.deepEqual([edge.mandate?.supplyChangeBps, edge.mandate?.supplyChangeMeetings], [98, 1440], "epoch 560 is exactly 1440 meetings back; epoch 559 is out of the day");
+  for (const history of [[], [{ epoch: 559, totalSupply: 1_000n }]]) {
+    const none = await decide(s, history, opts(ruleChair));
+    assert.deepEqual([none.mandate?.supplyChangeBps, none.mandate?.supplyChangeMeetings], [null, null]);
+  }
+});

@@ -9,6 +9,9 @@ export interface Bounds {
 /** What the deployed contract reports through get_params; the contract hard-codes 200 and 50. */
 export const DEFAULT_BOUNDS: Bounds = { maxRateBps: 200, maxStepBps: 50 };
 
+/** Meetings in a day, rounded up (`policy::meetings_per_day`): the divisor of a mint, since a positive rate is basis points of supply per day. 960 at 90 s. */
+export const meetingsPerDay = (epochMs: number): number => Math.ceil(86_400_000 / epochMs);
+
 declare const accepted: unique symbol;
 
 /**

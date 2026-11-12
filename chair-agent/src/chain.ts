@@ -1,4 +1,4 @@
-import { DEFAULT_BOUNDS } from "./bounds.js";
+import { DEFAULT_BOUNDS, meetingsPerDay } from "./bounds.js";
 import { NearRpc, RpcError } from "./rpc.js";
 import type { Snapshot } from "./types.js";
 import { parseParams, parsePolicy, parseStaking, u128, ValidationError } from "./validate.js";
@@ -31,6 +31,10 @@ export class ChainReader implements Reader {
     // The contract hard-codes these (SPEC "Methods"); a node reporting anything else is wrong or hostile, and the agent's clamping would be built on it.
     if (params.maxRateBps !== DEFAULT_BOUNDS.maxRateBps || params.maxStepBps !== DEFAULT_BOUNDS.maxStepBps) {
       throw new ValidationError("get_params", `bounds ${params.maxRateBps}/${params.maxStepBps} differ from the contract's ${DEFAULT_BOUNDS.maxRateBps}/${DEFAULT_BOUNDS.maxStepBps}; refusing to act`);
+    }
+    // A token without `meetings_per_day` (rejected in `parseParams`) has the old per-meeting rate, and the minutes say per day; a figure that is not the epoch's own is as wrong.
+    if (params.meetingsPerDay !== meetingsPerDay(params.epochMs)) {
+      throw new ValidationError("get_params", `meetings_per_day ${params.meetingsPerDay} is not ${meetingsPerDay(params.epochMs)}, the day divided into ${params.epochMs} ms epochs; refusing to act`);
     }
     const policy = parsePolicy(rawPolicy, params.maxRateBps);
     const epoch = block.timestampMs < params.startMs ? 0 : Math.floor((block.timestampMs - params.startMs) / params.epochMs);

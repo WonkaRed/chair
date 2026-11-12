@@ -50,6 +50,7 @@ export function parseParams(v: unknown): Params {
   }
   return {
     epochMs: int(o["epoch_ms"], "epoch_ms", 1),
+    meetingsPerDay: int(o["meetings_per_day"], "meetings_per_day", 1),
     startMs: int(o["start_ms"], "start_ms", 0),
     maxRateBps: int(o["max_rate_bps"], "max_rate_bps", 0, 10_000),
     maxStepBps: int(o["max_step_bps"], "max_step_bps", 1, 10_000),

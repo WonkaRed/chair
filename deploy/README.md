@@ -28,7 +28,8 @@ The chair accounts are created with the function-call key already in the creatin
 only call `set_policy`" claim is a property of the account's history, not a promise. The protocol (not the contract) refuses any
 other call signed with it (`MethodNameMismatch`, step `e4-chair-key-ft-transfer`).
 
-Epochs are 90 s. The contract's own bounds are fixed at +-200 bps and 50 bps per epoch step. 90 s is long enough for the busiest scripted epoch
+Epochs are 90 s, so a day is 960 meetings. The contract's own bounds are fixed at +-200 bps and 50 bps per epoch step; a positive rate is basis points of
+supply per day, so +200 prints at most 2.02% of supply in a day, a little at each of the 960 meetings. 90 s is long enough for the busiest scripted epoch
 (a decision, a transfer, a nomination and two backings, each waited to finality) and short enough for a complete run in under half an hour.
 
 ## Keys
@@ -62,15 +63,16 @@ run rather than reshaping the story; start a new deployment then.
 2. the token account has no access key at all;
 3. `chair` and `challenger` each hold exactly one key: function-call, receiver the token, methods exactly `["set_policy"]`,
    no allowance cap, the recorded public key;
-4. the bounds the contract reports (`get_params`: `max_rate_bps` 200, `max_step_bps` 50, `quorum_bps` 500) and the recorded launch parameters;
+4. the bounds the contract reports (`get_params`: `max_rate_bps` 200, `max_step_bps` 50, `quorum_bps` 500, and `meetings_per_day` equal to the day divided by the epoch, 960 at 90 s) and the recorded launch parameters;
 5. the supply identity `total_supply = launch + minted - burned`, `ft_total_supply` equal to it, and recorded accounts' balances plus
-   stake plus the reward pool not exceeding the supply;
+   stake plus the reward pool not exceeding the supply; and launch plus minted staying inside the per-day bound, at most what +200 bps a day,
+   spread over the day's meetings and compounded over every meeting so far, allows (1.0202011 times the launch supply after a day at 90 s);
 6. every reasoning text hashes with SHA-256 to the `reasoning_hash` of the `policy_set` event the chain holds for that decision. The text comes
    from the `reasoning` argument of the decision's own `set_policy` transaction (compared with the hash in that transaction's event) or, for
    decisions made before the agent sent it, from the text recorded in `docs/testnet-run-agent-*` (the page's own bundler,
    `web/scripts/minutes.mjs`). The transactions come from the index the page uses (`web/config.js`, FastNEAR), read with the page's own code
    (`web/site/js`), so this check needs that index as well as the RPC. If the index cannot be read, `verify` prints one `NOTE:` line, skips this
-   check and does not count it (11 checks; the others read the RPC only), and exits by the rest. A decision with no text anywhere is not a
+   check and does not count it (12 checks; the others read the RPC only), and exits by the rest. A decision with no text anywhere is not a
    failure: it is counted and its epoch listed. A text that does not match, or a record in `docs/` that does not hash to its own hash (also
    when the index is down), is a failure.
 

@@ -55,14 +55,29 @@ test("set_policy checks run in the contract's order: chair, hash, already set, b
   assert.equal(c.setPolicy(CHAIR, 60, h), null);
 });
 
-test("the mint follows rollover.rs: floor, cap at u128::MAX / 10000, and the reward pool and index grow with it", () => {
-  // SPEC worked vector: supply 1_000_001, rate 33, staked 500 -> minted 3300.
-  const v = fresh({ totalSupply: 1_000_001n, totalStaked: 500n });
+test("meetings_per_day is the day over the epoch, rounded up: 960 at 90 s, 2880 at 30 s, 1 from a day on", () => {
+  for (const [epochMs, day] of [[90_000, 960], [30_000, 2880], [60_000, 1440], [100_000, 864], [70_000, 1235], [86_400_000, 1], [31_536_000_000, 1]] as const) {
+    assert.equal(fresh({ epochMs }).params.meetingsPerDay, day, `${epochMs} ms`);
+  }
+});
+
+test("the mint follows rollover.rs: per day, floor, cap at u128::MAX / 10000, and the reward pool and index grow with it", () => {
+  // SPEC worked vector: supply 1_000_001_000, rate 33 a day, staked 500, 960 meetings a day -> minted 3437 (3437.5034 floored).
+  const v = fresh({ totalSupply: 1_000_001_000n, totalStaked: 500n, epochMs: 90_000 });
   v.setPolicy(CHAIR, 33, sha256("v"));
   v.advanceEpochs(1);
-  assert.equal(v.totalSupply, 1_003_301n);
-  assert.equal(v.rewardPool, 3300n);
-  assert.equal(v.rewardPerShare, (3300n * 10n ** 24n) / 500n);
+  assert.equal(v.totalSupply, 1_000_004_437n);
+  assert.equal(v.rewardPool, 3437n);
+  assert.equal(v.rewardPerShare, (3437n * 10n ** 24n) / 500n);
+  // A day of meetings at the top rate grows the supply by at most 2.02%, never the old 2% a meeting.
+  const day = fresh({ totalSupply: 10n ** 30n, totalStaked: 10n ** 29n, epochMs: 90_000 });
+  day.rateBps = 200;
+  for (let e = 0; e < 960; e++) {
+    day.lastSetEpoch = day.epoch; // the chair keeps setting 200, so no decay
+    day.advanceEpochs(1);
+  }
+  const grown = (day.totalSupply * 10_000_000n) / 10n ** 30n;
+  assert.equal(grown, 10_202_011n, "1.0202011 after 960 meetings, SPEC 'The leash in numbers'");
   const cap = (2n ** 128n - 1n) / 10_000n; // contract MAX_TOTAL_SUPPLY
   const near = fresh({ totalSupply: cap - 7n, totalStaked: 1n });
   near.rateBps = 200;

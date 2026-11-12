@@ -3,6 +3,8 @@ import type { Bounds, Rate } from "./bounds.js";
 /** get_params, validated. Time is block time in milliseconds. */
 export interface Params extends Bounds {
   readonly epochMs: number;
+  /** Meetings in a day; a positive rate is basis points of supply per day, minted in equal parts at each of them. */
+  readonly meetingsPerDay: number;
   readonly startMs: number;
   readonly impeachThresholdBps: number;
   /** Share of the whole supply a candidate's backing must also exceed. */
@@ -70,6 +72,17 @@ export interface Chair {
   propose(input: DecisionInput, signal: AbortSignal): Promise<Proposal>;
 }
 
+/** The mandate as it stood for one decision, for the log. */
+export interface MandateReport {
+  /** What the mandate asks for, in bps a day: the more holders stake, the less the Chair prints. */
+  readonly rateBps: number;
+  /** Supply change over the last day (`meetings_per_day` meetings) in bps, and the meetings that span really covers; null with no history. */
+  readonly supplyChangeBps: number | null;
+  readonly supplyChangeMeetings: number | null;
+  /** `mandate`: the rate set is the mandate's, as near as the contract's step allows; `judgment`: the chair set its own. */
+  readonly followed: "mandate" | "judgment";
+}
+
 export type ChairKind = "rule" | "llm" | "rule-fallback";
 
 /** A decision that is safe to sign: the rate is a `Rate`, the text is cleaned, the hash is of that text. */
@@ -81,4 +94,6 @@ export interface Decision {
   readonly reasoningHash: string;
   readonly chair: string;
   readonly kind: ChairKind;
+  /** Absent when a decision is rebuilt from a log line to be sent again; nothing then logs it. */
+  readonly mandate?: MandateReport;
 }

@@ -6,7 +6,7 @@ import { testnetAccount } from "../src/guard.ts";
 import type { Decision, Minutes } from "../src/minutes.ts";
 import type { DeploymentRecord } from "../src/record.ts";
 import type { AccessKey } from "../src/rpc.ts";
-import { describeState, evaluate, type Snapshot } from "../src/verify.ts";
+import { describeState, evaluate, supplyCeiling, type Snapshot } from "../src/verify.ts";
 
 const wasm = Buffer.from("\0asm\x01\0\0\0 pretend contract");
 const accounts = accountsOf(testnetAccount("chair-coin.testnet"));
@@ -31,11 +31,11 @@ function good(): Snapshot {
     tokenCodeHash: record.wasm.codeHash,
     tokenCodeSha256: record.wasm.sha256,
     keys: { token: [], chair: [scoped("ed25519:CHAIRKEY")], challenger: [scoped("ed25519:CHALLKEY")], alice: [full("a")], bob: [full("b")], carol: [full("c")] },
-    params: { epochMs: 90000, startMs: 1, maxRateBps: 200, maxStepBps: 50, impeachThresholdBps: 3000, quorumBps: 500, nominateBond: 100n },
-    supply: { epoch: 12, launch: 1000n, minted: 80n, burned: 5n, total: 1075n, staked: 400n, rewardPool: 70n },
-    totalSupplyView: 1075n,
+    params: { epochMs: 90000, meetingsPerDay: 960, startMs: 1, maxRateBps: 200, maxStepBps: 50, impeachThresholdBps: 3000, quorumBps: 500, nominateBond: 100n },
+    supply: { epoch: 12, launch: 1000n, minted: 8n, burned: 5n, total: 1003n, staked: 400n, rewardPool: 7n },
+    totalSupplyView: 1003n,
     policy: { epoch: 12, rateBps: 20, chair: accounts.challenger, streak: 2, lastSetEpoch: 12, epochEndsMs: 9 },
-    recordedHoldings: 1000n,
+    recordedHoldings: 990n,
     minutes: { decisions: [decision(12, "verified"), decision(11, null)], warnings: [], error: null },
   };
 }
@@ -76,15 +76,17 @@ test("a chair account must hold exactly one set_policy-only key with no allowanc
 
 test("bounds other than 200, 50 and a 500 bps quorum, or other launch parameters, fail", () => {
   const s = good();
-  const bounds = "hard bounds: rate within +-200 bps, step at most 50 bps, backing over 5% of the supply to seat a chair";
+  const bounds = "hard bounds: rate within +-200 bps (a day's share of supply), step at most 50 bps, backing over 5% of the supply to seat a chair, meetings_per_day the day over the epoch";
   assert.deepEqual(failing({ ...s, params: { ...s.params, maxRateBps: 300 } }), [bounds]);
   assert.deepEqual(failing({ ...s, params: { ...s.params, quorumBps: 1 } }), [bounds]);
-  assert.deepEqual(failing({ ...s, params: { ...s.params, epochMs: 1000 } }), ["launch parameters are the recorded ones"]);
+  assert.deepEqual(failing({ ...s, params: { ...s.params, meetingsPerDay: 1 } }), [bounds], "a divisor of 1 is the old rate per meeting, however the rest looks");
+  assert.deepEqual(failing({ ...s, params: { ...s.params, meetingsPerDay: 961 } }), [bounds]);
+  assert.deepEqual(failing({ ...s, params: { ...s.params, epochMs: 1000, meetingsPerDay: 86_400 } }), ["launch parameters are the recorded ones"]);
 });
 
 test("the supply identity must hold on the chain's own numbers", () => {
   const s = good();
-  assert.deepEqual(failing({ ...s, supply: { ...s.supply, total: 1076n } }), ["total supply = launch + minted - burned", "ft_total_supply equals get_supply.total_supply"]);
+  assert.deepEqual(failing({ ...s, supply: { ...s.supply, total: 1004n } }), ["total supply = launch + minted - burned", "ft_total_supply equals get_supply.total_supply"]);
   assert.deepEqual(failing({ ...s, supply: { ...s.supply, launch: 999n } }), ["launch supply is the recorded one", "total supply = launch + minted - burned"]);
 });
 
@@ -106,12 +108,36 @@ test("the recorded reasoning texts must hash to the chain's hashes", () => {
 test("an unreadable transaction index skips the reasoning check instead of failing it, and the count says so", () => {
   const down: Minutes = { decisions: [], warnings: [], error: "indexer: HTTP 500" };
   const names = (m: Minutes) => evaluate(record, { ...good(), minutes: m }).map((c) => c.name);
-  assert.equal(names(good().minutes).length, 12);
-  assert.equal(names(down).length, 11);
+  assert.equal(names(good().minutes).length, 13);
+  assert.equal(names(down).length, 12);
   assert.deepEqual(failing({ ...good(), minutes: down }), []);
 });
 
 test("the state line names the epoch, rate, chair and supply", () => {
   const line = describeState(good());
-  for (const part of ["epoch 12", "rate 20 bps", accounts.challenger, "supply 1075"]) assert.ok(line.includes(part), part);
+  for (const part of ["epoch 12", "rate 20 bps", accounts.challenger, "supply 1003"]) assert.ok(line.includes(part), part);
+});
+
+test("minted supply must stay inside what +200 bps a day spread over the day's meetings allows", () => {
+  const s = good();
+  const name = "minted supply stays inside the per-day bound: no meeting mints more than 200 bps a day spread over the day's meetings";
+  const big = { ...s.supply, launch: 10n ** 30n, epoch: 960 };
+  const wide = { ...record, launch: { ...record.launch, supply: (10n ** 30n).toString() } };
+  const failingWide = (snap: Snapshot): string[] => evaluate(wide, snap).filter((c) => !c.ok).map((c) => c.name);
+  const ceiling = supplyCeiling(big.launch, 961, s.params)!;
+  const at = (minted: bigint) => ({ ...s, supply: { ...big, minted, burned: 0n, total: big.launch + minted, staked: 0n, rewardPool: 0n }, totalSupplyView: big.launch + minted, recordedHoldings: 0n });
+  assert.deepEqual(failingWide(at(ceiling - big.launch)), []);
+  assert.deepEqual(failingWide(at(ceiling - big.launch + 1n)), [name]);
+  // The old per-meeting rule minted up to 2% at each meeting: five meetings of it are already past a day's 2.02%.
+  assert.deepEqual(failingWide(at(big.launch / 10n)), [name]);
+  assert.deepEqual(failingWide(at(0n)), []);
+});
+
+test("the ceiling is the SPEC's: 1.0202011 of the launch supply after a day at 90 s, 1.8221074 after 30 days", () => {
+  const launch = 10n ** 30n;
+  const times = (meetings: number) => Number((supplyCeiling(launch, meetings, good().params)! * 10_000_000n) / launch);
+  assert.equal(times(960), 10_202_011);
+  assert.equal(times(28_800), 18_221_074);
+  assert.equal(supplyCeiling(launch, 3_000_001, good().params), null, "too many meetings to walk");
+  assert.equal(supplyCeiling(launch, 5, { ...good().params, meetingsPerDay: 0 }), null, "a node reporting no divisor gets no bound, never a division by zero");
 });

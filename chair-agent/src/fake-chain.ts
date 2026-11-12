@@ -38,7 +38,9 @@ export class FakeChain implements Reader, Submitter {
   constructor(o: { chair: string; totalSupply: bigint; totalStaked: bigint; epochMs?: number; startMs?: number }) {
     const epochMs = o.epochMs ?? 60_000;
     const startMs = o.startMs ?? 1_700_000_000_000;
-    this.params = { epochMs, startMs, maxRateBps: 200, maxStepBps: 50, impeachThresholdBps: 5000, quorumBps: 500, nominateBond: 1n };
+    // `meetings_per_day` (policy.rs): the day's milliseconds over the epoch, rounded up. Written here, not shared with bounds.ts.
+    const meetingsPerDay = Math.ceil(86_400_000 / epochMs);
+    this.params = { epochMs, meetingsPerDay, startMs, maxRateBps: 200, maxStepBps: 50, impeachThresholdBps: 5000, quorumBps: 500, nominateBond: 1n };
     this.nowMs = startMs;
     this.chair = o.chair;
     this.totalSupply = o.totalSupply;
@@ -56,7 +58,7 @@ export class FakeChain implements Reader, Submitter {
       const closing = this.applied;
       if (this.rateBps > 0 && this.totalStaked > 0n) {
         const room = this.totalSupply < MAX_TOTAL_SUPPLY ? MAX_TOTAL_SUPPLY - this.totalSupply : 0n; // saturating_sub
-        const exact = (this.totalSupply * BigInt(this.rateBps)) / 10_000n;
+        const exact = (this.totalSupply * BigInt(this.rateBps)) / (10_000n * BigInt(this.params.meetingsPerDay)); // the rate is per day, a meeting mints its share
         const minted = exact < room ? exact : room;
         this.totalSupply += minted;
         this.rewardPool += minted;

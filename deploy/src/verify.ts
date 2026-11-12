@@ -23,6 +23,22 @@ export interface Snapshot {
   readonly minutes: Minutes;
 }
 
+const DAY_MS = 86_400_000;
+/** More meetings than this (over 8 years at 90 s) is not walked; a node claiming more is not worth the loop. */
+const MAX_BOUNDED_MEETINGS = 3_000_000;
+
+/**
+ * The most the supply can reach from `launch` after `meetings` boundaries: each mints at most `supply * 200 / (10_000 * meetings_per_day)`
+ * (SPEC "The leash in numbers"), rounded up here so the bound is never below the contract's floor. Null when `meetings` is too many to walk.
+ */
+export function supplyCeiling(launch: bigint, meetings: number, p: Params): bigint | null {
+  if (meetings > MAX_BOUNDED_MEETINGS || !(p.meetingsPerDay >= 1)) return null;
+  const divisor = 10_000n * BigInt(p.meetingsPerDay);
+  let ceiling = launch;
+  for (let i = 0; i < meetings; i++) ceiling += (ceiling * BigInt(p.maxRateBps) + divisor - 1n) / divisor;
+  return ceiling;
+}
+
 export interface Check {
   readonly name: string;
   readonly ok: boolean;
@@ -95,9 +111,9 @@ export function evaluate(record: DeploymentRecord, s: Snapshot, wasmSha256?: str
 
   const p = s.params;
   check(
-    "hard bounds: rate within +-200 bps, step at most 50 bps, backing over 5% of the supply to seat a chair",
-    p.maxRateBps === 200 && p.maxStepBps === 50 && p.quorumBps === 500,
-    `max_rate_bps ${p.maxRateBps}, max_step_bps ${p.maxStepBps}, quorum_bps ${p.quorumBps}`,
+    "hard bounds: rate within +-200 bps (a day's share of supply), step at most 50 bps, backing over 5% of the supply to seat a chair, meetings_per_day the day over the epoch",
+    p.maxRateBps === 200 && p.maxStepBps === 50 && p.quorumBps === 500 && p.meetingsPerDay === Math.ceil(DAY_MS / p.epochMs),
+    `max_rate_bps ${p.maxRateBps}, max_step_bps ${p.maxStepBps}, quorum_bps ${p.quorumBps}, meetings_per_day ${p.meetingsPerDay}`,
   );
   check(
     "launch parameters are the recorded ones",
@@ -109,6 +125,12 @@ export function evaluate(record: DeploymentRecord, s: Snapshot, wasmSha256?: str
   check("launch supply is the recorded one", u.launch.toString() === record.launch.supply, `${u.launch}`);
   check("total supply = launch + minted - burned", u.total === u.launch + u.minted - u.burned, `${u.total} = ${u.launch} + ${u.minted} - ${u.burned}`);
   check("ft_total_supply equals get_supply.total_supply", s.totalSupplyView === u.total, `${s.totalSupplyView}`);
+  const ceiling = supplyCeiling(u.launch, u.epoch + 1, p);
+  check(
+    "minted supply stays inside the per-day bound: no meeting mints more than 200 bps a day spread over the day's meetings",
+    ceiling === null || u.launch + u.minted <= ceiling,
+    ceiling === null ? `${u.epoch + 1} meetings: too many to bound here` : `launch + minted ${u.launch + u.minted}, at most ${ceiling} after ${u.epoch + 1} meetings at +200 bps a day`,
+  );
   check(
     "recorded accounts' balances and stake never exceed the supply",
     s.recordedHoldings + u.rewardPool <= u.total,

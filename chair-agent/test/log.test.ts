@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { decide } from "../src/decide.js";
 import { DecisionLog, findReasoning, verifyLog } from "../src/log.js";
+import { reasoningHash } from "../src/reasoning.js";
 import { ruleChair } from "../src/rule-chair.js";
 import { snapshot, tempDir } from "./helpers.js";
 
@@ -99,5 +100,32 @@ test("unreadable lines are reported, not fatal; a missing log is empty history",
     assert.deepEqual(v.badLines, [2, 3]);
     assert.equal(v.ok, false);
     assert.equal(log.history(99).length, 1);
+  });
+});
+
+test("the mandate and the day's supply change are logged per decision; old lines without them still read", async () => {
+  await withLog(async (path, log) => {
+    const history = [{ epoch: 3, totalSupply: 1_000_000n }];
+    const s = snapshot({ epoch: 9, supply: 1_050_000n, staked: 105_000n });
+    const d = await decide(s, history, { chair: ruleChair, marginMs: 0, timeoutMs: 100 });
+    log.recordDecision(d, s);
+    const rec = JSON.parse(readFileSync(path, "utf8").trim()) as Record<string, unknown>;
+    assert.equal(rec["mandate_rate_bps"], 100);
+    assert.equal(rec["supply_change_24h_bps"], 500);
+    assert.equal(rec["supply_change_24h_meetings"], 6);
+    assert.ok(!("budget" in rec));
+    assert.equal(rec["followed"], "mandate");
+    // A decision from before the mandate, and one with no history to tell the day's change from.
+    const { mandate: _dropped, ...old } = d;
+    log.recordDecision({ ...old, epoch: 10, reasoning: "old", reasoningHash: reasoningHash("old") }, s);
+    const young = await decide(s, [], { chair: ruleChair, marginMs: 0, timeoutMs: 100 });
+    log.recordDecision({ ...young, epoch: 11 }, s);
+    const lines = readFileSync(path, "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
+    assert.ok(!("mandate_rate_bps" in lines[1]!) && !("followed" in lines[1]!), "an old line has none of the fields");
+    assert.equal(lines[2]!["supply_change_24h_bps"], null);
+    assert.equal(lines[2]!["supply_change_24h_meetings"], null);
+    assert.equal(verifyLog(path).ok, true);
+    assert.deepEqual(log.history(99).map((h) => h.epoch), [9, 10, 11]);
+    assert.equal(log.epochState(10).decision?.mandate_rate_bps, undefined);
   });
 });

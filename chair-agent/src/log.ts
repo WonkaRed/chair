@@ -26,6 +26,14 @@ export type LogRecord =
       readonly total_supply: string;
       readonly total_staked: string | null;
       readonly block_time_ms: number;
+      // Lines written before the mandate lack the four fields below; read them as absent.
+      /** The mandate rate, in bps a day: what "the more holders stake, the less the Chair prints" asks for. */
+      readonly mandate_rate_bps?: number;
+      /** Supply change over the last day in bps, over the meetings the history really covers (`supply_change_24h_meetings`); null with no history. */
+      readonly supply_change_24h_bps?: number | null;
+      readonly supply_change_24h_meetings?: number | null;
+      /** Whether the rate set is the mandate's (as near as the contract's step allows) or the chair's own judgment. */
+      readonly followed?: "mandate" | "judgment";
     }
   | {
       readonly v: 2;
@@ -84,6 +92,14 @@ export class DecisionLog {
       total_supply: s.totalSupply.toString(),
       total_staked: s.staking === null ? null : s.staking.totalStaked.toString(),
       block_time_ms: s.blockTimeMs,
+      ...(d.mandate === undefined
+        ? {}
+        : {
+            mandate_rate_bps: d.mandate.rateBps,
+            supply_change_24h_bps: d.mandate.supplyChangeBps,
+            supply_change_24h_meetings: d.mandate.supplyChangeMeetings,
+            followed: d.mandate.followed,
+          }),
     });
   }
 

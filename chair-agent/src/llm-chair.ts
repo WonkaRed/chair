@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { ChairFailure } from "./decide.js";
 import { cleanReasoning } from "./reasoning.js";
-import { meetingLength, percent, rateEffect, stakedShareBps, supplyMoved } from "./rule-chair.js";
+import { mandateRate, meetingLength, percent, rateEffect, stakedShareBps, supplyMoved } from "./rule-chair.js";
 import type { Chair, DecisionInput, Proposal } from "./types.js";
 
 export const LLM_MODEL = "claude-sonnet-5-5";
@@ -45,19 +45,22 @@ export const ANSWER_SCHEMA = {
 const SYSTEM = [
   "You are the chair of $CHAIR, a toy monetary-policy experiment on a test network.",
   "Once per meeting (every meeting_length) you set one integer rate_bps and write the minutes. Anyone must understand the minutes in one read, with no knowledge of blockchains.",
-  "What a rate does, while it stands: a positive rate prints new coins, that percent of all coins, for the holders who staked, at every meeting; a negative rate burns that percent of every transfer;",
+  "What a rate does, while it stands: a positive rate prints new coins, that percent of all coins in a day, for the holders who staked, a little at every meeting; a negative rate burns that percent of every transfer;",
   "zero does neither. You are not predicting prices and you give no financial advice.",
   "You will get a JSON object. Pick rate_bps inside rate_window_bps and answer with JSON only: {\"rate_bps\": <integer>, \"reasoning\": <string>}.",
+  "Your objective, in one sentence: the more holders stake, the less the Chair prints, aiming for half of all coins staked.",
+  "mandate_rate_bps is the rate that objective asks for now and mandate_does says what it does. Your default is to set rate_bps to mandate_rate_bps, or to the nearest rate inside rate_window_bps when it is out of reach;",
+  "you may set another rate inside the window, and the log records which of the two you did, so never say whether you followed the mandate.",
   "Write the reasoning as \"The Chair\", a deadpan parody of a central banker: solemn, dry and short, in the third person, two to five short sentences, one paragraph.",
   "The joke is that the Chair treats its own act, even a hold or a tiny move, with great ceremony; the facts stay plain.",
   "Shape: open with \"The Committee of One has met.\" Then, as the first sentence after it, the decision in plain words, then the supply and staked sentences when the JSON gives them, then one ceremonial line to close,",
   "such as \"The Chair asks that this be recorded.\" \"The Chair thanks itself for its service.\" \"The motion carries unanimously.\" \"The Chair has no further comment.\" \"The Chair will not be taking questions.\" Invent others in the same spirit.",
   "Figures are percent with two decimals, and nothing else: never \"basis points\", \"bps\", \"epoch\", a field name or a ratio.",
-  "The percent of a rate is rate_bps without its sign divided by 100, with two decimals: 5 is 0.05%, 12 is 0.12%, -10 is 0.10%, 200 is 2.00%, 0 is 0.00%. rate_in_effect_percent is that figure for rate_in_effect_bps.",
-  "Say what the rate does, in the same plain words every time: when rate_bps is above 0, \"printing 0.05% more coins every 90 seconds for holders who staked\" (use meeting_length for the 90 seconds);",
+  "The percent of a rate is rate_bps without its sign divided by 100, with two decimals: 5 is 0.05%, 12 is 0.12%, -10 is 0.10%, 200 is 2.00%, 0 is 0.00%. rate_in_effect_percent is that figure for rate_in_effect_bps and mandate_rate_percent for mandate_rate_bps.",
+  "Say what the rate does, in the same plain words every time: when rate_bps is above 0, \"printing 0.05% more coins a day, a little at every 90-second meeting, for holders who staked\" (use meeting_length for the 90 seconds, hyphenated: 2 minutes gives 2-minute). The percent is per day, never per meeting: the day is the only span you give it;",
   "below 0, \"burning 0.10% of every transfer\"; at 0, \"neither printing nor burning\". Never call a rate positive, negative, higher, lower, a raise or a cut: say what it does.",
-  "Hold (rate_bps equals rate_in_effect_bps): \"The Chair keeps printing 0.05% more coins every 90 seconds for holders who staked.\" Change: \"The Chair changes the rate from printing 0.05% to printing 0.12%.\"",
-  "followed by what the new rate does. When the rate in effect did the other thing or nothing, say so in the same words: \"from burning 0.10% of every transfer to printing 0.05%\", \"from neither printing nor burning to printing 0.05%\".",
+  "Hold (rate_bps equals rate_in_effect_bps): \"The Chair keeps printing 0.05% more coins a day, a little at every 90-second meeting, for holders who staked.\" Change: \"The Chair changes the rate from printing 0.05% a day to printing 0.12% a day.\"",
+  "followed by what the new rate does. When the rate in effect did the other thing or nothing, say so in the same words: \"from burning 0.10% of every transfer to printing 0.05% a day\", \"from neither printing nor burning to printing 0.05% a day\".",
   "rate_in_effect_does is a clause to read, never to paste into a \"from ... to ...\". When staked_share_in_words gives 0.00%, nothing is printed whatever the rate: write \"no coins are printed while nobody has staked\" in place of the printing words. Never say how many coins were or will be printed or burned in total and never say what the next rate will be.",
   "staked_share_in_words and supply_change_in_words are finished sentences: copy them, or reword them without changing a figure, a direction or the span. Never write a percent the JSON does not give or that you did not compute as above.",
   "Claim only what the numbers show. The figures say what happened, not why: never say that a rate caused, stopped, tempered or explains a change, never give the purpose of your move,",
@@ -82,11 +85,13 @@ export function buildPrompt(input: DecisionInput): { system: string; user: strin
   const lastSet = snapshot.policy.lastSetEpoch;
   const every = meetingLength(snapshot.params.epochMs);
   const drift = supplyMoved(input);
+  const nobodyStaked = staking !== null && staking.totalStaked === 0n;
+  const mandate = mandateRate(snapshot);
   const user = JSON.stringify({
     meeting_length: every,
     rate_in_effect_bps: snapshot.policy.rateBps,
     rate_in_effect_percent: percent(snapshot.policy.rateBps),
-    rate_in_effect_does: rateEffect(snapshot.policy.rateBps, every, staking !== null && staking.totalStaked === 0n),
+    rate_in_effect_does: rateEffect(snapshot.policy.rateBps, snapshot.params.epochMs, nobodyStaked),
     rate_window_bps: [input.window.lo, input.window.hi],
     // Meetings the chair stayed silent since it last set a rate (0: it set one last meeting); null: the rate was never set.
     // The agent stops before the model when this epoch is already set, so the count is never negative.
@@ -94,6 +99,10 @@ export function buildPrompt(input: DecisionInput): { system: string; user: strin
     staked_share_in_words:
       staking === null || snapshot.totalSupply === 0n ? null : `${percent(stakedShareBps(staking.totalStaked, snapshot.totalSupply))} of all coins are staked.`,
     supply_change_in_words: drift?.sentence ?? null,
+    // The mandate, as given figures: the rate it asks for and what that rate does.
+    mandate_rate_bps: mandate,
+    mandate_rate_percent: percent(mandate),
+    mandate_does: rateEffect(mandate, snapshot.params.epochMs, nobodyStaked),
     // Logged facts, present only when the caller has a log to read them from; a count of 0 is null, "nothing to say", never "zero times".
     // A run of 1 is no run either: "one meeting" in a run is not a thing to say.
     ...(input.memory === undefined
@@ -178,11 +187,17 @@ export function wordingFault(proposal: Proposal, input: DecisionInput): string |
   // Every percent is one the prompt gave or the decided rate in percent.
   const { staking, totalSupply } = input.snapshot;
   const drift = supplyMoved(input);
-  const given = new Set([percent(rateBps), percent(current)]);
+  const given = new Set([percent(rateBps), percent(current), percent(mandateRate(input.snapshot))]);
   if (staking !== null && totalSupply !== 0n) given.add(percent(stakedShareBps(staking.totalStaked, totalSupply)));
   if (drift !== null) given.add(drift.bps === 0n ? "0.01%" : percent(drift.bps));
   const stray = [...text.matchAll(/\d[\d,]*(?:\.\d+)?\s*%/g)].find((m) => !given.has(m[0]));
   if (stray !== undefined) return `a percent the numbers do not give (${stray[0]})`;
+  // A printing rate is a rate per day: no day word, or a figure tied to each meeting instead of the day, misstates it.
+  const nobodyStaked = staking !== null && staking.totalStaked === 0n;
+  if ((rateBps > 0 || current > 0) && !nobodyStaked) {
+    if (PRINTING_FIGURE.test(text) && !/\b(?:a|per|each|every) day\b|\bdaily\b/i.test(text)) return "a printing rate without its day";
+    if (PRINT_PER_MEETING.test(text)) return "a printing rate given per meeting instead of per day";
+  }
   if (rateBps !== 0) {
     const figure = percent(rateBps).replace(".", "\\.");
     // The verb nearest before the figure: "from neither printing nor burning to printing 0.05%" prints, and is not a burn.
@@ -191,6 +206,12 @@ export function wordingFault(proposal: Proposal, input: DecisionInput): string |
   }
   return null;
 }
+
+/** A percent said of printing, "printing 0.05%" or "0.05% more coins": the figure that needs its day. */
+const PRINTING_FIGURE = /\b(?:print|mint)\w*(?:\d\.\d|[^.]){0,60}?\d%|\d%\s+more coins/i;
+
+/** A printing figure tied to each meeting or each stretch of seconds with no "day" between them: the old per-meeting reading of the rate. */
+const PRINT_PER_MEETING = /\b(?:print|mint)\w*(?:(?!\bday\b)(?:\d\.\d|[^.])){0,80}?\b(?:every|each|per)\s+(?:\d+(?:\.\d+)?[-\s](?:second|minute)s?\b|meeting\b)/i;
 
 /** Attempts at an answer that passes `wordingFault`; sampling differs between attempts, so a second try is usually clean. */
 const ATTEMPTS = 2;
