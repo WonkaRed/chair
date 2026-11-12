@@ -8,7 +8,7 @@ Try it, no install: <https://wonkared.github.io/chair/>
 
 The Chair is given a formula's rate each meeting as advice and may choose another rate within 25 bps (0.25%) of it, always inside the contract's limits. Its minutes say what the formula suggested, what the Chair chose and why. An example of the format (illustrative: written to show the form, not a recorded meeting; the live page shows the real ones, each [public in its transaction](https://testnet.nearblocks.io/)):
 
-> The formula suggested printing 0.23% a day. The Chair chose printing 0.25% a day: fewer than half of all coins are staked, so it prints a little more.
+> The formula suggested printing 0.23% a day. The Chair chose printing 0.25% a day: fewer than half of all coins are staked.
 >
 > The Committee of One has met. The Chair moves the rate from printing 0.29% a day to printing 0.25% a day, a little at every 90-second meeting, for holders who staked. Supply is up 12 coins since the last meeting. 40.65% of all coins are staked, and the Chair would like 50.00%. The more holders stake, the less the Chair prints. *(closing sentence, written by the model:)* The Chair regards the matter as settled, having consulted the Chair.
 

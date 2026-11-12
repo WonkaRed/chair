@@ -98,9 +98,9 @@ test("the chair answers once: a choice outside the band, or with a reason that d
   const ok = asked(30, "smaller_move");
   assert.deepEqual(await ok.chair.propose(i, new AbortController().signal), { rateBps: 30, reason: "smaller_move" });
   assert.deepEqual(await asked(50, "stake_low").chair.propose(i, new AbortController().signal), { rateBps: 50, reason: "stake_low" }, "the formula's own number, with a true reason");
-  for (const [rate, reason, fault] of [[24, "smaller_move", /outside 25\.\.50/], [51, "stake_low", /outside/], [30, "stake_low", /points the other way/], [50, "stake_high", /not true/], [50, "steady", /not true/], [50, "smaller_move", /not true/], [30, "larger_move", /not true/]] as const) {
+  for (const [rate, reason, fault] of [[24, "smaller_move", "rate_outside_band"], [51, "stake_low", "rate_outside_band"], [30, "stake_low", "reason_points_other_way"], [50, "stake_high", "reason_not_true"], [50, "steady", "reason_not_true"], [50, "smaller_move", "reason_not_true"], [30, "larger_move", "reason_not_true"]] as const) {
     const bad = asked(rate, reason);
-    await assert.rejects(bad.chair.propose(i, new AbortController().signal), (e: unknown) => e instanceof ChairFailure && e.reason === "malformed" && fault.test(e.message), `${rate} ${reason}`);
+    await assert.rejects(bad.chair.propose(i, new AbortController().signal), (e: unknown) => e instanceof ChairFailure && e.reason === "malformed" && e.fault === fault, `${rate} ${reason}`);
     assert.equal(bad.calls(), 1);
   }
 });

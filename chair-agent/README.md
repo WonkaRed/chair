@@ -133,7 +133,7 @@ distrusts a lurch, and presses on when staking is far from half) and says the fo
 
 The agent validates the answer (`choiceFault`): a whole number inside the band, with a reason that is true of this meeting (staking below half for `stake_low`, supply grown for `supply_up`, and so on) and that points the way the rate
 does (`stake_low` never sits beside a rate below the formula; `smaller_move` and `larger_move` compare the rate's distance from the rate in effect with the formula's). Anything else, like an error, timeout (`--llm-timeout-ms`, default 30000 on the command line; the live run (`scripts/run-chair.sh`)
-passes 60000, and that is the limit in force, the remark's included), refusal, truncated answer, wrong or duplicate keys, or a non-integer, is a failure. A malformed answer (including a choice the check refuses) is asked for once more when at least 10 seconds of the timeout remain;
+passes 60000, and that is the limit in force, the remark's included), refusal, truncated answer, wrong or duplicate keys, or a non-integer, is a failure. A malformed answer (including a choice the check refuses) is asked for once more when at least 10 seconds of the timeout remain, with a `previous_answer_fault` line in the prompt naming which of our checks it failed (a label from a closed list, in our words, never the model's text);
 the second try has only the time that is left, and a second one falls back to the rule chair with the reason `fallback`, and the minutes say so. The agent then clamps the rate into the bounds of the window read after the model answered (see below).
 
 The model writes no free text in this call, so none of it can reach the chain: a reason on chain is always one of seven fixed clauses, chosen by id, and the agent writes the rest of the minutes. No text a visitor wrote (the press desk's questions) is ever in this prompt or the remark's
@@ -144,14 +144,25 @@ The model writes no free text in this call, so none of it can reach the chain: a
 
 After the header and the `Rate in effect R bps; decision D bps.` line, one line sets the formula's number beside the Chair's, in percent a day (`choiceLine` in `src/choice.ts`):
 
-- `The formula suggested printing 0.12% a day. The Chair chose printing 0.15% a day: fewer than half of all coins are staked, so it prints a little more.`
+- `The formula suggested printing 0.12% a day. The Chair chose printing 0.15% a day: fewer than half of all coins are staked.`
 - `The formula suggested printing 0.12% a day. The Chair agreed: fewer than half of all coins are staked.`
 - `The formula suggested printing 0.12% a day. The rule chair applied it.` (the rule chair, or a fallback)
 
-A reason that leans (the staking and supply ones) adds ", so it prints a little more" or "less" from the numbers themselves. The page reads these lines back with strict patterns (`parseChoice` in `web/site/js/minutes.js`) and shows
-"Formula suggested X · Chair chose Y" and the reason under the rate; `test/choice.test.ts` runs the page's reader over every form this module writes, so the two cannot drift. Minutes written before this have no such line and show no row.
+The line says no word about which way the rate went: the two rates beside it do, and "prints more" is false for a pair that burns or crosses zero. When the contract's window moved the rate after the choice, the line says
+so instead of claiming a rate that was not set, and the clamp line follows the statement:
 
-The supply sentence is exact: `Supply is up 1,563 coins since the last meeting.` is the difference of two supplies the chain reported, in whole coins (net of any burn between them), over the meetings the log really covers.
+- `The formula suggested printing 0.12% a day. The Chair asked for printing 0.15% a day: fewer than half of all coins are staked.`
+- `The formula suggested printing 0.12% a day. The rule chair asked for it.`
+- `The contract accepts 10..60 bps here, so 60 bps is set instead. The Chair defers.`
+
+The supply reasons are worded for what they hold for: `supply has grown since the Chair's last decision` (the supply now against the supply at the last logged decision, which may be several meetings back; the supply sentence in the statement gives the span). When the
+window leaves no rate within the band of the formula that the call is sure to be taken (a call close to the epoch's end may land after a rollover), there is nothing to choose: the model is not asked, the rule chair decides,
+and the minutes say `The AI chair (<name>) was not asked: no rate near the formula was sure to be taken, so the rule chair, the Chair's built-in fallback, decided this meeting.`
+
+The page reads these lines back with strict patterns (`parseChoice` in `web/site/js/minutes.js`) and shows
+"Formula suggested X · Chair chose Y" (or "asked for Y") and the reason under the rate; `test/choice.test.ts` runs the page's reader over every form this module writes, and checks each against its numbers, so the two cannot drift. Minutes written before this have no such line and show no row.
+
+The supply sentence: `Supply is up 1,563 coins since the last meeting.` is the difference of two supplies the chain reported (net of any burn between them), cut down to whole coins, over the meetings the log really covers.
 
 ### A local model
 

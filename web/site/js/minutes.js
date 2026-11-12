@@ -105,13 +105,15 @@ const DOES = "(?:printing \\d+\\.\\d\\d% a day|burning \\d+\\.\\d\\d% of every t
 const BECAUSE = [
   "fewer than half of all coins are staked",
   "more than half of all coins are staked",
-  "supply has grown since the last meeting",
-  "supply has shrunk since the last meeting",
+  "supply has grown since the Chair's last decision",
+  "supply has shrunk since the Chair's last decision",
   "the Chair prefers to hold the rate steady",
   "the Chair prefers to move the rate by less than the formula does",
   "the Chair prefers to move the rate by more than the formula does",
 ].join("|");
-const CHOICE = new RegExp(`^The formula suggested (?<formula>${DOES})\\. (?:The rule chair applied it\\.|The Chair agreed: (?<agreed>${BECAUSE})\\.|The Chair chose (?<chosen>${DOES}): (?<because>${BECAUSE})(?<way>, so it prints a little (?:more|less))?\\.)$`);
+const CHOICE = new RegExp(
+  `^The formula suggested (?<formula>${DOES})\\. (?:The rule chair (?<rule>applied|asked for) it\\.|The Chair agreed: (?<agreed>${BECAUSE})\\.|The Chair (?<verb>chose|asked for) (?<chosen>${DOES}): (?<because>${BECAUSE})\\.)$`,
+);
 
 /** The signed rate in bps that a phrase of the line stands for: "printing 0.12% a day" is 12, "burning 0.10% of every transfer" is -10. */
 const doesBps = (phrase) => {
@@ -121,16 +123,17 @@ const doesBps = (phrase) => {
 const sentence = (clause) => `${clause[0].toUpperCase()}${clause.slice(1)}`;
 
 /**
- * A choice line read back: `kind` is "rule" (the rule chair applied the formula), "agreed" or "chose"; `formula` and `chosen` are rates in bps (equal unless it chose);
+ * A choice line read back: `kind` is "rule" (the rule chair applied the formula), "agreed" or "chose", or, when the contract's window moved the rate after the
+ * choice, "rule-asked" or "asked" (what was asked for is not what was set); `formula` and `chosen` are rates in bps (equal unless the Chair chose or asked for another);
  * `why` is the reason as a sentence, "" for the rule chair. Null when the line is not exactly one of the agent's forms.
  */
 export function parseChoice(line) {
   const g = CHOICE.exec(line)?.groups;
   if (g === undefined) return null;
   const formula = doesBps(g.formula);
-  if (g.chosen !== undefined) return { kind: "chose", formula, chosen: doesBps(g.chosen), why: `${sentence(g.because)}${g.way ?? ""}.` };
+  if (g.chosen !== undefined) return { kind: g.verb === "chose" ? "chose" : "asked", formula, chosen: doesBps(g.chosen), why: `${sentence(g.because)}.` };
   if (g.agreed !== undefined) return { kind: "agreed", formula, chosen: formula, why: `${sentence(g.agreed)}.` };
-  return { kind: "rule", formula, chosen: formula, why: "" };
+  return { kind: g.rule === "applied" ? "rule" : "rule-asked", formula, chosen: formula, why: "" };
 }
 
 const OLD_WHY = { timeout: "did not answer in time", refusal: "declined to answer", malformed: "gave an answer the Chair could not use", error: "ran into an error" };
@@ -176,7 +179,7 @@ export const BOOK_CLOSINGS = [
 /** The AI chair's name in the header line: its label from the agent (`llm:<model>` or `local:<model>`); the rule chair's is `rule-v1`. */
 const AI_HEADER = /^\$CHAIR decision, epoch \d+, chair (?:llm|local):/;
 /** The lines the agent adds after the Chair's statement: the epoch rolled over, the rate was clamped, the press section (decide.ts, press-section.ts). */
-const AFTER_STATEMENT = /^(?:The epoch rolled over while the Chair was deliberating\.|The Chair asked for -?\d+ bps; the contract accepts |The press asked \d+ questions? since the last meeting\.)/;
+const AFTER_STATEMENT = /^(?:The epoch rolled over while the Chair was deliberating\.|The Chair asked for -?\d+ bps; the contract accepts |The contract accepts -?\d+\.\.-?\d+ bps here, so |The press asked \d+ questions? since the last meeting\.)/;
 
 /**
  * `{head, own, tail}` with `head + own + tail` equal to the minutes' prose, when an AI chair's statement ends in a sentence that is not a line of the
@@ -252,8 +255,9 @@ const choiceRate = (bps, unit) => (bps === 0 ? "no printing or burning" : rateLa
 /** The row under the rate that sets the formula's number beside the Chair's, then the reason: "Formula suggested +0.12% a day · Chair chose +0.15% a day". */
 function choiceRow(doc, c, ctx) {
   const said = { rule: "Rule chair applied it", agreed: "Chair agreed" };
+  const gave = { chose: "Chair chose ", asked: "Chair asked for ", "rule-asked": "Rule chair asked for " };
   return h(doc, "span", { class: "rate-choice" },
-    h(doc, "span", { class: "rc-line" }, "Formula suggested ", h(doc, "strong", {}, choiceRate(c.formula, ctx.unit)), " · ", c.kind === "chose" ? ["Chair chose ", h(doc, "strong", {}, choiceRate(c.chosen, ctx.unit))] : said[c.kind]),
+    h(doc, "span", { class: "rc-line" }, "Formula suggested ", h(doc, "strong", {}, choiceRate(c.formula, ctx.unit)), " · ", c.kind in gave ? [gave[c.kind], h(doc, "strong", {}, choiceRate(c.chosen, ctx.unit))] : said[c.kind]),
     c.why === "" ? null : h(doc, "span", { class: "rc-why" }, c.why),
   );
 }

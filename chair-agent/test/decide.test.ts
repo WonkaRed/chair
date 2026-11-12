@@ -53,8 +53,9 @@ test("a rate the window no longer holds is clamped, and the text says so (the wi
   const d = await decide(snapshot({ rate: 10 }), [], opts(stale));
   assert.equal(d.rate, 60);
   assert.equal(d.kind, "llm");
-  assert.match(d.reasoning, /asked for 500 bps; the contract accepts -40\.\.60 bps here, so 60 bps is set/);
-  assert.match(d.reasoning, /The Chair chose printing 5\.00% a day: the Chair prefers to move the rate by more than the formula does\./, "the choice line says what the Chair chose, the note what the contract set");
+  assert.match(d.reasoning, /\nThe contract accepts -40\.\.60 bps here, so 60 bps is set instead\. The Chair defers\./);
+  assert.match(d.reasoning, /The Chair asked for printing 5\.00% a day: the Chair prefers to move the rate by more than the formula does\./, "the choice line says what the Chair asked for, the note what the contract set");
+  assert.doesNotMatch(d.reasoning, /The Chair chose|The Chair agreed/, "nothing says a rate was chosen that was not set");
   assert.deepEqual(d.choice, { formulaBps: 60, chosenBps: 500, reason: "larger_move" });
 });
 
@@ -137,6 +138,42 @@ test("malformed twice: two calls at most, then the rule chair with the usual wor
   assert.equal(chair.calls, 2);
   assert.equal(d.kind, "rule-fallback");
   assert.match(d.reasoning, /\nThe AI chair \(.+\) gave an answer the Chair could not use, so the rule chair, the Chair's built-in fallback, decided this meeting\.\n/);
+});
+
+test("the retry is told which of our checks the first answer failed, in our words, and the first call is not", async () => {
+  const prompts: string[] = [];
+  const replies = ['{"rate_bps": 30, "reason": "SENTINEL-the-model-wrote-this"}', '{"rate_bps": 30, "reason": "smaller_move"}'];
+  const chair = new LlmChair({ label: "llm:stand-in", complete: (req) => (req.schema === undefined ? (prompts.push(req.user), Promise.resolve({ text: replies[prompts.length - 1]!, stopReason: "end_turn" })) : Promise.resolve({ text: '{"remark": ""}', stopReason: "end_turn" })) });
+  const d = await decide(snapshot({ rate: 0 }), [], opts(chair, 30_000));
+  assert.equal(d.kind, "llm");
+  assert.equal(prompts.length, 2);
+  assert.doesNotMatch(prompts[0]!, /previous_answer_fault/);
+  assert.match(prompts[1]!, /"previous_answer_fault":"Your last answer did not have exactly the keys rate_bps/);
+  assert.doesNotMatch(prompts[1]!, /SENTINEL/, "nothing the model wrote goes back into a prompt");
+  assert.equal(prompts[1]!.replace(/,"previous_answer_fault":"[^"]*"/, ""), prompts[0]!, "the retry differs by that one line and nothing else");
+});
+
+test("with no rate near the formula that the call is sure to be taken, the model is not asked; the rule chair decides and the minutes say what is true", async () => {
+  let asked = 0;
+  const chair = new LlmChair({ label: "llm:stand-in", complete: () => (asked++, Promise.resolve({ text: '{"rate_bps": 60, "reason": "steady"}', stopReason: "end_turn" })) });
+  const snap = snapshot({ rate: 60, staked: 0n, timeLeftMs: 20_000 }); // formula 110; the window across a rollover stops at 60
+  const d = await decide(snap, [], opts(chair));
+  assert.equal(asked, 0);
+  assert.equal(d.kind, "rule-fallback");
+  assert.equal(d.rate, 110);
+  assert.match(d.reasoning, /\nThe AI chair \(llm:stand-in\) was not asked: no rate near the formula was sure to be taken, so the rule chair, the Chair's built-in fallback, decided this meeting\.\n/);
+  assert.doesNotMatch(d.reasoning, /could not use|ran into/, "the AI did not fail");
+  assert.deepEqual(d.choice, { formulaBps: 110, chosenBps: 110, reason: "fallback" });
+});
+
+test("the rule chair's minutes after the window moved its rate describe the rate set, and the choice line says it asked for the formula's", async () => {
+  const snap = snapshot({ rate: 60, staked: 0n, timeLeftMs: 5_000 }); // formula 110, but the contract takes 10..60 here
+  const d = await decide(snap, [], opts(ruleChair));
+  assert.equal(d.rate, 60);
+  assert.match(d.reasoning, /\nThe formula suggested printing 1\.10% a day\. The rule chair asked for it\.\n/);
+  assert.match(d.reasoning, /The Chair holds the rate: /, "the statement is of the rate set");
+  assert.doesNotMatch(d.reasoning, /would go further|moves the rate from printing 0\.60% a day to printing 1\.10%/);
+  assert.match(d.reasoning, /\nThe contract accepts 10\.\.60 bps here, so 60 bps is set instead\. The Chair defers\.$/);
 });
 
 test("a timeout, an error and a refusal are not retried", async () => {
@@ -249,7 +286,7 @@ test("the decision records the formula's number, the Chair's and why, and the ma
   const own = await decide(s, dayAgo, opts(llmReturning(answer(40, "stake_low"))));
   assert.deepEqual(own.choice, { formulaBps: 25, chosenBps: 40, reason: "stake_low" });
   assert.equal(own.rate, 40);
-  assert.match(own.reasoning, /\nThe formula suggested printing 0\.25% a day\. The Chair chose printing 0\.40% a day: fewer than half of all coins are staked, so it prints a little more\.\n/);
+  assert.match(own.reasoning, /\nThe formula suggested printing 0\.25% a day\. The Chair chose printing 0\.40% a day: fewer than half of all coins are staked\.\n/);
   assert.match(agreed.reasoning, /\nThe formula suggested printing 0\.25% a day\. The Chair agreed: fewer than half of all coins are staked\.\n/);
   const rule = await decide(s, dayAgo, opts(ruleChair));
   assert.deepEqual(rule.choice, { formulaBps: 25, chosenBps: 25, reason: "formula" });

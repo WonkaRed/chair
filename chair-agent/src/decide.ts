@@ -1,11 +1,11 @@
 import { RateWindow, type Rate } from "./bounds.js";
 import { pressSection } from "./press-section.js";
 import type { PressEntry } from "./press-store.js";
-import { choiceLine } from "./choice.js";
+import { bandFor, choiceLine } from "./choice.js";
 import { cleanReasoning, MAX_REASONING_CHARS, reasoningHash } from "./reasoning.js";
 import { bookLine, factFault, factOf } from "./remark.js";
 import { formulaRate, mandateRate, ruleChair, ruleDecision, statement, supplyDrift } from "./rule-chair.js";
-import type { Chair, ChairKind, ChairMemory, Decision, DecisionInput, HistoryPoint, Proposal, Snapshot } from "./types.js";
+import type { AnswerFault, Chair, ChairKind, ChairMemory, Decision, DecisionInput, HistoryPoint, Proposal, Snapshot } from "./types.js";
 
 /** Why the primary chair's answer was not used; a fixed label, never raw error text. */
 export type FallbackReason = "error" | "timeout" | "malformed" | "refusal";
@@ -18,11 +18,16 @@ const FALLBACK_WHY: Record<FallbackReason, string> = {
   error: "ran into an error",
 };
 
+/** Said instead of those when no rate within the band of the formula is one the contract is sure to accept (the call may cross a rollover), so the model was not asked. At most 60 characters: the page's `FALLBACK_NEW` takes no more. */
+const NOT_ASKED_WHY = "was not asked: no rate near the formula was sure to be taken";
+
 /** Thrown by a chair that could not produce a usable proposal. */
 export class ChairFailure extends Error {
   constructor(
     readonly reason: FallbackReason,
     detail: string,
+    /** For a malformed answer: which check it failed, so the retry can say. */
+    readonly fault?: AnswerFault,
   ) {
     super(detail);
     this.name = "ChairFailure";
@@ -99,34 +104,42 @@ async function remarkWithin(chair: Chair, input: DecisionInput, rateBps: number,
 }
 
 /**
- * Ask the chair, within the time limit. A malformed answer is asked for once more with the time that remains;
- * any other failure, or a second malformed answer, of a non-rule chair falls back to the rule chair, which
- * cannot fail. The chair sees a window that stays valid across a rollover whenever the model's own time
- * allowance could carry the call past the epoch end.
+ * Ask the chair, within the time limit. A malformed answer is asked for once more with the time that remains, told which of our checks it failed;
+ * any other failure, or a second malformed answer, of a non-rule chair falls back to the rule chair, which cannot fail. The chair sees a window that
+ * stays valid across a rollover whenever the model's own time allowance could carry the call past the epoch end. When that window leaves no rate in the
+ * band of the formula, there is nothing to choose and the model is not asked.
  */
 export async function propose(snapshot: Snapshot, history: readonly HistoryPoint[], opts: DecideOptions, memory?: ChairMemory): Promise<Proposed> {
   const isRule = opts.chair === ruleChair;
   const w = windowFor(snapshot, opts.marginMs, isRule ? 0 : opts.timeoutMs);
   const input = { snapshot, history: before(history, snapshot.policy.epoch), window: { lo: w.lo, hi: w.hi }, ...(memory === undefined ? {} : { memory }) };
-  if (!isRule) {
-    const startedMs = Date.now();
-    const leftMs = () => opts.timeoutMs - (Date.now() - startedMs);
-    for (let attempt = 1; ; attempt++) {
-      try {
-        const proposal = await withTimeout(leftMs(), (signal) => opts.chair.propose(input, signal));
-        if (!Number.isSafeInteger(proposal.rateBps)) throw new ChairFailure("malformed", "proposal is not an integer rate");
-        const remark = await remarkWithin(opts.chair, input, proposal.rateBps, leftMs());
-        return { used: opts.chair, kind: "llm", proposal, remark, fallbackNote: "", basis: snapshot };
-      } catch (err) {
-        const reason: FallbackReason = err instanceof ChairFailure ? err.reason : "error";
-        if (reason === "malformed" && attempt === 1 && leftMs() >= RETRY_MIN_MS) continue;
-        const fallbackNote = `The AI chair (${opts.chair.name}) ${FALLBACK_WHY[reason]}, so the rule chair, the Chair's built-in fallback, decided this meeting.\n`;
-        const { rateBps } = await ruleChair.propose(input, new AbortController().signal);
-        return { used: ruleChair, kind: "rule-fallback", proposal: { rateBps, reason: "fallback" }, remark: null, fallbackNote, basis: snapshot };
+  const noSignal = new AbortController().signal;
+  if (isRule) return { used: ruleChair, kind: "rule", proposal: await ruleChair.propose(input, noSignal), remark: null, fallbackNote: "", basis: snapshot };
+  const byRule = async (why: string): Promise<Proposed> => {
+    const { rateBps } = await ruleChair.propose(input, noSignal);
+    const fallbackNote = `The AI chair (${opts.chair.name}) ${why}, so the rule chair, the Chair's built-in fallback, decided this meeting.\n`;
+    return { used: ruleChair, kind: "rule-fallback", proposal: { rateBps, reason: "fallback" }, remark: null, fallbackNote, basis: snapshot };
+  };
+  const band = bandFor(formulaRate(snapshot), input.window);
+  if (band.lo > band.hi) return byRule(NOT_ASKED_WHY);
+  const startedMs = Date.now();
+  const leftMs = () => opts.timeoutMs - (Date.now() - startedMs);
+  let previous: AnswerFault | undefined;
+  for (let attempt = 1; ; attempt++) {
+    try {
+      const proposal = await withTimeout(leftMs(), (signal) => opts.chair.propose(input, signal, previous));
+      if (!Number.isSafeInteger(proposal.rateBps)) throw new ChairFailure("malformed", "proposal is not an integer rate", "wrong_shape");
+      const remark = await remarkWithin(opts.chair, input, proposal.rateBps, leftMs());
+      return { used: opts.chair, kind: "llm", proposal, remark, fallbackNote: "", basis: snapshot };
+    } catch (err) {
+      const reason: FallbackReason = err instanceof ChairFailure ? err.reason : "error";
+      if (reason === "malformed" && attempt === 1 && leftMs() >= RETRY_MIN_MS) {
+        previous = err instanceof ChairFailure ? err.fault : undefined;
+        continue;
       }
+      return byRule(FALLBACK_WHY[reason]);
     }
   }
-  return { used: ruleChair, kind: "rule", proposal: await ruleChair.propose(input, new AbortController().signal), remark: null, fallbackNote: "", basis: snapshot };
 }
 
 /**
@@ -164,16 +177,16 @@ export function finalize(
   const clampNote =
     rate === chosen
       ? ""
-      : `\nThe Chair asked for ${chosen} bps; the contract accepts ${window.lo}..${window.hi} bps here, so ${rate} bps is set. The Chair defers.`;
+      : `\nThe contract accepts ${window.lo}..${window.hi} bps here, so ${rate} bps is set instead. The Chair defers.`;
   const mandate = mandateRate(basis);
   const day = supplyDrift(input, basis.params.meetingsPerDay);
   // The remark was checked against the rate the model proposed and the rate in effect when it asked; the rate sent may differ (clamped, or the rate in effect decayed).
   const remark = proposed.remark !== null && factFault(proposed.remark, factOf(rate, policy.rateBps)) === null ? proposed.remark : null;
   const choice = { formulaBps: formula, chosenBps: chosen, reason: proposed.proposal.reason };
-  const body = proposed.kind === "llm" ? `${statement(input, rate)} ${remark ?? bookLine(policy.epoch)}` : ruleDecision(input).reasoning;
+  const body = proposed.kind === "llm" ? `${statement(input, rate)} ${remark ?? bookLine(policy.epoch)}` : ruleDecision(input, rate).reasoning;
   const base =
     `$CHAIR decision, epoch ${policy.epoch}, chair ${proposed.used.name}.\n${proposed.fallbackNote}` +
-    `Rate in effect ${policy.rateBps} bps; decision ${rate} bps.\n${choiceLine(choice)}\n${body}${rolloverNote}${clampNote}`;
+    `Rate in effect ${policy.rateBps} bps; decision ${rate} bps.\n${choiceLine(choice, rate)}\n${body}${rolloverNote}${clampNote}`;
   // The press section only ever follows the decision text, and only in the room the 2000-character cap leaves.
   const text = cleanReasoning(`${base}${pressSection(press, MAX_REASONING_CHARS - base.length)}`);
   if (text === null) throw new Error("unreachable: decision text is never empty");

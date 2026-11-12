@@ -3,7 +3,7 @@ import { bandFor, choiceFault, MODEL_REASONS, offeredReasons, type ModelReason }
 import { ChairFailure } from "./decide.js";
 import { writeRemark } from "./remark.js";
 import { formulaRate, percent, stakedShareBps, supplyMoved, TARGET_STAKED_BPS } from "./rule-chair.js";
-import type { Chair, DecisionInput, Proposal } from "./types.js";
+import type { AnswerFault, Chair, DecisionInput, Proposal } from "./types.js";
 
 export const LLM_MODEL = "claude-sonnet-5-5";
 
@@ -55,8 +55,18 @@ const SYSTEM = [
   "Answer with JSON only: {\"rate_bps\": <integer>, \"reason\": <id>}.",
 ].join(" ");
 
-/** What the model is shown: numbers and our own sentences only, no free-form chain text, so nothing a stranger controls reaches the prompt. */
-export function buildPrompt(input: DecisionInput): { system: string; user: string } {
+/** What the retry tells the model about its last answer: our own sentence for each of our own fault labels, so no text of the model's goes back into a prompt. */
+const FAULT_TEXT: Record<AnswerFault, string> = {
+  incomplete: "Your last answer was cut off before it was finished.",
+  not_json: "Your last answer was not a JSON object.",
+  wrong_shape: "Your last answer did not have exactly the keys rate_bps (a whole number) and reason (one id from reasons).",
+  rate_outside_band: "Your last answer's rate_bps was not inside allowed_bps.",
+  reason_not_true: "Your last answer's reason was not true of this meeting.",
+  reason_points_other_way: "Your last answer's rate_bps was not on the side of the formula that its reason's rate_lies says.",
+};
+
+/** What the model is shown: numbers and our own sentences only, no free-form chain text, so nothing a stranger controls reaches the prompt. `previous` is the fault of the answer a retry replaces. */
+export function buildPrompt(input: DecisionInput, previous?: AnswerFault): { system: string; user: string } {
   const { snapshot, memory } = input;
   const { staking } = snapshot;
   const lastSet = snapshot.policy.lastSetEpoch;
@@ -75,6 +85,7 @@ export function buildPrompt(input: DecisionInput): { system: string; user: strin
     // Logged, present only when the caller has a log to read it from; a run of under 2 is no run.
     meetings_in_a_row_the_chair_set_the_rate_in_effect: memory === undefined || memory.sameRateEpochs < 2 ? null : memory.sameRateEpochs,
     reasons: offeredReasons(input),
+    ...(previous === undefined ? {} : { previous_answer_fault: FAULT_TEXT[previous] }),
   });
   return { system: SYSTEM, user };
 }
@@ -107,21 +118,21 @@ function topLevelKeys(text: string): string[] {
 /** Strict parse of the model's answer. Throws `ChairFailure` for anything that is not exactly the schema. */
 export function parseAnswer(res: LlmResponse): { rateBps: number; reason: ModelReason } {
   if (res.stopReason === "refusal") throw new ChairFailure("refusal", "model refused");
-  if (res.stopReason !== "end_turn") throw new ChairFailure("malformed", `stop reason ${String(res.stopReason)}`);
+  if (res.stopReason !== "end_turn") throw new ChairFailure("malformed", `stop reason ${String(res.stopReason)}`, "incomplete");
   let data: unknown;
   try {
     data = JSON.parse(res.text);
   } catch {
-    throw new ChairFailure("malformed", "answer is not JSON");
+    throw new ChairFailure("malformed", "answer is not JSON", "not_json");
   }
   if (typeof data !== "object" || data === null || Array.isArray(data)) {
-    throw new ChairFailure("malformed", "answer is not a JSON object");
+    throw new ChairFailure("malformed", "answer is not a JSON object", "not_json");
   }
   // JSON.parse silently keeps the last of two equal keys; read the keys off the text so a duplicate is refused.
   const keys = topLevelKeys(res.text).sort().join(",");
   const { rate_bps: rate, reason } = data as Record<string, unknown>;
   if (keys !== "rate_bps,reason" || typeof rate !== "number" || !Number.isSafeInteger(rate) || !MODEL_REASONS.some((id) => id === reason)) {
-    throw new ChairFailure("malformed", "answer does not match the schema");
+    throw new ChairFailure("malformed", "answer does not match the schema", "wrong_shape");
   }
   return { rateBps: rate, reason: reason as ModelReason };
 }
@@ -133,11 +144,11 @@ export class LlmChair implements Chair {
   }
 
   /** One attempt: a malformed answer, or a choice outside the band or with a reason that does not fit, is a `ChairFailure` the decision's own retry and fallback deal with. */
-  async propose(input: DecisionInput, signal: AbortSignal): Promise<Proposal> {
-    const { system, user } = buildPrompt(input);
+  async propose(input: DecisionInput, signal: AbortSignal, previous?: AnswerFault): Promise<Proposal> {
+    const { system, user } = buildPrompt(input, previous);
     const answer = parseAnswer(await this.client.complete({ system, user, signal }));
     const fault = choiceFault(input, answer.rateBps, answer.reason);
-    if (fault !== null) throw new ChairFailure("malformed", `choice: ${fault}`);
+    if (fault !== null) throw new ChairFailure("malformed", `choice: ${fault}`, fault);
     return answer;
   }
 

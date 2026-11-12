@@ -81,10 +81,17 @@ export interface Proposal {
   readonly reason: ReasonId;
 }
 
+/**
+ * What was wrong with an AI chair's answer, as a label from this closed list: our own names for our own checks, never any text of the model's. The retry is
+ * told which one it was (llm-chair.ts `FAULT_TEXT`).
+ */
+export type AnswerFault = "incomplete" | "not_json" | "wrong_shape" | "rate_outside_band" | "reason_not_true" | "reason_points_other_way";
+
 export interface Chair {
   /** Short stable label recorded in the log, e.g. `rule-v1`. */
   readonly name: string;
-  propose(input: DecisionInput, signal: AbortSignal): Promise<Proposal>;
+  /** `previous` is set on the one retry: the fault of the answer this one replaces. */
+  propose(input: DecisionInput, signal: AbortSignal, previous?: AnswerFault): Promise<Proposal>;
   /** The Chair's own closing remark on a decision of `rateBps`, or null when it has none worth keeping. Only a chair that calls a model has one. */
   remark?(input: DecisionInput, rateBps: number, signal: AbortSignal): Promise<string | null>;
 }

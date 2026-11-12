@@ -116,7 +116,7 @@ function coinsIn(units: bigint): string {
 
 /**
  * How much the supply moved since the latest logged meeting, at most `LOOKBACK_EPOCHS` ago, as the sentence the minutes carry, or null with no such
- * meeting. Exact: the difference of two supplies the chain reported, in whole coins, net of any burn in between (a mint is due at each meeting, SPEC "Rollover");
+ * meeting. The difference of two supplies the chain reported, net of any burn in between (a mint is due at each meeting, SPEC "Rollover"), shown in whole coins (the amount is cut down to a whole coin, not rounded);
  * `meetings` is the span the two reads really cover (1 when the Chair decided at the last meeting too).
  */
 export function supplyMoved(input: DecisionInput): { sentence: string; delta: bigint; meetings: number } | null {
@@ -183,10 +183,9 @@ export function statement(input: DecisionInput, rate: number): string {
   return lines.join(" ");
 }
 
-/** The rule chair's whole text: the formula's rate and the minutes that set it, closed on a line of the book picked by the situation. */
-export function ruleDecision(input: DecisionInput): { rateBps: number; reasoning: string } {
+/** The rule chair's whole text: the minutes that set `rate`, the formula's unless the contract's window moved it, closed on a line of the book picked by the situation. */
+export function ruleDecision(input: DecisionInput, rate = formulaRate(input.snapshot)): { rateBps: number; reasoning: string } {
   const { snapshot } = input;
-  const rate = formulaRate(snapshot);
   const current = snapshot.policy.rateBps;
   const closing = rate === current ? CLOSING.leadership : rate !== mandateRate(snapshot) ? CLOSING.noObjection : rate > current ? CLOSING.thanks : CLOSING.unanimous;
   return { rateBps: rate, reasoning: `${statement(input, rate)} ${closing}` };
