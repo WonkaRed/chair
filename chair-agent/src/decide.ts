@@ -78,8 +78,12 @@ export interface Proposed {
   readonly basedOnEpoch: number;
 }
 
+/** A malformed answer is asked for once more only while at least this much of the time limit is left. */
+const RETRY_MIN_MS = 10_000;
+
 /**
- * Ask the chair, within the time limit. Any failure of a non-rule chair falls back to the rule chair, which
+ * Ask the chair, within the time limit. A malformed answer is asked for once more with the time that remains;
+ * any other failure, or a second malformed answer, of a non-rule chair falls back to the rule chair, which
  * cannot fail. The chair sees a window that stays valid across a rollover whenever the model's own time
  * allowance could carry the call past the epoch end.
  */
@@ -89,17 +93,22 @@ export async function propose(snapshot: Snapshot, history: readonly HistoryPoint
   const input = { snapshot, history: before(history, snapshot.policy.epoch), window: { lo: w.lo, hi: w.hi }, ...(memory === undefined ? {} : { memory }) };
   const basedOnEpoch = snapshot.policy.epoch;
   if (!isRule) {
-    try {
-      const proposal = await withTimeout(opts.timeoutMs, (signal) => opts.chair.propose(input, signal));
-      if (!Number.isSafeInteger(proposal.rateBps) || cleanReasoning(proposal.reasoning, BODY_CHARS) === null) {
-        throw new ChairFailure("malformed", "proposal is not an integer rate with text");
+    const startedMs = Date.now();
+    const leftMs = () => opts.timeoutMs - (Date.now() - startedMs);
+    for (let attempt = 1; ; attempt++) {
+      try {
+        const proposal = await withTimeout(leftMs(), (signal) => opts.chair.propose(input, signal));
+        if (!Number.isSafeInteger(proposal.rateBps) || cleanReasoning(proposal.reasoning, BODY_CHARS) === null) {
+          throw new ChairFailure("malformed", "proposal is not an integer rate with text");
+        }
+        return { used: opts.chair, kind: "llm", proposal, fallbackNote: "", basedOnEpoch };
+      } catch (err) {
+        const reason: FallbackReason = err instanceof ChairFailure ? err.reason : "error";
+        if (reason === "malformed" && attempt === 1 && leftMs() >= RETRY_MIN_MS) continue;
+        const fallbackNote = `The AI chair (${opts.chair.name}) ${FALLBACK_WHY[reason]}, so the rule chair, the Chair's built-in fallback, decided this meeting.\n`;
+        const proposal = await ruleChair.propose(input, new AbortController().signal);
+        return { used: ruleChair, kind: "rule-fallback", proposal, fallbackNote, basedOnEpoch };
       }
-      return { used: opts.chair, kind: "llm", proposal, fallbackNote: "", basedOnEpoch };
-    } catch (err) {
-      const reason: FallbackReason = err instanceof ChairFailure ? err.reason : "error";
-      const fallbackNote = `The AI chair (${opts.chair.name}) ${FALLBACK_WHY[reason]}, so the rule chair, the Chair's built-in fallback, decided this meeting.\n`;
-      const proposal = await ruleChair.propose(input, new AbortController().signal);
-      return { used: ruleChair, kind: "rule-fallback", proposal, fallbackNote, basedOnEpoch };
     }
   }
   return { used: ruleChair, kind: "rule", proposal: await ruleChair.propose(input, new AbortController().signal), fallbackNote: "", basedOnEpoch };

@@ -92,6 +92,85 @@ for (const [name, chair, reason] of failures) {
   });
 }
 
+/** A stand-in chair that answers from a script, one entry per call, and counts its calls. */
+const scripted = (...replies: (() => Promise<{ rateBps: number; reasoning: string }>)[]) => {
+  const chair = {
+    calls: 0,
+    name: "llm:scripted-retry",
+    propose: () => replies[Math.min(chair.calls++, replies.length - 1)]!(),
+  };
+  return chair;
+};
+const malformed = () => Promise.reject(new ChairFailure("malformed", "d"));
+const good = () => Promise.resolve({ rateBps: 20, reasoning: "second try" });
+
+test("a malformed answer is asked for once more, and the second answer is the model's decision", async () => {
+  const chair = scripted(malformed, good);
+  const d = await decide(snapshot({ rate: 0 }), [], opts(chair, 30_000));
+  assert.equal(chair.calls, 2);
+  assert.equal(d.kind, "llm");
+  assert.equal(d.chair, "llm:scripted-retry");
+  assert.equal(d.rate, 20);
+  assert.match(d.reasoning, /second try/);
+  assert.doesNotMatch(d.reasoning, /built-in fallback/);
+});
+
+test("malformed twice: two calls at most, then the rule chair with the usual wording", async () => {
+  const chair = scripted(malformed, malformed, good);
+  const d = await decide(snapshot({ rate: 0 }), [], opts(chair, 30_000));
+  assert.equal(chair.calls, 2);
+  assert.equal(d.kind, "rule-fallback");
+  assert.match(d.reasoning, /\nThe AI chair \(.+\) gave an answer the Chair could not use, so the rule chair, the Chair's built-in fallback, decided this meeting\.\n/);
+});
+
+test("a timeout, an error and a refusal are not retried", async () => {
+  const hang = scripted(() => new Promise(() => {}), good);
+  assert.equal((await decide(snapshot(), [], opts(hang, IMPATIENT_MS))).kind, "rule-fallback");
+  assert.equal(hang.calls, 1);
+  const broken = scripted(() => Promise.reject(new Error("connection refused")), good);
+  assert.equal((await decide(snapshot(), [], opts(broken, 30_000))).kind, "rule-fallback");
+  assert.equal(broken.calls, 1);
+  const declined = scripted(() => Promise.reject(new ChairFailure("refusal", "d")), good);
+  assert.equal((await decide(snapshot(), [], opts(declined, 30_000))).kind, "rule-fallback");
+  assert.equal(declined.calls, 1);
+});
+
+test("a malformed answer that arrives with under 10 s of the limit left is not retried", async () => {
+  const chair = scripted(() => new Promise((_, reject) => setTimeout(() => reject(new ChairFailure("malformed", "d")), 100)), good);
+  const d = await decide(snapshot(), [], opts(chair, 10_050)); // about 9.95 s remain when it fails
+  assert.equal(chair.calls, 1);
+  assert.equal(d.kind, "rule-fallback");
+});
+
+test("the retry gets the time that remains of the one limit, never a fresh one", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "Date"] });
+  let aborted = false;
+  let calls = 0;
+  const chair: Chair = {
+    name: "llm:scripted-retry",
+    propose: (_input, signal) => {
+      if (++calls === 1) {
+        t.mock.timers.tick(5_000); // the first answer arrives after 5 s of the 30
+        return Promise.reject(new ChairFailure("malformed", "d"));
+      }
+      return new Promise((_, reject) =>
+        signal.addEventListener("abort", () => {
+          aborted = true;
+          reject(new Error("aborted"));
+        }),
+      );
+    },
+  };
+  const pending = decide(snapshot(), [], opts(chair, 30_000));
+  while (calls < 2) await new Promise((r) => setImmediate(r));
+  t.mock.timers.tick(24_999);
+  assert.equal(aborted, false, "25 s remained, and 24.999 s have passed");
+  t.mock.timers.tick(1);
+  assert.equal(aborted, true, "the second attempt stops when the original 30 s are up");
+  assert.equal((await pending).kind, "rule-fallback");
+  assert.equal(calls, 2);
+});
+
 test("model text is inert: shell, path and transaction-looking strings only ever land in the reasoning", async () => {
   const evil = "$(rm -rf /) ../../etc/passwd; receiver_id=attacker.near {\"rate_bps\":200} \u0000";
   const d = await decide(snapshot({ rate: 0 }), [], opts(llmReturning(answer(20, evil))));

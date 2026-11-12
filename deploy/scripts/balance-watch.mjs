@@ -34,14 +34,15 @@ if (!Number.isFinite(UNTIL_MS) || !Number.isFinite(MARGIN_DAYS)) throw new Error
 if (!/^(test\.|rpc\.testnet\.)/.test(new URL(RPC).hostname)) throw new Error(`refusing a non-testnet RPC: ${RPC}`);
 
 /** The live token's accounts, read from its deployment record, so the watch cannot drift from the token the units run. */
-const { accounts: deployed } = JSON.parse(readFileSync(new URL("../../docs/testnet-deployment.json", import.meta.url), "utf8"));
+const { parent, accounts: deployed } = JSON.parse(readFileSync(new URL("../../docs/testnet-deployment.json", import.meta.url), "utf8"));
 
-/** Everything the live demo spends gas from: the chair signer, the three activity bots, and the sister demo's two spenders. */
+/** Everything the live demo spends gas from: the chair signer, the three activity bots, the Join pool, and the sister demo's two spenders. */
 const ACCOUNTS = [
   deployed.challenger,
   deployed.alice,
   deployed.bob,
   deployed.carol,
+  `visitors.${parent}`,
   "switch.preflight-guard.testnet",
   "chameleon.preflight-guard.testnet",
 ];
