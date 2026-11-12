@@ -7,7 +7,7 @@ import type { DecideOptions } from "./decide.js";
 import { AnthropicLlmClient, LlmChair, LocalLlmClient, llmConfigured, type LlmClient } from "./llm-chair.js";
 import { DecisionLog, findReasoning, verifyLog } from "./log.js";
 import { answerQuestion, ModelWatch, RECENT_LINES, stayOffTheModel } from "./press-answer.js";
-import { Join } from "./press-join.js";
+import { DEFAULT_JOIN_LIMITS, Join } from "./press-join.js";
 import { Overreach } from "./press-overreach.js";
 import { createPressServer, listen } from "./press-server.js";
 import { PressStore } from "./press-store.js";
@@ -242,6 +242,7 @@ async function overreachFrom(env: NodeJS.ProcessEnv, io: Io): Promise<Overreach 
 
 /**
  * "Join the Committee" needs the visitor pool account (CHAIR_VISITOR_ACCOUNT), its key file (CHAIR_VISITOR_KEY_FILE) and the chain (CHAIR_RPC_URL, CHAIR_TOKEN).
+ * CHAIR_JOIN_IDLE_RESET_S (default 600) is how long the desk waits with no press before it steps a staked pool back out (press-join.ts).
  * Missing or unusable, the feature is off and says so in the log, like the overreach.
  */
 async function joinFrom(env: NodeJS.ProcessEnv, io: Io): Promise<Join | null> {
@@ -252,12 +253,13 @@ async function joinFrom(env: NodeJS.ProcessEnv, io: Io): Promise<Join | null> {
     if (rpcUrl === undefined) throw new Error("CHAIR_RPC_URL is required");
     const token = accountId(env["CHAIR_TOKEN"], "CHAIR_TOKEN");
     const pool = accountId(env["CHAIR_VISITOR_ACCOUNT"], "CHAIR_VISITOR_ACCOUNT");
+    const idleResetMs = int(Number(env["CHAIR_JOIN_IDLE_RESET_S"] ?? DEFAULT_JOIN_LIMITS.idleResetMs / 1000), "CHAIR_JOIN_IDLE_RESET_S", 1, 86_400) * 1000;
     const rpc = new NearRpc(rpcUrl);
     if ((await rpc.chainId()) === "mainnet") throw new Error("refusing to run against mainnet: this is a test-network experiment");
     const sender = new PoolSigner(loadKeyFile(keyFile, "CHAIR_VISITOR_KEY_FILE", (m) => io.err(`WARNING: ${m}`)), pool, token, rpc);
     assertFullAccess(await rpc.accessKey(pool, await sender.publicKey()));
-    io.out(`join on: ${pool} stakes and unstakes at the contract at ${token}`);
-    return new Join({ reader: new ChainReader(rpc, token, pool), sender, poolAccount: pool, log: (line) => io.out(line) });
+    io.out(`join on: ${pool} stakes and unstakes at the contract at ${token}; steps a staked pool back out after ${idleResetMs / 1000} s with no press`);
+    return new Join({ reader: new ChainReader(rpc, token, pool), sender, poolAccount: pool, limits: { idleResetMs }, log: (line) => io.out(line) });
   } catch (err) {
     io.err(`join off: ${err instanceof Error ? sanitize(err.message, 200) : "unknown error"}`);
     return null;
@@ -298,11 +300,13 @@ async function pressCommand(args: readonly string[], env: NodeJS.ProcessEnv, io:
     available: () => watch === null || watch.available,
     log: (line) => io.out(line),
   });
+  const stopWatching = committee?.watch();
   const bound = await listen(server, port);
   io.out(`chair-agent press on 127.0.0.1:${bound}, record ${file}, model ${watch === null ? "stand-in" : model}${watch?.available === false ? " (not reachable yet; answering 503 until it is)" : ""}`);
   const signal = deps.signal ?? new AbortController().signal;
   if (!signal.aborted) await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
   watch?.stop();
+  stopWatching?.();
   await new Promise<void>((resolve) => {
     server.close(() => resolve());
     server.closeAllConnections();

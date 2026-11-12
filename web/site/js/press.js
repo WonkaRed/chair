@@ -1,6 +1,8 @@
 // The press conference: a visitor puts one question to the Chair, reads the answer, then watches it enter the on-chain minutes.
 // The press desk (POST /ask, GET /record) is a separate service behind a quick tunnel whose address changes on every restart, so the page
-// finds it through a small discovery document (config.pressDiscoveryUrl). Both the document and the desk are untrusted: the address is
+// finds it through a small discovery document (config.pressDiscoveryUrl, a gist file). The raw file is served with `cache-control: max-age=300` and
+// lags a restart by minutes even with a cache-busting query, so the page reads it through the GitHub API (config.pressDiscoveryApiUrl, about a
+// minute behind at worst) when it may, and the raw file otherwise. Both the document and the desk are untrusted: the address is
 // checked strictly before use and everything the desk returns reaches the page through `textContent` only. The record never holds question text, so a visitor's own questions stay in this browser (localStorage).
 import { clear, h } from "./dom.js";
 import { isTxHash, safeLines, safeText } from "./text.js";
@@ -10,8 +12,14 @@ export const MAX_QUESTION = 140;
 export const OFFLINE = "The Chair is not taking questions at this time.";
 // What the page says when it does not know whether the desk answered: the desk may still answer and enter it, and the record below then shows it.
 const LATE = "The desk did not answer in time. If it does, the answer will appear in the record below.";
+export const RETRY_NOTE = "This page keeps checking by itself and opens the moment the desk is back.";
 export const DESK_NOTE = "The press desk runs on my workstation, not on a hosted server, so it is closed whenever that machine is off.";
-export const POLL_MS = 15_000;
+export const POLL_MS = 20_000;
+/** The GitHub API lets one address read 60 times an hour: one page reads it at most this often (40 an hour). */
+export const API_EVERY_MS = 90_000;
+const DOC_CAP = 2_000; // bytes of discovery document the page will parse
+/** An address that did not answer is left alone for POLL_MS, then twice as long after each miss, up to this. */
+const REST_MAX_MS = 160_000;
 const STALE_MS = 15 * 60_000; // an answer asked longer ago than this stops being polled for
 const KEEP = 20; // own questions remembered
 const FETCH_RECORD = 50; // entries asked of the desk, so a visitor's own entry stays in the window on a busy day
@@ -99,12 +107,16 @@ const answerText = (s) => safeLines(s.slice(0, ANSWER_CAP));
 
 /**
  * Builds the panel into `host` and returns its controller. `fetchImpl`, `storage`, `timers` and `now` are the boundaries, injectable for tests.
- * An empty `discoveryUrl` renders the offline state and never touches the network.
+ * An empty `discoveryUrl` renders the offline state and never touches the network. `discoveryApiUrl` (optional) is the same document through the
+ * GitHub gist API, `https://api.github.com/gists/<id>`; the file read from it is the one the last segment of `discoveryUrl` names.
  */
-export function createPress(doc, host, { discoveryUrl = "", explorer = null, fetchImpl = globalThis.fetch?.bind(globalThis), storage = defaultStorage(), timers = { set: (f, ms) => setTimeout(f, ms), clear: (t) => clearTimeout(t) }, now = Date.now } = {}) {
+export function createPress(doc, host, { discoveryUrl = "", discoveryApiUrl = "", explorer = null, fetchImpl = globalThis.fetch?.bind(globalThis), storage = defaultStorage(), timers = { set: (f, ms) => setTimeout(f, ms), clear: (t) => clearTimeout(t) }, now = Date.now } = {}) {
   let desk = ""; // the validated origin of the press desk, "" while none is known
   let lastDiscovery = -Infinity;
   let discovering = null;
+  let docAt = -1; // updated_at_ms of the newest discovery document taken: an older one (a lagging copy) never replaces it
+  let apiAfter = -Infinity; // the API is not read before this time
+  let resting = { url: "", wait: 0, until: 0 }; // the address that last failed to answer, and until when the page leaves it alone
   let checking = discoveryUrl !== "";
   let online = false; // the desk answered the last request about the record
   let open = false; // and said it is taking questions
@@ -175,8 +187,8 @@ export function createPress(doc, host, { discoveryUrl = "", explorer = null, fet
     if (accepting()) return;
     if (checking) return closed.append(h(doc, "p", { class: "closed-line" }, "Checking whether the press desk is open…"));
     const again = discoveryUrl === "" ? null : h(doc, "button", { type: "button", class: "chip" }, "Check again");
-    again?.addEventListener("click", () => { checking = true; lastDiscovery = -Infinity; render(); refresh(); });
-    closed.append(h(doc, "p", { class: "closed-line" }, OFFLINE), h(doc, "p", { class: "note" }, DESK_NOTE));
+    again?.addEventListener("click", () => { checking = true; lastDiscovery = -Infinity; resting = { url: "", wait: 0, until: 0 }; render(); refresh(); });
+    closed.append(h(doc, "p", { class: "closed-line" }, OFFLINE), h(doc, "p", { class: "note" }, discoveryUrl === "" ? DESK_NOTE : `${DESK_NOTE} ${RETRY_NOTE}`));
     if (again) closed.append(again);
   }
 
@@ -242,16 +254,48 @@ export function createPress(doc, host, { discoveryUrl = "", explorer = null, fet
     }, POLL_MS);
   }
 
-  /** Reads the discovery document and keeps its address if it is a quick-tunnel one. An empty or hostile address means no desk; an unreachable document changes nothing. */
+  /** A GET of a discovery source, the parsed JSON; throws on any failure. */
+  async function getJson(url) {
+    const res = await fetchImpl(url, { credentials: "omit", cache: "no-store", signal: AbortSignal.timeout(10_000) });
+    if (!res.ok) throw new Error(`discovery answered ${res.status}`);
+    return res.json();
+  }
+  /** The discovery document as the raw file serves it. A cache-busting query keeps the browser and the CDN from replaying an old copy, but the file itself can lag a restart by minutes. */
+  const readRaw = () => getJson(`${discoveryUrl}${discoveryUrl.includes("?") ? "&" : "?"}t=${now()}`);
+  /** The same document through the gist API, whose answers are cached for 60 s at most: the file's text, parsed. Throws when the file is not there whole. */
+  async function readApi() {
+    const file = new URL(discoveryUrl).pathname.split("/").pop();
+    const j = await getJson(discoveryApiUrl);
+    const f = isObj(j) && isObj(j.files) && Object.hasOwn(j.files, file) ? j.files[file] : null;
+    if (!isObj(f) || f.truncated === true || typeof f.content !== "string" || f.content.length > DOC_CAP) throw new Error("the API did not return the file");
+    return JSON.parse(f.content);
+  }
+  /** The newest copy of the document it can get: the API when it is allowed (each read costs part of the visitor's hourly allowance), else, or when that fails, the raw file. Null when neither answers. */
+  async function readDocument() {
+    if (discoveryApiUrl !== "" && now() >= apiAfter) {
+      apiAfter = now() + API_EVERY_MS;
+      try {
+        return await readApi();
+      } catch {
+        // Throttled, down or not the shape: the raw file is the fallback.
+      }
+    }
+    return readRaw().catch(() => null);
+  }
+
+  /** Reads the discovery document and keeps its address if it is a quick-tunnel one and the document is not older than the last one taken. An empty or hostile address means no desk; an unreadable document changes nothing. */
   function discover() {
     discovering ??= (async () => {
       lastDiscovery = now();
       try {
-        const res = await fetchImpl(`${discoveryUrl}${discoveryUrl.includes("?") ? "&" : "?"}t=${now()}`, { credentials: "omit", cache: "no-store", signal: AbortSignal.timeout(10_000) });
-        const j = res.ok ? await res.json() : null;
-        if (isObj(j) && typeof j.url === "string") desk = deskBase(j.url);
-      } catch {
-        // The document could not be read: keep the desk already known.
+        const j = await readDocument();
+        if (isObj(j) && typeof j.url === "string") {
+          const at = Number.isFinite(j.updated_at_ms) ? j.updated_at_ms : 0;
+          if (at >= docAt) {
+            docAt = at;
+            desk = deskBase(j.url);
+          }
+        }
       } finally {
         discovering = null;
       }
@@ -260,26 +304,52 @@ export function createPress(doc, host, { discoveryUrl = "", explorer = null, fet
     return discovering;
   }
 
+  const lookUp = (eager) => discovering ?? (eager || now() - lastDiscovery >= POLL_MS ? discover() : null);
+  const isResting = (url) => url === resting.url && now() < resting.until;
+
   /**
-   * A request to the desk. With no desk known it looks one up first (at most every POLL_MS); when the desk does not connect, or its tunnel answers
-   * with a server error, it looks again once and retries only if the address changed. Anything else is the caller's to read.
+   * One try at `url`. A reply the desk did not send itself (a 5xx other than its own 503) or no connection puts the address to rest, so a dead tunnel is
+   * not asked again (and does not fill the console with failed requests) until its rest is over; each miss doubles the rest.
    */
-  async function call(path, init) {
-    if (desk === "" && (discovering !== null || now() - lastDiscovery >= POLL_MS)) await (discovering ?? discover());
-    if (desk === "") throw new Error("no press desk");
-    const tried = desk;
+  async function tryDesk(url, path, init) {
+    if (url === resting.url) resting.until = now() + resting.wait; // this request is the probe: concurrent ones leave the address alone
     let reply = null;
     let failure = null;
     try {
-      reply = await fetchImpl(tried + path, init());
-      if (reply.status < 500 || reply.status === 503) return reply;
+      reply = await fetchImpl(url + path, init());
     } catch (err) {
       failure = err;
     }
+    const answered = reply !== null && (reply.status < 500 || reply.status === 503);
+    if (answered && url === resting.url) resting = { url: "", wait: 0, until: 0 };
+    if (!answered) {
+      const wait = url === resting.url ? Math.min(resting.wait * 2, REST_MAX_MS) : POLL_MS;
+      resting = { url, wait, until: now() + wait };
+    }
+    return { reply, failure, answered };
+  }
+
+  /**
+   * A request to the desk. With no desk known it looks one up first (at most every POLL_MS); an address that did not answer is left alone while it rests,
+   * and the document is read again meanwhile in case the desk has moved. When the desk does not connect, or its tunnel answers with a server error, it looks
+   * again once and retries only if the address changed. Anything else is the caller's to read. `eager` (a visitor's "Check again") ignores the rest.
+   */
+  async function call(path, init, eager = false) {
+    if (eager) resting = { url: "", wait: 0, until: 0 };
+    if (desk === "" || isResting(desk)) await lookUp(eager);
+    if (desk === "") throw new Error("no press desk");
+    if (isResting(desk)) throw new Error("press desk not answering");
+    const tried = desk;
+    const first = await tryDesk(tried, path, init);
+    if (first.answered) return first.reply;
     await discover();
-    if (desk !== "" && desk !== tried) return fetchImpl(desk + path, init());
-    if (failure) throw failure;
-    return reply;
+    if (desk !== "" && desk !== tried) {
+      const second = await tryDesk(desk, path, init);
+      if (second.failure) throw second.failure;
+      return second.reply;
+    }
+    if (first.failure) throw first.failure;
+    return first.reply;
   }
 
   /** Reads the record. Any failure, or a reply that is not the documented shape, means the desk is closed; the last good entries stay shown. */

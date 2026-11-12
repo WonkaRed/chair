@@ -348,6 +348,102 @@ test("the state is memory only: what the next click does and the latest move, wi
   assert.equal((r.join.state().body as { next: string }).next, "step_down", "the pool is full: the next click takes a step out");
 });
 
+// ---- the idle reset: nobody pressed, so the pool steps back out and the next visitor finds "Join" ----
+
+const IDLE = DEFAULT_JOIN_LIMITS.idleResetMs;
+const nextOf = (r: Rig): string => (r.join.state().body as { next: string }).next;
+const resets = (r: Rig): string[] => r.logs.filter((l) => l.startsWith("join idle-reset tx "));
+
+test("idle reset: a full pool that nobody presses for the idle time steps out one step per meeting, logging each transaction, until empty; each step leaves the next button on Join", async () => {
+  const r = rig();
+  for (let i = 0; i < STEPS; i++) await r.join.start(`1.0.0.${i}`);
+  assert.equal(r.pool.staked, CAP);
+  assert.equal(nextOf(r), "step_down", "a full pool: the next press would step out");
+  await r.join.idleTick();
+  assert.equal(r.pool.staked, CAP, "not idle yet: nothing moves");
+  r.chain.advanceTo(r.chain.nowMs + IDLE);
+  await r.join.idleTick();
+  assert.equal(r.pool.staked, CAP - STEP, "one step out");
+  assert.equal(nextOf(r), "join", "below the cap: a visitor now sees Join");
+  assert.deepEqual(resets(r), [`join idle-reset tx tx-${r.pool.calls.length}`]);
+  await r.join.idleTick();
+  assert.equal(r.pool.staked, CAP - STEP, "the same meeting: no second step");
+  tick(r.chain);
+  await r.join.idleTick();
+  assert.equal(r.pool.staked, 0n, "the next meeting: the last step");
+  tick(r.chain, 3);
+  await r.join.idleTick();
+  assert.equal(r.pool.calls.length, STEPS * 2, "an empty pool is left alone");
+  assert.equal(resets(r).length, STEPS);
+  assert.equal((r.join.state().body as { last: unknown }).last !== null, true, "the latest visitor press is still the latest press on record: a reset is not one");
+});
+
+test("idle reset: a press restarts the idle time, and a desk that has only just started is not idle either", async () => {
+  const r = rig({ staked: CAP });
+  r.chain.advanceTo(r.chain.nowMs + IDLE - 1000);
+  await r.join.start("2.2.2.2"); // steps one out for the visitor (the lock has long passed)
+  assert.equal(r.pool.staked, CAP - STEP);
+  const pressEpoch = r.chain.epoch;
+  r.chain.advanceTo(r.chain.nowMs + 2000);
+  await r.join.idleTick();
+  assert.equal(r.pool.staked, CAP - STEP, "the idle time counts from the press");
+  r.chain.advanceTo(r.chain.nowMs + IDLE);
+  assert.ok(r.chain.epoch > pressEpoch + 1);
+  const quiet = new Join({ reader: r.pool, sender: r.pool, poolAccount: "pool.test", now: () => r.chain.nowMs, sleep: () => Promise.resolve(), log: (l) => r.logs.push(l) });
+  await quiet.idleTick();
+  assert.equal(r.pool.staked, CAP - STEP, "a desk that has only just started is not idle yet either");
+});
+
+test("idle reset: never in the meeting that counts a visitor's press", async () => {
+  const r = rig({ limits: { idleResetMs: 1_000 } });
+  await r.join.start("3.3.3.3");
+  const press = r.pool.staked;
+  assert.equal(press, STEP);
+  r.chain.advanceTo(r.chain.nowMs + 5_000);
+  assert.equal(r.chain.epoch, 5, "still the meeting of the press");
+  await r.join.idleTick();
+  assert.equal(r.pool.staked, press, "idle by the clock, but the press's own meeting has not even opened");
+  tick(r.chain);
+  assert.equal(r.chain.epoch, 6);
+  await r.join.idleTick();
+  assert.equal(r.pool.staked, press, "the meeting that counts the press is still running");
+  tick(r.chain, 2); // past the contract's lock and the counting meeting
+  await r.join.idleTick();
+  assert.equal(r.pool.staked, 0n);
+});
+
+test("idle reset: the stake is read from the chain, so a desk that restarts with a full pool still says step out and still resets it", async () => {
+  const r = rig({ staked: CAP });
+  const fresh = new Join({ reader: r.pool, sender: r.pool, poolAccount: "pool.test", now: () => r.chain.nowMs, sleep: () => Promise.resolve(), log: (l) => r.logs.push(l) });
+  const next = (): string => (fresh.state().body as { next: string }).next;
+  assert.equal(next(), "join", "before its first look the desk only has its memory");
+  await fresh.idleTick();
+  assert.equal(next(), "step_down", "after one look the state is what the chain holds");
+  r.chain.advanceTo(r.chain.nowMs + IDLE);
+  await fresh.idleTick();
+  assert.equal(r.pool.staked, CAP - STEP);
+  assert.equal(next(), "join");
+  assert.equal(resets(r).length, 1);
+});
+
+test("idle reset: a failed chain read sends nothing, a refusing contract is logged, and a stake still inside the contract's lock is left alone; nothing is thrown", async () => {
+  const r = rig({ staked: CAP });
+  r.chain.advanceTo(r.chain.nowMs + IDLE);
+  r.pool.readsFail = true;
+  await r.join.idleTick();
+  r.pool.readsFail = false;
+  assert.equal(r.pool.calls.length, 0);
+  r.pool.refuse = "boom";
+  await r.join.idleTick();
+  assert.deepEqual(r.pool.calls, [`unstake ${STEP}`]);
+  assert.match(r.logs.join("\n"), /join idle-reset refused by the contract: tx tx-1/);
+  assert.equal(r.pool.staked, CAP, "nothing changed");
+  r.pool.refuse = null;
+  r.pool.unlockEpoch = r.chain.epoch + 3;
+  await r.join.idleTick();
+  assert.equal(r.pool.calls.length, 1, "a stake still inside the contract's lock is not touched");
+});
+
 // ---- the routes ----
 
 async function withDesk(join: { start(who: string): Promise<Reply>; state(): Reply } | undefined, run: (base: string) => Promise<void>): Promise<void> {

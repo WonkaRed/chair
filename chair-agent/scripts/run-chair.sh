@@ -79,7 +79,7 @@ while [ "$stop" = 0 ]; do
   {
     echo "=== $(date -Is) runner start: token $CHAIR_TOKEN, chair $CHAIR_ACCOUNT, model $CHAIR_LLM_MODEL at $CHAIR_LLM_ENDPOINT"
   } >>"$log"
-  node "$agent" run --chair llm >>"$log" 2>&1 &
+  node "$agent" run --chair llm --llm-timeout-ms 60000 >>"$log" 2>&1 &
   child=$!
   if [ "$stop" = 1 ]; then kill -TERM "$child" 2>/dev/null || true; fi
   await_child

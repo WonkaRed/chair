@@ -11,6 +11,14 @@ const BODY_CHARS = 1500;
 /** Why the primary chair's answer was not used; a fixed label, never raw error text. */
 export type FallbackReason = "error" | "timeout" | "malformed" | "refusal";
 
+/** What the minutes say went wrong, per reason, in words a reader needs no background for. The page (web/site/js/minutes.js `FALLBACK_NEW`) reads this sentence back, so change them together. */
+const FALLBACK_WHY: Record<FallbackReason, string> = {
+  timeout: "did not answer in time",
+  refusal: "declined to answer",
+  malformed: "gave an answer the Chair could not use",
+  error: "ran into an error",
+};
+
 /** Thrown by a chair that could not produce a usable proposal. */
 export class ChairFailure extends Error {
   constructor(
@@ -89,7 +97,7 @@ export async function propose(snapshot: Snapshot, history: readonly HistoryPoint
       return { used: opts.chair, kind: "llm", proposal, fallbackNote: "", basedOnEpoch };
     } catch (err) {
       const reason: FallbackReason = err instanceof ChairFailure ? err.reason : "error";
-      const fallbackNote = `Chair ${opts.chair.name} failed (${reason}). The rule chair decided instead. The Chair has no comment.\n`;
+      const fallbackNote = `The AI chair (${opts.chair.name}) ${FALLBACK_WHY[reason]}, so the rule chair, the Chair's built-in fallback, decided this meeting.\n`;
       const proposal = await ruleChair.propose(input, new AbortController().signal);
       return { used: ruleChair, kind: "rule-fallback", proposal, fallbackNote, basedOnEpoch };
     }

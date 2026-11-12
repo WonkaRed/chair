@@ -24,6 +24,11 @@ export function cspFor(config) {
     const u = new URL(config.pressDiscoveryUrl);
     if (u.protocol !== "https:") throw new Error(`config: pressDiscoveryUrl ${config.pressDiscoveryUrl} must be https`);
     connect.push(u.origin, "https://*.trycloudflare.com"); // the document, then the desk it names (the page checks that name too)
+    if (config.pressDiscoveryApiUrl) {
+      const api = new URL(config.pressDiscoveryApiUrl);
+      if (api.protocol !== "https:") throw new Error(`config: pressDiscoveryApiUrl ${config.pressDiscoveryApiUrl} must be https`);
+      connect.push(api.origin); // the same document through the gist API
+    }
   }
   return ["default-src 'none'", "script-src 'self'", "style-src 'self'", "img-src 'self' data:", `connect-src ${[...new Set(connect)].join(" ")}`, "base-uri 'none'", "form-action 'none'"].join("; ");
 }

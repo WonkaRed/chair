@@ -12,6 +12,11 @@
 // until the pool is empty (the one thing kept in memory is that the pool is on its way down, and a restart only costs that: it starts up again, still capped).
 // The contract locks a stake for two epochs (staking.rs STAKE_LOCK_EPOCHS), so a step down right after the last join cannot go through: the desk says
 // when it can, and sends nothing, rather than paying gas for a refusal.
+//
+// Idle reset: the pool is shared by every visitor and holds two steps at most, so a full pool would greet each new visitor with "step back out".
+// When the pool has coins staked and nobody has pressed for `idleResetMs`, the desk steps it back out one step at a time (`watch`, every
+// `watchEveryMs`), so the next visitor normally finds the pool below its cap and a button that says Join. Like a click, it reads the stake from the chain, never from
+// memory (a restart loses nothing), and it never moves the pool in the same meeting a visitor's press is counted in: that meeting's minutes must see only the visitor's step.
 import type { PoolReader } from "./chain.js";
 import type { Reply } from "./press-overreach.js";
 import { SerialQueue, SlidingWindow } from "./press-window.js";
@@ -39,6 +44,10 @@ export const DEFAULT_JOIN_LIMITS = {
   /** After a move, how often and how long the pool is read again for the stake to show in the newest block. */
   confirmTries: 4,
   confirmEveryMs: 1_000,
+  /** No press for this long with coins staked: the desk steps the pool back out. The unit sets it with CHAIR_JOIN_IDLE_RESET_S (cli.ts). */
+  idleResetMs: 600_000,
+  /** How often the desk reads the pool to learn what the next click does, and whether it is idle. */
+  watchEveryMs: 30_000,
 } as const;
 export type JoinLimits = { -readonly [K in keyof typeof DEFAULT_JOIN_LIMITS]: number };
 
@@ -63,6 +72,9 @@ export type Move =
   | { readonly kind: "locked"; readonly unlockAtMs: number; readonly descending: boolean }
   | { readonly kind: "dry"; readonly descending: boolean };
 
+/** Whether the next click takes a step out: never from an empty pool; otherwise while on the way down, or when one more step would pass the cap. */
+const goesDown = (staked: bigint, step: bigint, cap: bigint, descending: boolean): boolean => staked !== 0n && (descending || staked + step > cap);
+
 /**
  * What the pool does for the next click, from the chain alone (plus whether it is already on its way down). Pure: it reads nothing and signs nothing.
  * A stake is planned only when `staked + step` stays within the cap, so the cap holds by construction; a pool above it (the supply shrank) steps down.
@@ -76,7 +88,7 @@ export function plan(view: PoolView, descending: boolean, limits: Pick<JoinLimit
   if (step === 0n) throw new Error("a step of the supply is zero coins");
   const cap = step * BigInt(limits.capSteps);
 
-  const down = staked === 0n ? false : descending || staked + step > cap;
+  const down = goesDown(staked, step, cap, descending);
   if (!down) return view.liquid < step ? { kind: "dry", descending: false } : { kind: "go", direction: "join", amount: step, descending: false };
   const { policy, params } = snapshot;
   if (policy.epoch < view.unlockEpoch) return { kind: "locked", unlockAtMs: policy.epochEndsMs + (view.unlockEpoch - policy.epoch - 1) * params.epochMs, descending: true };
@@ -119,6 +131,12 @@ export class Join {
   private readonly queue: SerialQueue;
   private descending = false;
   private last: JoinRecord | null = null;
+  /** The pool's stake and one step as the chain last showed them: what `state` reports, so a restart does not make a full pool say "join". Null until the first read. */
+  private seen: { readonly staked: bigint; readonly step: bigint } | null = null;
+  private lastPressAt: number;
+  /** The newest meeting that must stay clear of an idle move: the one counting a visitor's press, and the one a reset itself landed in. */
+  private quietThrough = -1;
+  private watching = false;
 
   constructor(private readonly deps: JoinDeps) {
     this.limits = { ...DEFAULT_JOIN_LIMITS, ...deps.limits };
@@ -129,11 +147,25 @@ export class Join {
     this.hourly = new SlidingWindow(this.limits.hourlyCap, this.limits.hourlyWindowMs);
     this.daily = new SlidingWindow(this.limits.dailyCap, this.limits.dailyWindowMs);
     this.queue = new SerialQueue(this.limits.queueMax);
+    this.lastPressAt = this.now();
   }
 
-  /** What the next click would do and the latest move that went through: memory only, no chain read, so a page can ask as often as it likes. */
+  /** Remembers what the chain just showed of the pool. */
+  private note(v: PoolView): void {
+    const step = (v.snapshot.totalSupply * BigInt(this.limits.stepBps)) / 10_000n;
+    this.seen = step === 0n ? null : { staked: v.staked, step };
+  }
+
+  private nextDirection(): JoinDirection {
+    const s = this.seen;
+    if (s === null) return this.descending ? "step_down" : "join";
+    return goesDown(s.staked, s.step, s.step * BigInt(this.limits.capSteps), this.descending) ? "step_down" : "join";
+  }
+
+  /** What the next click would do and the latest move that went through: memory only (the pool as the chain last showed it), no chain read, so a page can ask as often as it likes. */
   state(): Reply {
-    return { status: 200, body: { next: this.descending ? "step_down" : "join", last: this.last, pool: this.deps.poolAccount, step_bps: this.limits.stepBps, cap_steps: this.limits.capSteps, now_ms: this.now() } };
+    const steps = this.seen === null ? null : Number(this.seen.staked / this.seen.step);
+    return { status: 200, body: { next: this.nextDirection(), pool_steps: steps, last: this.last, pool: this.deps.poolAccount, step_bps: this.limits.stepBps, cap_steps: this.limits.capSteps, now_ms: this.now() } };
   }
 
   /** A click that did not go through, with the latest real move beside it so the visitor still has something true to look at. */
@@ -154,6 +186,7 @@ export class Join {
   /** One click: checks the limits, waits its turn, then reads the pool and moves it one step. */
   async start(who: string): Promise<Reply> {
     const t = this.now();
+    this.lastPressAt = t;
     const asked = this.perIpRequests.waitMs(who, t);
     if (asked > 0) return this.busy(asked, "too many tries from this address; the Committee has other business", "per_address");
     this.perIpRequests.hit(who, t);
@@ -171,6 +204,7 @@ export class Join {
     let step: Move;
     try {
       before = await this.deps.reader.pool();
+      this.note(before);
       step = plan(before, this.descending, this.limits);
     } catch (err) {
       log(`not sent (${err instanceof Error ? err.message : "unreadable"})`);
@@ -209,6 +243,8 @@ export class Join {
         at_ms: this.now(),
       };
       this.last = record;
+      this.quietThrough = Math.max(this.quietThrough, record.meeting_epoch);
+      this.note(after);
       this.descending = plan(after, step.descending, this.limits).descending;
       log(joinedAt(record));
       return { status: 200, body: { status: step.direction === "join" ? "joined" : "stepped_down", ...record, pool: this.deps.poolAccount, now_ms: this.now() } };
@@ -217,6 +253,51 @@ export class Join {
       if (!broadcast) return { status: 503, body: { error: "the desk cannot read the chain just now", code: "desk_closed" } };
       return this.notNow(200, { status: "unconfirmed", line: UNCONFIRMED, ...(res === null ? {} : { tx_hash: res.txHash }) });
     }
+  }
+
+  /** Starts reading the pool every `watchEveryMs`; returns the call that stops it. The timer never keeps the process alive. */
+  watch(): () => void {
+    const timer = setInterval(() => void this.idleTick(), this.limits.watchEveryMs);
+    timer.unref();
+    return () => clearInterval(timer);
+  }
+
+  /** One look at the pool: keeps `state` true, and when the desk has been idle long enough steps the pool back out one step. Never throws; a failed read is only a missed look. */
+  async idleTick(): Promise<void> {
+    if (this.watching) return;
+    this.watching = true;
+    try {
+      try {
+        this.note(await this.deps.reader.pool());
+      } catch {
+        return;
+      }
+      if (this.seen === null || this.seen.staked === 0n || this.now() - this.lastPressAt < this.limits.idleResetMs || !this.queue.hasRoom) return;
+      await this.queue.run(() => this.idleReset());
+    } catch (err) {
+      this.deps.log?.(`join idle-reset did not finish (${err instanceof Error ? err.name : "error"})`);
+    } finally {
+      this.watching = false;
+    }
+  }
+
+  /** The reset itself, in turn with the clicks: it reads the chain again and stands down if a visitor pressed meanwhile, if the pool is empty or locked, or if the meeting is not clear of a press. */
+  private async idleReset(): Promise<void> {
+    if (this.now() - this.lastPressAt < this.limits.idleResetMs) return;
+    const view = await this.deps.reader.pool();
+    this.note(view);
+    if (view.staked === 0n || view.snapshot.policy.epoch <= this.quietThrough) return;
+    const move = plan(view, true, this.limits);
+    if (move.kind !== "go" || move.direction !== "step_down") return;
+    const res = await this.deps.sender.unstake(move.amount, () => undefined);
+    if (res.failure !== null) {
+      this.deps.log?.(`join idle-reset refused by the contract: tx ${res.txHash}`);
+      return;
+    }
+    this.quietThrough = view.snapshot.policy.epoch;
+    this.descending = false;
+    this.deps.log?.(`join idle-reset tx ${res.txHash}`);
+    await this.settled(view.staked - move.amount).then((v) => this.note(v), () => undefined); // a miss is made good by the next look
   }
 
   /** The pool at the newest block once its stake is `expected`: the move shows in it at once, or within a block or two. Throws when it never does. */

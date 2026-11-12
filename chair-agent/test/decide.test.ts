@@ -78,6 +78,7 @@ const failures: [string, Chair, string][] = [
   ["proposal with a float rate", { name: "x", propose: () => Promise.resolve({ rateBps: 1.5, reasoning: "r" }) } as Chair, "malformed"],
   ["proposal with NaN rate", { name: "x", propose: () => Promise.resolve({ rateBps: NaN, reasoning: "r" }) } as Chair, "malformed"],
 ];
+const why: Record<string, string> = { timeout: "did not answer in time", refusal: "declined to answer", malformed: "gave an answer the Chair could not use", error: "ran into an error" };
 for (const [name, chair, reason] of failures) {
   test(`LLM failure mode falls back to the rule chair: ${name}`, { timeout: 30_000 }, async () => {
     const snap = snapshot({ rate: 0, supply: 1_000_000n, staked: 100_000n });
@@ -85,7 +86,8 @@ for (const [name, chair, reason] of failures) {
     const d = await decide(snap, [], opts(chair, reason === "timeout" ? IMPATIENT_MS : PATIENT_MS));
     assert.equal(d.kind, "rule-fallback");
     assert.equal(d.rate, expected.rate);
-    assert.match(d.reasoning, new RegExp(`failed \\(${reason}\\)\\. The rule chair decided instead\\. The Chair has no comment`));
+    assert.match(d.reasoning, new RegExp(`\\nThe AI chair \\(.+\\) ${why[reason]}, so the rule chair, the Chair's built-in fallback, decided this meeting\\.\\n`));
+    assert.doesNotMatch(d.reasoning, /failed \(|decided instead|no comment/, "the old wording is gone from new minutes");
     assert.equal(d.reasoningHash, reasoningHash(d.reasoning));
   });
 }
@@ -119,7 +121,7 @@ test("an LLM client that returns after the timeout cannot override the fallback"
   assert.equal(d.kind, "rule-fallback");
   assert.equal(d.rate, (await decide(snap, [], opts(ruleChair))).rate, "the rule chair's rate, not the late -30");
   await new Promise((r) => setImmediate(r)); // let the late answer land
-  assert.match(d.reasoning, /failed \(timeout\)\. The rule chair decided instead\. The Chair has no comment/);
+  assert.match(d.reasoning, /The AI chair \(.+\) did not answer in time, so the rule chair, the Chair's built-in fallback, decided this meeting\./);
 });
 
 test("a chair only ever sees history strictly before the epoch being decided", async () => {

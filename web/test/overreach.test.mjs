@@ -359,3 +359,25 @@ test("desk offline: the latest refusal replays under a stamp, with the older one
   assert.ok(out.includes(DOWN));
   assertInert(p.el);
 });
+
+test("while the desk is out of reach the panel looks again every 20 s and opens by itself when the desk is back; the closed text says it will", async () => {
+  assert.match(DOWN, /keeps checking by itself/);
+  let up = false;
+  const timers = manual();
+  const request = async (path) => (up ? res(200, { ok: true, overreach: true }) : Promise.reject(new Error("no press desk")));
+  const el = host();
+  const api = createOverreach(fakeDoc(), el, { request, explorer: EXPLORER, rpcUrl: RPC, refusals: () => null, timers, now: () => 1_000_000 });
+  await new Promise((r) => setImmediate(r));
+  assert.equal(api.state().mode, "down");
+  assert.equal(timers.queue.length, 1);
+  assert.equal(timers.queue[0].ms, 20_000);
+  await timers.tick();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(api.state().mode, "down");
+  assert.equal(timers.queue.length, 1);
+  up = true;
+  await timers.tick();
+  await new Promise((r) => setImmediate(r));
+  assert.equal(api.state().mode, "ready");
+  assert.equal(timers.queue.length, 0);
+});

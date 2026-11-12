@@ -4,10 +4,12 @@
 // service as the press conference (press.js hands over `request`); everything it returns passes through the checks below and reaches the page by `textContent`.
 import { clear, h } from "./dom.js";
 import { splitMinutes } from "./minutes.js";
+import { POLL_MS as DESK_POLL_MS } from "./press.js";
 import { isAccountId, isTxHash, safeLines, safeText } from "./text.js";
 import { fmtPct, fmtTime, shortHash } from "./views.js";
 
 export const STORE_KEY = "chair-join-last";
+const PRESSED_KEY = "chair-join-pressed"; // set once this browser has made a press: the page then does not tell it that "other visitors" did
 export const WATCH_EVERY_MS = 8_000;
 /** The page stops looking for the minutes after this many reads (about two minutes of meetings at the launch length). */
 export const WATCH_TRIES = 15;
@@ -17,7 +19,14 @@ const DIRECTIONS = new Set(["join", "step_down"]);
 const isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 const int = (v) => Number.isSafeInteger(v) && v >= 0;
 
-export const DOWN = "The press desk is not reachable, so nobody can press the button right now. It runs on my workstation, not on a hosted server, and is closed whenever that machine is off.";
+export const DOWN = "The press desk is not reachable, so nobody can press the button right now. It runs on my workstation, not on a hosted server, and is closed whenever that machine is off. This page keeps checking by itself and opens the moment the desk is back.";
+/** Why a press matters, in the Chair's own rule (rule-chair.ts `mandateRate`): "staked" is glossed where it is first used in this panel. */
+export const WHY = "The Chair prints less new money the more coins are staked (locked up to vote), and more when fewer are. One press changes that share, and the Chair's next minutes say what it did.";
+const AIMING = "so the rate the Chair is aiming for moves up a little: fewer coins staked (locked up to vote) means it prints more.";
+/** What a press will do when the pool is on its way out, said for who is looking: a stranger to a full pool, someone who pressed before, or a pool part-way down. */
+export const stepOutWords = ({ full, pressedHere }) => (full
+  ? `${pressedHere ? "The Committee's seats are full." : "Other visitors have already filled the Committee's seats."} A press now takes one seat back out, ${AIMING}`
+  : `Earlier presses put the pool's coins in, and the pool is on its way back out. A press now takes one more seat out, ${AIMING}`);
 export const FOOTER = "The coins come from a pool account the project controls, on a test network where coins have no value. Nothing of yours is used, and you need nothing of your own to press the button.";
 
 /** The mandate the rule chair follows (chair-agent/src/rule-chair.ts): it wants half the coins staked and eases the rate by (50% - share) / 40 a day. */
@@ -143,6 +152,15 @@ export function createJoin(doc, host, { section = null, request, explorer = null
   let next = "join";
   let pool = null;
   let limits = null; // the desk's step and cap, as it reports them: { stepBps, capSteps }
+  let steps = null; // how many steps the pool holds, as the desk last read it from the chain
+  let pressedHere = (() => {
+    try {
+      return store.get(PRESSED_KEY) === "1"; // this browser has made a press, now or on an earlier visit
+    } catch {
+      return false;
+    }
+  })();
+  let retry = null;
   let skew = 0; // the desk's clock minus this one
   let tries = 0;
   let lastRead = 0;
@@ -152,7 +170,8 @@ export function createJoin(doc, host, { section = null, request, explorer = null
   const button = h(doc, "button", { type: "button", class: "ask jn-btn" }, "Join the Committee");
   const who = h(doc, "p", { class: "jn-who" }, "One press, one small step. Nothing of yours is spent.");
   const note = h(doc, "p", { class: "form-note", role: "status" });
-  const act = h(doc, "div", { class: "jn-act" }, button, who, note);
+  const why = h(doc, "p", { class: "jn-why" }, WHY);
+  const act = h(doc, "div", { class: "jn-act" }, why, button, who, note);
   const result = h(doc, "div", { class: "jn-result", "aria-live": "polite" });
   const how = h(doc, "details", { class: "fold jn-how" }, h(doc, "summary", {}, "How this works, and its limits"));
   host.append(act, result, h(doc, "p", { class: "note jn-foot" }, FOOTER), how);
@@ -243,6 +262,7 @@ export function createJoin(doc, host, { section = null, request, explorer = null
     act.hidden = mode !== "ready";
     button.disabled = busy || mode !== "ready";
     button.textContent = busy ? "Sending…" : next === "step_down" ? "Step back out of the Committee" : "Join the Committee";
+    why.textContent = next === "step_down" ? stepOutWords({ full: steps === null || limits === null || steps >= limits.capSteps, pressedHere: pressedHere || mine !== null }) : WHY;
     note.textContent = message ?? "";
     if (mode === "off") {
       clear(result);
@@ -317,23 +337,35 @@ export function createJoin(doc, host, { section = null, request, explorer = null
       next = j.next === "step_down" ? "step_down" : "join";
       pool = isAccountId(j.pool) ? j.pool : null;
       limits = parseLimits(j);
+      steps = int(j.pool_steps) ? j.pool_steps : null;
       sawLast(j.last);
     } catch {
       // Keep what was known.
     }
   }
 
-  /** Whether the desk is up and has this switched on (GET /health); anything else is the closed state, never an error. */
-  async function check() {
-    mode = "checking";
+  /** While the desk is out of reach or has this off, look again every DESK_POLL_MS (not while the tab is hidden), so the panel opens by itself. */
+  function retryLater() {
+    if (retry !== null) return;
+    retry = timers.set(() => {
+      retry = null;
+      if (doc.hidden === true) return retryLater();
+      void check(true);
+    }, DESK_POLL_MS);
+  }
+
+  /** Whether the desk is up and has this switched on (GET /health); anything else is the closed state, never an error. `auto` is the page's own look: it changes nothing on screen until it has an answer, and it respects a dead address's rest. */
+  async function check(auto = false) {
+    if (!auto) mode = "checking";
     try {
-      const res = await request("/health", () => ({ credentials: "omit", signal: AbortSignal.timeout(10_000) }));
+      const res = await request("/health", () => ({ credentials: "omit", signal: AbortSignal.timeout(10_000) }), !auto);
       const j = res.ok ? await res.json() : null;
       mode = isObj(j) && j.join === true ? "ready" : "off";
     } catch {
       mode = "off";
     }
     if (mode === "ready") await readState();
+    else retryLater();
     render();
   }
 
@@ -369,6 +401,12 @@ export function createJoin(doc, host, { section = null, request, explorer = null
           return render();
         }
         mine = r;
+        pressedHere = true;
+        try {
+          store.set(PRESSED_KEY, "1");
+        } catch {
+          // Storage blocked: the sentence is right for this page view.
+        }
         remember(r);
         watch();
         render();
@@ -397,7 +435,8 @@ export function createJoin(doc, host, { section = null, request, explorer = null
     refresh: () => render(),
     stop: () => {
       if (ticker !== null) timers.clear(ticker);
-      ticker = null;
+      if (retry !== null) timers.clear(retry);
+      ticker = retry = null;
     },
     state: () => ({ mode, busy, mine, blocked, earlier, message, next }),
     button,

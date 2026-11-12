@@ -9,6 +9,8 @@ const MIN_W = 240;
 const TICK_PX = 7.4; // width of one tick-label character at the 13px tick size, with slack
 const EPOCH_LABEL_PX = 40;
 const M = { r: 16, t: 18, b: 28 };
+const COINCIDE_PX = 1.5; // two lines never further apart than this are one line to the eye
+const BAND_PX = 3; // extra stroke width per line lying over it
 
 function niceTicks(lo, hi, count = 4) {
   if (lo === hi) return { lo: lo - 1, hi: hi + 1, ticks: [lo - 1, lo, hi + 1] };
@@ -62,7 +64,8 @@ export function lineChart(doc, { title, caption, series, fmt, domain = null, gui
     });
     for (const g of guides) {
       root.append(svg(doc, "line", { x1: ml, x2: W - M.r, y1: sy(g.value), y2: sy(g.value), class: "guide" }));
-      root.append(svg(doc, "text", { x: W - M.r, y: sy(g.value) - 5, class: "tick", "text-anchor": "end" }, g.label));
+      // At the left edge: every line starts on the guide and some end on it, so the right end is where labels get run over.
+      root.append(svg(doc, "text", { x: ml + 6, y: sy(g.value) - 10, class: "tick", "text-anchor": "start" }, g.label));
     }
     // An epoch tick whose label would run into the axis title is left out rather than overprinted.
     const titleLeft = W - M.r - EPOCH_LABEL_PX;
@@ -70,13 +73,20 @@ export function lineChart(doc, { title, caption, series, fmt, domain = null, gui
     root.append(svg(doc, "text", { x: W - M.r, y: H - 8, class: "tick", "text-anchor": "end" }, epochsLabel));
     // Draw the focused series last so it sits on top.
     const order = [...shown].sort((a, b) => (a.id === focus) - (b.id === focus));
-    for (const s of order) {
+    // Lines that land on the same pixels at every epoch would hide each other: each one drawn beneath another gets a wider
+    // stroke (and end dot) than the one over it, so every colour shows as a band instead of only the top one.
+    const rows = new Map(order.map((s) => [s.id, s.values.map(sy)]));
+    const lies = (a, b) => rows.get(a.id).every((y, i) => Math.abs(y - rows.get(b.id)[i]) < COINCIDE_PX);
+    order.forEach((s, k) => {
+      const under = order.slice(k + 1).filter((t) => lies(s, t)).length;
       const pts = s.values.map((v, i) => `${sx(i).toFixed(1)},${sy(v).toFixed(1)}`).join(" ");
       const dim = focus !== null && focus !== s.id;
-      root.append(svg(doc, "polyline", { points: pts, class: `line s${s.slot}${dim ? " dim" : ""}`, fill: "none" }));
+      const line = svg(doc, "polyline", { points: pts, class: `line s${s.slot}${dim ? " dim" : ""}`, fill: "none" });
+      if (under > 0) line.style.setProperty("stroke-width", `${2 + BAND_PX * under}px`);
+      root.append(line);
       const last = s.values.length - 1;
-      root.append(svg(doc, "circle", { cx: sx(last), cy: sy(s.values[last]), r: 4, class: `dot s${s.slot}${dim ? " dim" : ""}` }));
-    }
+      root.append(svg(doc, "circle", { cx: sx(last), cy: sy(s.values[last]), r: 4 + (BAND_PX / 2) * under, class: `dot s${s.slot}${dim ? " dim" : ""}` }));
+    });
     if (hover !== null) {
       root.append(svg(doc, "line", { x1: sx(hover), x2: sx(hover), y1: M.t, y2: H - M.b, class: "cross" }));
       for (const s of shown) root.append(svg(doc, "circle", { cx: sx(hover), cy: sy(s.values[hover]), r: 4, class: `dot s${s.slot}` }));

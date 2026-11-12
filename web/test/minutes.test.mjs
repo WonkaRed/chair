@@ -360,9 +360,9 @@ test("chart axis labels fit at phone width: the y labels are never clipped and a
 
 test("the two boilerplate header lines are metadata, not the quote; a text without them is all quote", async () => {
   const voiced = "$CHAIR decision, epoch 310, chair local:qwen3.8-27b.\nRate in effect 190 bps; decision 190 bps.\nThe Committee of One has met. The Chair asks that this be recorded.";
-  assert.deepEqual(splitMinutes(voiced), { meta: ["$CHAIR decision, epoch 310, chair local:qwen3.8-27b.", "Rate in effect 190 bps; decision 190 bps."], prose: "The Committee of One has met. The Chair asks that this be recorded." });
-  assert.deepEqual(splitMinutes("The Chair holds."), { meta: [], prose: "The Chair holds." });
-  assert.deepEqual(splitMinutes("$CHAIR decision, epoch 1, chair x.\nRate in effect 0 bps; decision 0 bps."), { meta: [], prose: "$CHAIR decision, epoch 1, chair x.\nRate in effect 0 bps; decision 0 bps." }, "nothing but boilerplate: shown whole");
+  assert.deepEqual(splitMinutes(voiced), { meta: ["$CHAIR decision, epoch 310, chair local:qwen3.8-27b.", "Rate in effect 190 bps; decision 190 bps."], prose: "The Committee of One has met. The Chair asks that this be recorded.", fallback: null });
+  assert.deepEqual(splitMinutes("The Chair holds."), { meta: [], prose: "The Chair holds.", fallback: null });
+  assert.deepEqual(splitMinutes("$CHAIR decision, epoch 1, chair x.\nRate in effect 0 bps; decision 0 bps."), { meta: [], prose: "$CHAIR decision, epoch 1, chair x.\nRate in effect 0 bps; decision 0 bps.", fallback: null }, "nothing but boilerplate: shown whole");
   const hash = sha(voiced);
   const d = { decisions: [decision({ hash, rateBps: -15, previousRateBps: 0, epoch: 310 }), decision({ hash, rateBps: -15, previousRateBps: 0, epoch: 309 })], policy, status: "complete" };
   const texts = new Map([[hash, { text: voiced, chair: "local:qwen3.8-27b", kind: "llm", source: null }]]);
@@ -374,6 +374,30 @@ test("the two boilerplate header lines are metadata, not the quote; a text witho
   const metas = [...walk(page)].filter((n) => n.attrs?.class === "m-meta");
   assert.equal(metas.length, 2);
   assert.match(textOf(metas[0]), /^\$CHAIR decision, epoch 310, chair local:qwen3\.8-27b\.Rate in effect 190 bps; decision 190 bps\.$/);
+});
+
+test("a fallback decision, in the old wording on chain or the new one, gets a plain sentence above its minutes; the recorded line stays, word for word, in the metadata", async () => {
+  const head = "$CHAIR decision, epoch 32, chair rule-v1.";
+  const rate = "Rate in effect 29 bps; decision 29 bps.";
+  const body = "The Committee of One has met. The Chair asks that this be recorded.";
+  const old = "Chair local:qwen3.8-27b failed (timeout). The rule chair decided instead. The Chair has no comment.";
+  const fresh = "The AI chair (local:qwen3.8-27b) did not answer in time, so the rule chair, the Chair's built-in fallback, decided this meeting.";
+  const plain = "The AI chair did not answer in time, so the Chair's built-in fallback rule decided this meeting.";
+  for (const line of [old, fresh]) {
+    const text = [head, line, rate, body].join("\n");
+    assert.deepEqual(splitMinutes(text), { meta: [head, line, rate], prose: body, fallback: plain });
+    const hash = sha(text);
+    const d = { decisions: [decision({ hash, rateBps: 29, previousRateBps: 29, epoch: 32 }), decision({ hash, rateBps: 29, previousRateBps: 29, epoch: 31 })], policy, status: "complete" };
+    const resolved = new Map(d.decisions.map((x) => [x.tx, { text, chair: "rule-v1", kind: "rule-fallback", source: null, onChain: false, verdict: "verified" }]));
+    const page = render(d, ctx(new Map([[hash, { text, chair: "rule-v1", kind: "rule-fallback", source: null }]]), resolved));
+    const labels = [...walk(page)].filter((n) => n.attrs?.class?.includes("m-fallback"));
+    assert.equal(labels.length, 2, "hero and card");
+    for (const l of labels) assert.equal(textOf(l), plain);
+    for (const m of [...walk(page)].filter((n) => n.attrs?.class === "m-meta")) assert.ok(textOf(m).includes(line), "the recorded line is still shown, unaltered");
+  }
+  const other = splitMinutes([head, "The AI chair (x) wandered off, so the rule chair, the Chair's built-in fallback, decided this meeting.", rate, body].join("\n"));
+  assert.equal(other.fallback, "The AI chair wandered off, so the Chair's built-in fallback rule decided this meeting.", "the new wording carries its own reason");
+  assert.equal(splitMinutes([head, rate, body].join("\n")).fallback, null, "an ordinary decision has none");
 });
 
 test("a card says what its rate is measured over in the page's own words, beside the Chair's raw header line", async () => {

@@ -3,6 +3,7 @@
 // failure from a public RPC. The desk is the same untrusted, tunnelled service as the press conference (press.js finds it and hands over `request`).
 // Everything it returns reaches the page through `textContent` only, and the only strings built into the command are checked first.
 import { clear, h } from "./dom.js";
+import { POLL_MS as DESK_POLL_MS } from "./press.js";
 import { isAccountId, isTxHash, safeText, showAccount } from "./text.js";
 import { humanReason, PROJECT_TEST_CALLS } from "./refusals.js";
 import { askedRate, fmtRate, fmtTime, plainPct, shortHash } from "./views.js";
@@ -14,7 +15,7 @@ const GIVE_UP_MS = 4 * 60_000; // an attempt waits for at most one epoch, then a
 const LOST_AFTER = 4; // failed polls in a row before the page stops looking
 const STATUSES = new Set(["waiting", "sending", "refused", "accepted", "within_mandate", "not_chair", "too_late", "unreadable", "unconfirmed"]);
 
-export const DOWN = "The press desk is not reachable, so nothing can be sent from here right now. It runs on my workstation, not a hosted server, and is closed whenever that machine is off.";
+export const DOWN = "The press desk is not reachable, so nothing can be sent from here right now. It runs on my workstation, not a hosted server, and is closed whenever that machine is off. This page keeps checking by itself and opens the moment the desk is back.";
 const LEDE = "Type a rate beyond the Chair's limit of 2% a day (200 bps). The press desk has the real chair account send it to the contract on NEAR testnet, and the contract answers. Only rates beyond that limit are sent, because the contract refuses them whatever the Chair is doing. Nothing here is a mock-up: the refusal is a transaction you can open.";
 /** How long a wait is, for a person: seconds under a minute and a half, else whole minutes. */
 /** One refusal the project's README documents (a deliberate test: the launch chair asked for +201 bps), shown when the chain's own list cannot be read, so the stamp never goes missing. */
@@ -79,6 +80,7 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
   let skew = 0; // desk clock minus this one, from the latest reply
   let pollTimer = null;
   let retryTimer = null;
+  let deskTimer = null; // the next look at a desk that was out of reach
   let live = "";
 
   const input = h(doc, "input", { id: "overreach-rate", name: "rate", type: "text", inputmode: "numeric", autocomplete: "off", spellcheck: "false", maxlength: 8, placeholder: "500", value: "500", "aria-describedby": "overreach-hint" });
@@ -236,17 +238,30 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
     pollTimer = null;
   };
 
-  /** Whether the desk is up and has the overreach switched on: GET /health, and what is wrong shows as the closed state, never an error. */
-  async function check() {
-    mode = "checking";
-    render();
+  /** While the desk is out of reach or has this off, look again every DESK_POLL_MS (not while the tab is hidden), so the panel opens by itself. */
+  function retryLater() {
+    if (deskTimer !== null) return;
+    deskTimer = timers.set(() => {
+      deskTimer = null;
+      if (doc.hidden === true) return retryLater();
+      void check(true);
+    }, DESK_POLL_MS);
+  }
+
+  /** Whether the desk is up and has the overreach switched on: GET /health, and what is wrong shows as the closed state, never an error. `auto` is the page's own look: the screen changes only once it has an answer, and a dead address's rest is respected. */
+  async function check(auto = false) {
+    if (!auto) {
+      mode = "checking";
+      render();
+    }
     try {
-      const res = await request("/health", () => ({ credentials: "omit", signal: AbortSignal.timeout(10_000) }));
+      const res = await request("/health", () => ({ credentials: "omit", signal: AbortSignal.timeout(10_000) }), !auto);
       const j = res.ok ? await res.json() : null;
       mode = isObj(j) && j.overreach === true ? "ready" : "down";
     } catch {
       mode = "down";
     }
+    if (mode === "down") retryLater();
     render();
   }
 
@@ -368,7 +383,8 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
     stop: () => {
       stopPolling();
       if (retryTimer !== null) timers.clear(retryTimer);
-      retryTimer = null;
+      if (deskTimer !== null) timers.clear(deskTimer);
+      retryTimer = deskTimer = null;
     },
     state: () => ({ mode, busy, attempt, message }),
     input,

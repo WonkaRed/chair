@@ -8,7 +8,7 @@ import { fakeDoc, host, walk } from "./fakedom.mjs";
 import { startFakePress } from "./fake-press.mjs";
 
 const root = join(fileURLToPath(import.meta.url), "..", "..");
-const { createPress, deskBase, DESK_NOTE, OFFLINE, POLL_MS } = await import(join(root, "site", "js", "press.js"));
+const { createPress, deskBase, DESK_NOTE, OFFLINE, POLL_MS, RETRY_NOTE } = await import(join(root, "site", "js", "press.js"));
 
 const EXPLORER = "https://example.invalid";
 const DISCOVERY = "https://gist.example.invalid/raw/chair-press.json";
@@ -423,4 +423,102 @@ test("while the desk is shut or unreachable the page keeps checking by itself, p
   assert.equal(press.state().online, true);
   assert.equal(button(rootNode).disabled, false);
   assert.equal(timers.queue.length, 0);
+});
+
+const API = "https://api.example.invalid/gists/abc";
+const GIST_API = (url, at, file = "chair-press.json") => ({ ok: true, status: 200, json: async () => ({ files: { [file]: { content: JSON.stringify({ url, updated_at_ms: at }), truncated: false } } }) });
+const RAW = (url, at) => ({ ok: true, status: 200, json: async () => ({ url, updated_at_ms: at }) });
+
+test("discovery reads the gist API first (the raw file lags a restart), the raw file when the API is not allowed or fails, and never goes back to an older document", async () => {
+  const seen = [];
+  const src = { api: () => GIST_API(DESK_B, 20), raw: () => RAW(DESK, 10) };
+  const down = new Set();
+  const fetchImpl = async (u) => {
+    seen.push(u.replace(/\?t=\d+/, "?t="));
+    if (down.has(new URL(u).origin)) throw new TypeError("Failed to fetch");
+    if (u === API) return src.api();
+    if (u.startsWith(DISCOVERY)) return src.raw();
+    return OPEN();
+  };
+  const now = clock();
+  const { press } = await make({ discoveryUrl: DISCOVERY, discoveryApiUrl: API, fetchImpl, now });
+  assert.equal(press.state().desk, DESK_B, "the API's newer document wins");
+  assert.deepEqual(seen.slice(0, 2), [API, `${DESK_B}/record?limit=50`], "one API read, no raw read, then the desk");
+
+  // Within the API's allowance the raw file is read instead; its older copy does not take the address back.
+  seen.length = 0;
+  down.add(DESK_B);
+  src.api = () => { throw new Error("must not be read this soon"); };
+  now.advance(POLL_MS);
+  await press.refresh();
+  assert.ok(seen.some((u) => u.startsWith(DISCOVERY)) && !seen.includes(API), "inside 90 s the raw file is read, not the API");
+  assert.equal(press.state().desk, DESK_B, "the lagging raw copy does not replace the newer address");
+  now.advance(100_000);
+  src.api = () => GIST_API(DESK_B, 20);
+  await press.refresh();
+  assert.ok(seen.includes(API), "after 90 s the API is read again");
+
+  // A throttled or broken API falls back to the raw file in the same lookup.
+  for (const api of [() => ({ ok: false, status: 403, json: async () => ({}) }), () => { throw new TypeError("Failed to fetch"); }, () => GIST_API(DESK, 5, "other.json"), () => ({ ok: true, status: 200, json: async () => ({ files: { "chair-press.json": { content: "{", truncated: false } } }) }), () => ({ ok: true, status: 200, json: async () => ({ files: { "chair-press.json": { content: "{}", truncated: true } } }) })]) {
+    src.api = api;
+    src.raw = () => RAW(DESK, 1);
+    const p = await make({ discoveryUrl: DISCOVERY, discoveryApiUrl: API, fetchImpl, now: clock() });
+    assert.equal(p.press.state().desk, DESK, "raw file used");
+    assert.equal(p.press.state().online, true);
+  }
+});
+
+test("a dead address is asked once, left alone for 20 s, then 40 s, and the document is read meanwhile; a new address is tried at once and the page comes back by itself", async () => {
+  const doc = { url: DESK };
+  const seen = [];
+  const up = new Set();
+  const fetchImpl = routed(async (u) => (up.has(new URL(u).origin) ? OPEN() : Promise.reject(new TypeError("Failed to fetch"))), doc, seen);
+  const now = clock();
+  const d = fakeDoc();
+  const rootNode = host(d);
+  const timers = manual();
+  const press = createPress(d, rootNode, { discoveryUrl: DISCOVERY, explorer: EXPLORER, storage: memory(), timers, fetchImpl, now });
+  await press.refresh();
+  const asked = (origin) => seen.filter((u) => u.startsWith(`${origin}/`)).length;
+  assert.equal(asked(DESK), 1);
+  assert.ok(text(rootNode).includes(RETRY_NOTE), "the panel says it keeps checking by itself");
+
+  now.advance(POLL_MS / 2);
+  await press.refresh();
+  assert.equal(asked(DESK), 1, "inside the rest the dead address is not asked again");
+  now.advance(POLL_MS / 2);
+  await press.refresh();
+  assert.equal(asked(DESK), 2, "after 20 s it is asked once more");
+  now.advance(POLL_MS);
+  await press.refresh();
+  assert.equal(asked(DESK), 2, "the second miss doubled the rest to 40 s");
+  now.advance(POLL_MS);
+  await press.refresh();
+  assert.equal(asked(DESK), 3);
+
+  doc.url = DESK_B; // the desk restarted behind a new tunnel, and the document now says so
+  up.add(DESK_B);
+  now.advance(POLL_MS);
+  await press.refresh();
+  assert.equal(press.state().desk, DESK_B);
+  assert.equal(press.state().online, true, "found without a reload");
+  assert.equal(asked(DESK), 3, "the dead address was not asked again");
+  assert.equal(button(rootNode).disabled, false);
+});
+
+test("a visitor's Check again ignores the rest of a dead address, and the desk's own 503 is never treated as dead", async () => {
+  const seen = [];
+  let up = false;
+  const fetchImpl = routed(async () => (up ? OPEN() : Promise.reject(new TypeError("Failed to fetch"))), { url: DESK }, seen);
+  const now = clock();
+  const { press } = await make({ discoveryUrl: DISCOVERY, fetchImpl, now });
+  assert.equal(press.state().online, false);
+  up = true;
+  await assert.rejects(press.request("/health", () => ({})), /not answering/, "inside the rest, automatic requests wait");
+  const res = await press.request("/health", () => ({}), true);
+  assert.equal(res.ok, true, "eager: asked at once");
+
+  const shut = await make({ discoveryUrl: DISCOVERY, fetchImpl: routed(reply(503, { error: "not taking questions" })), now: clock() });
+  const r = await shut.press.request("/health", () => ({}));
+  assert.equal(r.status, 503, "a desk that answers 503 can be asked again at once");
 });

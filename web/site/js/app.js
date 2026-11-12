@@ -143,12 +143,21 @@ function linkQuips(explorer) {
   }
 }
 
+/** One honest line for the supply chart: the behaviours that barely move the supply are drawn on top of each other there, so say so and point at the chart that tells them apart. */
+function stayedPut(series) {
+  const flat = series.filter((s) => Math.max(...s.supplyPct.map((v) => Math.abs(v - 100))) < 0.5);
+  if (flat.length < 2) return "";
+  const worst = Math.max(...flat.flatMap((s) => s.supplyPct.map((v) => Math.abs(v - 100))));
+  const names = flat.map((s) => s.label).join(", ").replace(/, ([^,]*)$/, " and $1");
+  return ` ${names} all stay within ${worst.toFixed(2)}% of the launch supply, so they run together here as bands of colour. The rate chart under More charts shows how they differ.`;
+}
+
 function showSimulation() {
   const sim = simulate();
   const slots = Object.fromEntries(BEHAVIOURS.map((b, i) => [b.id, i + 1]));
   const series = (key) => sim.series.map((s) => ({ id: s.id, label: s.label, slot: slots[s.id], values: s[key] }));
   const charts = [
-    lineChart(doc, { title: "Total supply", caption: "As a share of the launch supply: 100% is where it started.", series: series("supplyPct"), fmt: (v, axis) => (axis ? `${v}%` : `${v.toFixed(2)}% of launch`), guides: [{ value: 100, label: "launch" }] }),
+    lineChart(doc, { title: "Total supply", caption: `As a share of the launch supply: 100% is where it started.${stayedPut(sim.series)}`, series: series("supplyPct"), fmt: (v, axis) => (axis ? `${v}%` : `${v.toFixed(2)}% of launch`), guides: [{ value: 100, label: "launch" }] }),
     lineChart(doc, { title: "Rate in effect", caption: "Basis points. Above zero mints for stakers, as basis points of supply a day, shared out over the day's meetings. Below zero burns a share of each transfer.", series: series("rateBps"), domain: [-200, 200], fmt: (v, axis) => (axis ? fmtRate(Math.round(v)).replace(" bps", "") : fmtRate(Math.round(v))), guides: [] }),
     lineChart(doc, { title: "Staking reward per epoch", caption: "New tokens an epoch's mint pays per staked token, as a percentage of the stake. Zero whenever the rate is not positive.", series: series("rewardPct"), fmt: (v, axis) => (axis ? `${v}%` : `${v.toFixed(3)}% of stake`) }),
   ];
@@ -234,7 +243,7 @@ const pageExplorer = config.fixture === null ? config.explorerUrl : null;
 linkQuips(pageExplorer);
 linkFallback(doc, $("pull"), pageExplorer);
 renderBound(doc, $("bound-body"), {}, { explorer: pageExplorer });
-const press = createPress(doc, $("press-body"), { discoveryUrl: config.pressDiscoveryUrl, explorer: pageExplorer });
+const press = createPress(doc, $("press-body"), { discoveryUrl: config.pressDiscoveryUrl, discoveryApiUrl: config.pressDiscoveryApiUrl ?? "", explorer: pageExplorer });
 let chainData = null; // loadLog's latest result, for the overreach panel's hint and its desk-closed list
 let resolvedTexts = null; // the minutes texts that match their chain hashes, for the join panel
 let reloadChain = async () => undefined;
