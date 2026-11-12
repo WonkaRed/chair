@@ -327,16 +327,14 @@ test("the decision marker: the agent holds it exactly while it waits on the mode
 });
 
 test("stayOffTheModel waits while busy, returns the moment it is not, and never waits past its limit", async () => {
-  let busy = true;
-  const t0 = Date.now();
-  setTimeout(() => { busy = false; }, 120);
-  await stayOffTheModel(() => busy, 5000, 10);
-  const waited = Date.now() - t0;
-  assert.ok(waited >= 100 && waited < 1500, `waited ${waited} ms`);
-  const t1 = Date.now();
-  await stayOffTheModel(() => true, 150, 10);
-  assert.ok(Date.now() - t1 < 1500, "a marker that never clears holds the desk for the limit only");
-  const t2 = Date.now();
-  await stayOffTheModel(() => false, 5000, 10);
-  assert.ok(Date.now() - t2 < 100, "not busy: no wait");
+  // The wait is counted in steps of `stepMs`, so what is asserted is how often it looked, never how long it took.
+  let looks = 0;
+  await stayOffTheModel(() => (looks++, looks <= 12), 5000, 1);
+  assert.equal(looks, 13, "busy for twelve looks, free on the thirteenth: it stopped there");
+  looks = 0;
+  await stayOffTheModel(() => (looks++, true), 150, 10);
+  assert.equal(looks, 15, "a marker that never clears holds the desk for the limit only: 150 ms of 10 ms steps");
+  looks = 0;
+  await stayOffTheModel(() => (looks++, false), 5000, 10);
+  assert.equal(looks, 1, "not busy: one look, no wait");
 });

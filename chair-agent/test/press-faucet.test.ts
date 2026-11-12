@@ -7,7 +7,7 @@ import { NearRpc } from "../src/rpc.js";
 import { blockHash } from "./faucet-chain.js";
 import { DEFAULT_FAUCET_LIMITS, FAUCET_GAS_MARGIN, Faucet, Refused, RpcFaucetReader, formatUnits, implicitAccount, limitsFromEnv, type FaucetDeps, type FaucetLimits } from "../src/press-faucet.js";
 import { FAUCET_GRANT_CHAIR, FAUCET_GRANT_NEAR, FAUCET_STEPS, FAUCET_STORAGE_DEPOSIT, FaucetSigner, hashOf, type FaucetStep } from "../src/signer.js";
-import { tempDir } from "./helpers.js";
+import { eventually, tempDir } from "./helpers.js";
 
 const root = tempDir("faucet");
 after(() => rmSync(root, { recursive: true, force: true }));
@@ -114,8 +114,8 @@ function rig(over: Partial<FaucetDeps> = {}, limits: Partial<FaucetLimits> = {})
 const HOUR = 3_600_000;
 const body = (r: { body: Record<string, unknown> }): Record<string, unknown> => r.body;
 
-test("the default limits pace the budget: 1 grant per address per day, 5 an hour, 20 a day, 200 in all", () => {
-  assert.equal(DEFAULT_FAUCET_LIMITS.perIpGrants, 1);
+test("the default limits pace the budget: 3 grants per address per day, 5 an hour, 20 a day, 200 in all", () => {
+  assert.equal(DEFAULT_FAUCET_LIMITS.perIpGrants, 3);
   assert.equal(DEFAULT_FAUCET_LIMITS.perIpGrantsWindowMs, 24 * HOUR);
   assert.equal(DEFAULT_FAUCET_LIMITS.hourlyCap, 5);
   assert.equal(DEFAULT_FAUCET_LIMITS.hourlyWindowMs, HOUR);
@@ -178,17 +178,27 @@ test("an account that exists on chain and is not in the record is 409 and nothin
   assert.equal((await r.faucet.start(newKey().key, "1.1.1.1")).status, 200, "the refused visitor's address was not charged for it");
 });
 
-test("one grant per address per day: the second is 429 with retry_after_s, another address is served, and the day later it is open again", async () => {
+test("three grants per address per day: the fourth is 429 with retry_after_s and limit \"address\", another address is served, and the day later it is open again", async () => {
   const r = rig({}, { hourlyCap: 100, dailyCap: 100 });
-  assert.equal((await r.faucet.start(newKey().key, "1.1.1.1")).status, 200);
+  for (let i = 0; i < 3; i++) assert.equal((await r.faucet.start(newKey().key, "1.1.1.1")).status, 200, `grant ${i + 1}`);
   const res = await r.faucet.start(newKey().key, "1.1.1.1");
   assert.equal(res.status, 429);
   assert.equal(body(res)["retry_after_s"], 24 * 3600);
+  assert.equal(body(res)["limit"], "address", "the page tells this network's own cap from the desk's totals by this field");
+  assert.match(String(body(res)["error"]), /this address has already had its 3 test coin grants for today/);
   assert.equal(res.headers?.["retry-after"], 24 * 3600);
   assert.equal((await r.faucet.start(newKey().key, "2.2.2.2")).status, 200);
   r.clock += 24 * HOUR + 1;
   assert.equal((await r.faucet.start(newKey().key, "1.1.1.1")).status, 200);
-  assert.equal(r.granted.length, 3);
+  assert.equal(r.granted.length, 5);
+});
+
+test("the per-address cap is configurable: CHAIR_FAUCET_PER_ADDRESS of 1 stops the second grant", async () => {
+  const r = rig({}, { ...limitsFromEnv({ CHAIR_FAUCET_PER_ADDRESS: "1" }), hourlyCap: 100, dailyCap: 100 });
+  assert.equal((await r.faucet.start(newKey().key, "1.1.1.1")).status, 200);
+  const res = await r.faucet.start(newKey().key, "1.1.1.1");
+  assert.equal(res.status, 429);
+  assert.match(String(body(res)["error"]), /its 1 test coin grants/);
 });
 
 test("the hourly cap: past it every address gets 429 until the oldest grant is an hour old", async () => {
@@ -200,6 +210,7 @@ test("the hourly cap: past it every address gets 429 until the oldest grant is a
   const res = await r.faucet.start(newKey().key, "8.8.8.8");
   assert.equal(res.status, 429);
   assert.equal(body(res)["retry_after_s"], 3597);
+  assert.equal(body(res)["limit"], undefined, "the desk's totals carry no limit field: only the per-address cap does");
   assert.equal(r.granted.length, 3);
   r.clock += 3_597_000;
   assert.equal((await r.faucet.start(newKey().key, "8.8.8.8")).status, 200);
@@ -293,7 +304,7 @@ test("a faucet that runs dry between visitors says so on its own: watch() reads 
   const stop = r.faucet.watch();
   try {
     const until = async (want: boolean): Promise<void> => {
-      for (let i = 0; i < 150 && r.faucet.live() !== want; i++) await new Promise((res) => setTimeout(res, 20));
+      await eventually(() => r.faucet.live() === want);
       assert.equal(r.faucet.live(), want);
     };
     await until(true);
@@ -343,7 +354,7 @@ test("the kill file also stops a request that was already waiting its turn", asy
 });
 
 test("a partial failure is reported with the step that failed and the hashes that went through, it counts against the budget, and it charges the address's day", async () => {
-  const r = rig({}, { lifetimeCap: 5, hourlyCap: 100, dailyCap: 100 });
+  const r = rig({}, { lifetimeCap: 5, hourlyCap: 100, dailyCap: 100, perIpGrants: 1 });
   r.failAt = "storage_deposit";
   r.failure = "Smart contract panicked: x";
   const { key, account } = newKey();
@@ -498,7 +509,7 @@ test("two requests for the same key at once: one grant is sent, both are answere
 });
 
 test("two requests from the same address at once: one grant, the other is 429 once the first is confirmed", async () => {
-  const r = rig({}, { hourlyCap: 100, dailyCap: 100 });
+  const r = rig({}, { hourlyCap: 100, dailyCap: 100, perIpGrants: 1 });
   const both = await Promise.all([r.faucet.start(newKey().key, "1.1.1.1"), r.faucet.start(newKey().key, "1.1.1.1")]);
   assert.deepEqual(both.map((x) => x.status).sort(), [200, 429]);
   assert.equal(r.calls.length, 1);
@@ -548,11 +559,12 @@ test("the journal says when the budget first drops below 50 and below 10, and wh
 
 test("the caps come from the environment as positive whole numbers; anything else is refused with the variable's name", () => {
   assert.deepEqual(limitsFromEnv({}), {});
+  assert.deepEqual(limitsFromEnv({ CHAIR_FAUCET_PER_ADDRESS: "2" }), { perIpGrants: 2 });
   assert.deepEqual(limitsFromEnv({ CHAIR_FAUCET_HOURLY: "7" }), { hourlyCap: 7 });
   assert.deepEqual(limitsFromEnv({ CHAIR_FAUCET_DAILY: "40" }), { dailyCap: 40 });
   assert.deepEqual(limitsFromEnv({ CHAIR_FAUCET_LIFETIME: "150" }), { lifetimeCap: 150 });
   assert.deepEqual(limitsFromEnv({ CHAIR_FAUCET_HOURLY: "1", CHAIR_FAUCET_DAILY: "2", CHAIR_FAUCET_LIFETIME: "3" }), { hourlyCap: 1, dailyCap: 2, lifetimeCap: 3 });
-  for (const name of ["CHAIR_FAUCET_HOURLY", "CHAIR_FAUCET_DAILY", "CHAIR_FAUCET_LIFETIME"]) {
+  for (const name of ["CHAIR_FAUCET_PER_ADDRESS", "CHAIR_FAUCET_HOURLY", "CHAIR_FAUCET_DAILY", "CHAIR_FAUCET_LIFETIME"]) {
     for (const bad of ["", " ", "0", "-3", "1.5", "abc", "1e3", "0x10", "9999999", "5 "]) assert.throws(() => limitsFromEnv({ [name]: bad }), new RegExp(name), `${name}=${JSON.stringify(bad)}`);
   }
 });
@@ -595,19 +607,20 @@ test("a chain that is down at start does not keep the faucet off: it is closed (
 test("watch() brings the faucet up by itself, with no request, once the chain answers", async () => {
   let up = false;
   const dir = fresh();
+  let checks = 0;
   const f = new Faucet({
     reader: rig().deps.reader,
     sender: rig().deps.sender,
     stateFile: join(dir, "faucet.json"),
-    check: () => (up ? Promise.resolve() : Promise.reject(new Error("rpc down"))),
+    check: () => (checks++, up ? Promise.resolve() : Promise.reject(new Error("rpc down"))),
     limits: { readyRetryMs: 20 },
   });
   const stop = f.watch();
   try {
-    await new Promise((res) => setTimeout(res, 60));
-    assert.equal(f.live(), false);
+    await eventually(() => checks >= 2);
+    assert.equal(f.live(), false, "the check was tried again and failed again");
     up = true;
-    for (let i = 0; i < 100 && !f.live(); i++) await new Promise((res) => setTimeout(res, 20));
+    await eventually(() => f.live());
     assert.equal(f.live(), true);
   } finally {
     stop();

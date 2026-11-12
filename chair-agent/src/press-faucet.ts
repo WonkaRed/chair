@@ -21,14 +21,14 @@ import { dirname } from "node:path";
 import { baseDecode, SignedTransaction } from "near-api-js";
 import type { Reply } from "./press-overreach.js";
 import { SerialQueue, SlidingWindow } from "./press-window.js";
-import { withinDeadline, type NearRpc } from "./rpc.js";
+import { realClock, withinDeadline, type Clock, type NearRpc } from "./rpc.js";
 import { FAUCET_GRANT_CHAIR, FAUCET_GRANT_NEAR, FAUCET_STEPS, FAUCET_STORAGE_DEPOSIT, hashOf, type FaucetOutcome, type FaucetSender, type FaucetStep, type PendingTx } from "./signer.js";
 import { sanitize } from "./text.js";
 import { int, u128 } from "./validate.js";
 
 export const DEFAULT_FAUCET_LIMITS = {
-  /** Grants per address, then the desk's totals. The file keeps every grant, so these survive a restart; the per-address window does not. */
-  perIpGrants: 1,
+  /** Grants per address (three, so judges on one wifi, or on a laptop and a phone, can each have one), then the desk's totals. The file keeps every grant, so these survive a restart; the per-address window does not. */
+  perIpGrants: 3,
   perIpGrantsWindowMs: 24 * 60 * 60_000,
   hourlyCap: 5,
   hourlyWindowMs: 60 * 60_000,
@@ -99,10 +99,10 @@ export function implicitAccount(key: unknown): string | null {
   return bytes.length === 32 ? Buffer.from(bytes).toString("hex") : null;
 }
 
-/** The caps that CHAIR_FAUCET_HOURLY, CHAIR_FAUCET_DAILY and CHAIR_FAUCET_LIFETIME set, from `env`; each must be a positive whole number, else this throws and the faucet does not start. */
+/** The caps that CHAIR_FAUCET_PER_ADDRESS, CHAIR_FAUCET_HOURLY, CHAIR_FAUCET_DAILY and CHAIR_FAUCET_LIFETIME set, from `env`; each must be a positive whole number, else this throws and the faucet does not start. */
 export function limitsFromEnv(env: NodeJS.ProcessEnv): Partial<FaucetLimits> {
-  const limits: { hourlyCap?: number; dailyCap?: number; lifetimeCap?: number } = {};
-  for (const [name, key] of [["CHAIR_FAUCET_HOURLY", "hourlyCap"], ["CHAIR_FAUCET_DAILY", "dailyCap"], ["CHAIR_FAUCET_LIFETIME", "lifetimeCap"]] as const) {
+  const limits: { perIpGrants?: number; hourlyCap?: number; dailyCap?: number; lifetimeCap?: number } = {};
+  for (const [name, key] of [["CHAIR_FAUCET_PER_ADDRESS", "perIpGrants"], ["CHAIR_FAUCET_HOURLY", "hourlyCap"], ["CHAIR_FAUCET_DAILY", "dailyCap"], ["CHAIR_FAUCET_LIFETIME", "lifetimeCap"]] as const) {
     const raw = env[name];
     if (raw !== undefined) limits[key] = int(/^\d{1,7}$/.test(raw) ? Number(raw) : Number.NaN, name, 1, 1_000_000);
   }
@@ -326,6 +326,8 @@ export interface FaucetDeps {
    */
   readonly check?: () => Promise<void>;
   readonly now?: () => number;
+  /** What the request deadline reads (see `FaucetLimits.requestDeadlineMs`); unset: the real one. */
+  readonly clock?: Clock;
   readonly limits?: Partial<FaucetLimits>;
   /** One line per notable event: a grant, a step that failed, a threshold of the budget, the faucet going dry. Never an address. */
   readonly log?: (line: string) => void;
@@ -349,6 +351,7 @@ const LOW_MARKS = [50, 10] as const;
 export class Faucet {
   private readonly limits: FaucetLimits;
   private readonly now: () => number;
+  private readonly clock: Clock;
   private readonly ledger: Ledger;
   private readonly perIpRequests: SlidingWindow;
   private readonly perIpGrants: SlidingWindow;
@@ -364,6 +367,7 @@ export class Faucet {
   constructor(private readonly deps: FaucetDeps) {
     this.limits = { ...DEFAULT_FAUCET_LIMITS, ...deps.limits };
     this.now = deps.now ?? Date.now;
+    this.clock = deps.clock ?? realClock;
     this.ledger = new Ledger(deps.stateFile, deps.markerFile);
     this.perIpRequests = new SlidingWindow(this.limits.perIpRequests, this.limits.perIpRequestsWindowMs);
     this.perIpGrants = new SlidingWindow(this.limits.perIpGrants, this.limits.perIpGrantsWindowMs);
@@ -455,9 +459,10 @@ export class Faucet {
     return { status: 200, body: { open, grant_chair: GRANT_CHAIR, grant_near: GRANT_NEAR, remaining, next_opening_s: next, ...(reason === null ? {} : { reason }) } };
   }
 
-  private busy(retryMs: number, error: string): Reply {
+  /** A 429. `limit: "address"` (only on the per-address grant cap) tells the page the wait is this network's own, not the whole desk's. */
+  private busy(retryMs: number, error: string, limit?: "address"): Reply {
     const s = Math.max(1, Math.ceil(retryMs / 1000));
-    return { status: 429, body: { error, retry_after_s: s }, headers: { "retry-after": s } };
+    return { status: 429, body: { error, retry_after_s: s, ...(limit === undefined ? {} : { limit }) }, headers: { "retry-after": s } };
   }
 
   /** The refusal that applies to a visitor asking for a grant that has not begun, or null when a grant may go ahead. Resuming one that has begun never comes here. */
@@ -465,7 +470,7 @@ export class Faucet {
     if (this.killed()) return closed("killed");
     if (this.remaining() === 0) return closed("budget");
     const own = this.perIpGrants.waitMs(who, t);
-    if (own > 0) return this.busy(own, "this address has already had its test coins today; the faucet gives one grant to each address a day");
+    if (own > 0) return this.busy(own, `this address has already had its ${this.limits.perIpGrants} test coin grants for today`, "address");
     const total = this.totalsWaitMs(t);
     if (total > 0) return this.busy(total, "the faucet has handed out all it may for now; try again later");
     return null;
@@ -496,8 +501,8 @@ export class Faucet {
     if (known !== undefined && complete(known)) return this.recorded(known);
     if (known?.gaveUp !== undefined) return this.gaveUp(known, known.gaveUp);
     if (this.killed()) return closed("killed");
-    const deadlineAt = Date.now() + this.limits.requestDeadlineMs;
-    if (!(await withinDeadline(() => this.ensure(), deadlineAt).catch(() => false))) return closed("unreadable");
+    const deadlineAt = this.clock.now() + this.limits.requestDeadlineMs;
+    if (!(await withinDeadline(() => this.ensure(), deadlineAt, this.clock).catch(() => false))) return closed("unreadable");
     if (known === undefined) {
       const refused = this.refusal(who, t);
       if (refused !== null) return refused;
@@ -532,10 +537,10 @@ export class Faucet {
       if (refused !== null) return refused;
     }
     try {
-      if (begun === undefined && (await withinDeadline(() => this.deps.reader.exists(account), deadlineAt))) {
+      if (begun === undefined && (await withinDeadline(() => this.deps.reader.exists(account), deadlineAt, this.clock))) {
         return { status: 409, body: { error: "that account already exists; the faucet only funds new accounts" } };
       }
-      if (!(await withinDeadline(() => this.checkFunds(), deadlineAt))) return closed("dry");
+      if (!(await withinDeadline(() => this.checkFunds(), deadlineAt, this.clock))) return closed("dry");
     } catch (err) {
       this.log(`not sent (${err instanceof Error ? sanitize(err.message, 200) : "unreadable"})`);
       return closed("unreadable");

@@ -88,13 +88,16 @@ test("with a faucet: POST /faucet answers the documented shape, /faucet/state an
   });
 });
 
-test("the visitor's address is the one from the tunnel header: a second grant to the same CF-Connecting-IP is 429 with Retry-After, another address is served", async () => {
+test("the visitor's address is the one from the tunnel header: a fourth grant to the same CF-Connecting-IP is 429 with Retry-After and limit \"address\", another address is served", async () => {
   await withDesk(true, async (d) => {
-    assert.equal((await d.post(JSON.stringify({ public_key: newKey().key }), { "cf-connecting-ip": "203.0.113.9" })).status, 200);
+    for (let i = 0; i < 3; i++) assert.equal((await d.post(JSON.stringify({ public_key: newKey().key }), { "cf-connecting-ip": "203.0.113.9" })).status, 200);
     const again = await d.post(JSON.stringify({ public_key: newKey().key }), { "cf-connecting-ip": "203.0.113.9" });
     assert.equal(again.status, 429);
     assert.equal(again.headers.get("retry-after"), String(24 * 3600));
-    assert.equal(((await again.json()) as { retry_after_s: number }).retry_after_s, 24 * 3600);
+    const j = (await again.json()) as Record<string, unknown>;
+    assert.deepEqual(Object.keys(j).sort(), ["error", "limit", "retry_after_s"]);
+    assert.equal(j["retry_after_s"], 24 * 3600);
+    assert.equal(j["limit"], "address");
     assert.equal((await d.post(JSON.stringify({ public_key: newKey().key }), { "cf-connecting-ip": "203.0.113.10" })).status, 200);
   });
 });

@@ -47,6 +47,8 @@ export class ChainSim {
   archivalHangs = false;
   /** How long every `send_tx` takes to answer, after the chain has done what it does with it. */
   latencyMs = 0;
+  /** What waiting `latencyMs` does: nothing by default, a `FakeClock`'s `sleep` when a test is about time. */
+  delay: (ms: number) => Promise<void> = () => Promise.resolve();
   /** Every read the signer made of the chain (key, block, lookups), so a test can say a request did not touch it. */
   reads = 0;
   /** Every `send_tx` that was made, in order, as the base64 sent. */
@@ -66,7 +68,7 @@ export class ChainSim {
       try {
         return await this.sendTx(b64);
       } finally {
-        if (this.latencyMs > 0) await new Promise((r) => setTimeout(r, this.latencyMs));
+        if (this.latencyMs > 0) await this.delay(this.latencyMs);
       }
     },
     txOutcome: (hash: string) => this.txOutcome(hash, false),

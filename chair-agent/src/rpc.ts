@@ -24,18 +24,32 @@ export class DeadlineError extends RpcError {
   }
 }
 
+/** The time a deadline reads: `now` in ms since 1970, and `after` runs `fire` once `ms` have passed and answers how to cancel it. A test hands in one it advances by hand. */
+export interface Clock {
+  now(): number;
+  after(ms: number, fire: () => void): () => void;
+}
+
+export const realClock: Clock = {
+  now: () => Date.now(),
+  after: (ms, fire) => {
+    const timer = setTimeout(fire, ms);
+    return () => clearTimeout(timer);
+  },
+};
+
 /**
  * Starts `work` and answers with it, or throws `DeadlineError` once `deadlineAt` (ms since 1970) has passed; when it has already passed `work` is not
  * started. The work itself is not cancelled, so it may only read, or send bytes that are safe to send again.
  */
-export function withinDeadline<T>(work: () => Promise<T>, deadlineAt: number): Promise<T> {
-  const left = deadlineAt - Date.now();
+export function withinDeadline<T>(work: () => Promise<T>, deadlineAt: number, clock: Clock = realClock): Promise<T> {
+  const left = deadlineAt - clock.now();
   if (left <= 0) return Promise.reject(new DeadlineError());
-  let timer: NodeJS.Timeout | undefined;
+  let cancel = (): void => undefined;
   const late = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new DeadlineError()), left);
+    cancel = clock.after(left, () => reject(new DeadlineError()));
   });
-  return Promise.race([work(), late]).finally(() => clearTimeout(timer));
+  return Promise.race([work(), late]).finally(cancel);
 }
 
 export interface AccessKeyInfo {

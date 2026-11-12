@@ -6,7 +6,9 @@
 }
 @media (min-width: 62rem) { #mine { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); grid-template-rows: auto 1fr; } #mine .slot { grid-column: 2; grid-row: 1 / span 2; } }
 #mine h2 { margin: 0; }
-#mine [hidden] { display: none !important; }
+#mine[hidden], #mine [hidden] { display: none !important; } /* the section's own display:grid above would otherwise beat its hidden attribute */
+#mine { overflow-wrap: anywhere; } /* a 64-character account or a long contract sentence wraps inside the panel and never widens the page */
+#mine > * { min-width: 0; }
 #mine .mn-get-box { display: flex; flex-direction: column; gap: 0.5rem; align-items: stretch; }
 #mine .mn-get { width: 100%; min-height: 3.6rem; font: 700 1.2rem/1.2 var(--text); border-radius: 3px; box-shadow: 0 4px 0 var(--ink); transition: transform 0.1s, box-shadow 0.1s; }
 #mine .mn-get:hover:not(:disabled) { filter: none; transform: translateY(-1px); box-shadow: 0 5px 0 var(--ink); }
@@ -22,7 +24,7 @@
 #mine .mn-num strong { font: 700 1.7rem/1.1 var(--serif); font-variant-numeric: lining-nums; overflow-wrap: anywhere; }
 #mine .mn-earned strong { color: var(--accent); }
 #mine .mn-k { color: var(--muted); font-size: 0.85rem; }
-#mine .mn-lock { margin: 0.9rem 0 0; font: 1.05rem/1.4 var(--serif); }
+#mine .mn-lock { margin: 0.2rem 0 0; font: 1.05rem/1.4 var(--serif); }
 #mine p.mn-soon { margin: 0.5rem 0 0; }
 #mine .mn-form { display: grid; gap: 0.5rem; margin-top: 1.1rem; }
 #mine .mn-form label { color: var(--ink2); font-size: 0.95rem; margin-top: 0.4rem; }
@@ -57,3 +59,9 @@
 #mine .mn-honest li { padding-left: 1.1rem; position: relative; }
 #mine .mn-honest li::before { content: ""; position: absolute; left: 0; top: 0.6em; width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--brass); }
 #mine .mn-how > :not(summary) { max-width: 60ch; }
+@media (max-width: 40rem) {
+  #mine .mn-nums { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; }
+  #mine .mn-num { padding: 0.7rem 0.75rem; }
+  #mine .mn-num strong { font-size: 1.45rem; }
+  #mine .mn-earned { grid-column: 1 / -1; }
+}

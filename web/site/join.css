@@ -6,7 +6,7 @@
 }
 @media (min-width: 62rem) { #join { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); grid-template-rows: auto 1fr; } #join .slot { grid-column: 2; grid-row: 1 / span 2; } }
 #join h2 { margin: 0; }
-#join [hidden] { display: none; }
+#join[hidden], #join [hidden] { display: none; } /* the section's own display:grid above would otherwise beat its hidden attribute */
 #join .jn-act { display: flex; flex-direction: column; gap: 0.5rem; align-items: stretch; }
 #join .jn-btn { width: 100%; min-height: 3.6rem; font: 700 1.2rem/1.2 var(--text); border-radius: 3px; box-shadow: 0 4px 0 var(--ink); transition: transform 0.1s, box-shadow 0.1s; }
 #join .jn-btn:hover:not(:disabled) { filter: none; transform: translateY(-1px); box-shadow: 0 5px 0 var(--ink); }

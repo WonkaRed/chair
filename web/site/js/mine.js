@@ -16,6 +16,8 @@ export const WATCH_MS = 1000;
 const REFRESH_FLOOR_MS = 8_000; // the numbers are read at least this far apart
 const REFRESH_CAP_MS = 120_000; // and at least this often while the page is open
 const MEETING_GRACE_MS = 3_000; // the chain applies a meeting a little after it opens
+const SETTLE_MS = 10_000; // after a call, the numbers are read again until they move, for at most this long
+const SETTLE_STEP_MS = 1_000;
 export const SEND_TIMEOUT_MS = 45_000; // one node's time to run a transaction
 const LIFETIME_COINS = "10000"; // the most the faucet can ever give: its visitor cap times the grant
 
@@ -40,7 +42,11 @@ export function fmtCoins(n) {
   return formatTokens(n, n < UNIT ? 6 : 4);
 }
 
-const shortId = (id) => (id.length > 24 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id);
+/** An account as a sentence carries it: the 64 hex characters of a visitor's account become `a0bd33c1…09d2f7`, and a name people wrote stays whole. The full name goes in a `title`. */
+export const shortId = (id) => (id.length > 40 ? `${id.slice(0, 8)}…${id.slice(-6)}` : id);
+
+/** An amount of coins with its unit: "1 coin", "2.5 coins". */
+export const coinsOf = (text) => `${text} ${text === "1" ? "coin" : "coins"}`;
 
 /** A wait as a person says it: seconds under two minutes, then minutes, then hours. */
 export function waitWords(s) {
@@ -74,7 +80,7 @@ export function parseFaucetState(j) {
 /** The faucet's refusal of a request for coins, as `closed`: its kind, when it may be tried again (seconds) and the desk's own words. */
 export function parseRefusal(status, body) {
   const words = isObj(body) && typeof body.error === "string" ? safeText(body.error, 160) : null;
-  if (status === 429) return { kind: "limited", wait: Number.isFinite(body?.retry_after_s) ? Math.max(1, Math.min(86_400, Math.ceil(body.retry_after_s))) : 60, words };
+  if (status === 429) return { kind: body?.limit === "address" ? "address" : "limited", wait: Number.isFinite(body?.retry_after_s) ? Math.max(1, Math.min(86_400, Math.ceil(body.retry_after_s))) : 60, words: body?.limit === "address" ? null : words };
   if (status === 503) return { kind: ["off", "killed", "dry", "budget", "unreadable"].includes(body?.reason) ? body.reason : "other", wait: null, words };
   if (status === 400) return { kind: "bad", wait: null, words };
   return { kind: "down", wait: null, words: null };
@@ -88,6 +94,8 @@ const CLOSED_LINE = {
   budget: "Every coin the faucet may give has been given. That limit is on purpose, and it is explained below.",
   closed: "The faucet has handed out all it may for now.",
   limited: "The faucet is handing coins out slowly so that everyone gets a turn.",
+  address: "This network has had its test coins for today.",
+  unreachable: FAUCET_DOWN,
   bad: "The faucet did not accept the key this page made. Press the button again to try with a new one.",
   taken: "The faucet found that key already has an account it did not fund, so this page dropped the key. Press the button to make a new one.",
   retry: "The faucet stopped before it finished. Your key is kept, and pressing the button picks up where it left off.",
@@ -95,15 +103,18 @@ const CLOSED_LINE = {
 };
 const HELD = "This browser already made a test account, but no coins have reached it yet. Press Try again and the faucet picks up where it left off.";
 /** These end the offer for now: the button waits until the stated time, or until the page sees the faucet open again. */
-const BLOCKS = new Set(["off", "killed", "dry", "budget", "unreadable", "closed", "limited"]);
+const BLOCKS = new Set(["off", "killed", "dry", "budget", "unreadable", "closed", "limited", "address", "unreachable"]);
 /** Only these come with a time the desk means: its own caps reopening, or the wait it set. A dry or unreadable faucet is only looked at again. */
-const TIMED = new Set(["closed", "limited"]);
+const TIMED = new Set(["closed", "limited", "address"]);
+/** The waits the desk set for one visitor, which even a held key must sit out. */
+const WAITS = new Set(["limited", "address"]);
+const UNREACHABLE = { kind: "unreachable", untilMs: null, words: null };
 
 function closedNote(closed, now) {
   if (closed === null) return null;
   const left = TIMED.has(closed.kind) && closed.untilMs !== null ? Math.ceil((closed.untilMs - now) / 1000) : null;
   if (left !== null && left <= 0) return null; // the wait is over
-  const when = left === null ? "" : closed.kind === "limited" ? ` Try again in ${waitWords(left)}.` : ` It opens again in ${waitWords(left)}.`;
+  const when = left === null ? "" : WAITS.has(closed.kind) ? ` Try again in ${waitWords(left)}.` : ` It opens again in ${waitWords(left)}.`;
   const known = CLOSED_LINE[closed.kind];
   const base = known ?? closed.words ?? CLOSED_LINE.down; // a reason this page does not know is shown in the desk's own words
   return { text: `${base}${when}`, words: known === undefined ? null : closed.words ?? null, blocks: BLOCKS.has(closed.kind) };
@@ -125,14 +136,15 @@ export function mineModel({ supported = null, desk = null, key = null, creating 
   ];
   const base = { honest, help: HELP, result };
   const held = key !== null;
-  if (supported === false) return { ...base, visible: held || desk === "on", mode: "unsupported", unsupported: NO_ED25519 };
+  const visible = creating || held || desk !== null; // once the desk has been asked the panel is there, with its reason when it is closed
+  if (supported === false) return { ...base, visible, mode: "unsupported", unsupported: NO_ED25519 };
   if (!funded) {
-    const note = closedNote(closed, now);
-    const blocked = (note?.blocks ?? false) && (!held || closed.kind === "limited"); // a held key is never turned away by the faucet's state, only by a wait the desk set
-    const visible = creating || held || desk === "on";
+    const why = closed ?? (desk === "off" && !held ? UNREACHABLE : null); // a desk that is off and said nothing more is a desk that did not answer
+    const note = closedNote(why, now);
+    const blocked = (note?.blocks ?? false) && (!held || WAITS.has(why.kind)); // a held key is never turned away by the faucet's state, only by a wait the desk set
     return {
       ...base, visible, mode: "get",
-      get: { label: creating ? "Making your account…" : held ? "Try again" : `Get ${grant.coins} test coins`, enabled: visible && supported === true && !creating && !blocked, note: creating ? "Making your account and sending the coins. This takes about half a minute." : note?.text ?? (held ? HELD : null), words: creating ? null : note?.words ?? null },
+      get: { label: creating ? "Making your account…" : held ? "Try again" : `Get ${grant.coins} test coins`, enabled: visible && supported === true && !creating && !blocked, note: creating ? "Making your account and sending the coins. This takes a few seconds." : note?.text ?? (held ? HELD : null), words: creating ? null : note?.words ?? null },
       keepNote: kept ? null : KEPT_NOT,
     };
   }
@@ -160,7 +172,7 @@ export function mineModel({ supported = null, desk = null, key = null, creating 
       { key: "staked", label: "Staked", value: show(account?.staked ?? 0n) },
       { key: "earned", label: "Earned, not yet claimed", value: show(account?.pending ?? 0n) },
     ],
-    lock: !ready || account.staked === 0n ? null : locked ? `Your staked coins unlock in ${clock(Math.ceil((account.unlockAtMs - now) / 1000))}. The contract keeps a stake in for two meetings of the Chair.` : "Your staked coins are free to take out.",
+    lock: !ready || account.staked === 0n ? null : locked ? `Locked for two meetings of the Chair. Unlocks in ${clock(Math.ceil((account.unlockAtMs - now) / 1000))}.` : "Your staked coins are free to take out.",
     earnedNote: ready && account.staked > 0n ? (account.pending === 0n ? "Coins are earned when the Chair meets, and only while its rate is above zero. Check back after the next meeting." : "The number is small because the Chair prints only a fraction of a percent a day.") : null,
     amountHint: amountHint ?? (tooMany(account?.wallet ?? 0n) && tooMany(account?.staked ?? 0n) ? `You only have ${fmtCoins(account.wallet)} in your wallet${account.staked > 0n ? ` and ${fmtCoins(account.staked)} staked` : ""}.` : null),
     receiverHint,
@@ -209,13 +221,14 @@ export function describeOutcome(what, result, tx) {
         earned = null;
       }
     }
+    const to = what.action === "send" ? shortId(what.receiver) : null;
     const title = {
-      stake: `Staked ${what.coins} coins. They are locked for two meetings of the Chair, and they start earning at the next one.`,
-      unstake: `Took ${what.coins} coins out of the stake. They are back in your wallet.`,
-      claim: earned === null ? "Moved what you earned into your wallet." : `Moved ${fmtCoins(earned)} earned coins into your wallet.`,
-      send: `Sent ${what.coins} coins to ${what.receiver}.`,
+      stake: `Staked ${coinsOf(what.coins)}. They are locked for two meetings of the Chair, and they start earning at the next one.`,
+      unstake: `Took ${coinsOf(what.coins)} out of the stake. They are back in your wallet.`,
+      claim: earned === null ? "Moved what you earned into your wallet." : `Moved ${coinsOf(fmtCoins(earned))} you earned into your wallet.`,
+      send: `Sent ${coinsOf(what.coins)} to ${to}.`,
     }[what.action];
-    return { tone: "ok", title, contract: null, tx };
+    return { tone: "ok", title, full: to !== null && to !== what.receiver ? what.receiver : null, contract: null, tx };
   }
   if (isObj(status) && isObj(status.Failure)) {
     const words = contractWords(status);
@@ -233,6 +246,14 @@ export function describeFailure(error, tx) {
   if (error?.kind === "network") return { tone: "failed", title: tx === null ? "No network node answered, so nothing was sent. Try again in a moment." : "The call was sent, but no node answered about it. It may still go through: open the transaction to see.", contract: null, tx };
   return { tone: "failed", title: "The network turned this call away, and nothing changed.", contract: null, tx: null };
 }
+
+/** What each call must have changed once the chain shows it: `a` is the account as read now, `b` as it was before the call. */
+const MOVED = {
+  stake: (a, b) => a.wallet < b.wallet && a.staked > b.staked,
+  unstake: (a, b) => a.wallet > b.wallet && a.staked < b.staked,
+  claim: (a, b) => a.wallet > b.wallet,
+  send: (a, b) => a.wallet < b.wallet,
+};
 
 const txLink = (doc, explorer, hash, text = shortHash(hash)) => (explorer && isTxHash(hash) ? h(doc, "a", { href: `${explorer}/txns/${hash}`, rel: "noopener noreferrer", target: "_blank" }, text) : text);
 
@@ -260,11 +281,12 @@ function readKey(store) {
 }
 
 /**
- * Builds the panel into `host`; `section` is the page section, shown only while there is something true to show in it. `request(path, init)` talks to the
+ * Builds the panel into `host`; `section` is the page section, shown only while there is something true to show in it, and `link` the nav item that points at it
+ * (shown with it). `request(path, init)` talks to the
  * press desk and throws when there is none. `post(body)` sends one JSON-RPC body to a NEAR node, failing over between nodes, and throws when none answers.
  * `supply()` is the token's total supply as the page last read it (BigInt, or null). `token` is the contract, `sample` a receiver that holds coins.
  */
-export function createMine(doc, host, { section = null, request, post, token, explorer = null, sample = "", supply = () => null, store = safeStore(), subtle = globalThis.crypto?.subtle, timers = { set: (f, ms) => setTimeout(f, ms), clear: (t) => clearTimeout(t) }, now = Date.now } = {}) {
+export function createMine(doc, host, { section = null, link = null, request, post, token, explorer = null, sample = "", supply = () => null, store = safeStore(), subtle = globalThis.crypto?.subtle, timers = { set: (f, ms) => setTimeout(f, ms), clear: (t) => clearTimeout(t) }, sleep = (ms) => new Promise((done) => setTimeout(done, ms)), now = Date.now } = {}) {
   let supported = null;
   let desk = null;
   let key = readKey(store);
@@ -313,10 +335,10 @@ export function createMine(doc, host, { section = null, request, post, token, ex
   const keyBody = h(doc, "div", { class: "mn-keybody" });
   const keyButton = btn("chip", "Take your key");
   const fundedBox = h(doc, "div", { class: "mn-funded" },
-    h(doc, "p", { class: "mn-head" }, "Your test account, funded by my faucet"), accountLine, tiles, lock, earnedNote,
+    h(doc, "p", { class: "mn-head" }, "Your test account, funded by my faucet"), accountLine, tiles, earnedNote,
     h(doc, "div", { class: "mn-form" },
       h(doc, "label", { for: "mine-amount" }, "How many coins, for Stake, Unstake and Send"), amount, amountHint,
-      h(doc, "div", { class: "mn-row" }, stake, unstake, claim),
+      h(doc, "div", { class: "mn-row" }, stake, unstake, claim), lock,
       h(doc, "label", { for: "mine-receiver" }, "Send coins to another account"), receiver, receiverHint,
       h(doc, "div", { class: "mn-row" }, send)),
     outcome, keepNote, h(doc, "p", { class: "note mn-help" }, HELP),
@@ -344,7 +366,7 @@ export function createMine(doc, host, { section = null, request, post, token, ex
     const r = m.result;
     if (r === null) return;
     outcome.append(h(doc, "article", { class: `mn-card ${r.tone}`, "aria-label": r.tone === "ok" ? "What your call did" : "Your call did not go through" },
-      h(doc, "p", { class: "mn-title" }, r.title),
+      h(doc, "p", { class: "mn-title", title: r.full ?? null }, r.title),
       r.contract === null ? null : h(doc, "p", { class: "mn-says" }, h(doc, "span", { class: "k" }, "The contract's words"), " ", h(doc, "code", {}, r.contract)),
       r.extra ?? null,
       r.tx ? h(doc, "p", { class: "or-tx" }, "The transaction: ", txLink(doc, explorer, r.tx)) : null));
@@ -353,6 +375,7 @@ export function createMine(doc, host, { section = null, request, post, token, ex
   function render() {
     const m = model();
     if (section !== null) section.hidden = !m.visible;
+    if (link !== null) link.hidden = !m.visible;
     getBox.hidden = !(m.visible && m.mode === "get");
     unsupported.hidden = !(m.visible && m.mode === "unsupported");
     fundedBox.hidden = !(m.visible && m.mode === "funded");
@@ -462,6 +485,27 @@ export function createMine(doc, host, { section = null, request, post, token, ex
     return reading;
   }
 
+  /**
+   * Reads the chain after a call and again until `moved(account)`, for at most SETTLE_MS, then leaves what the chain says. A node can be a block behind the one that
+   * ran the call, and each number is its own request, so one read can come back with some numbers new and one old; waiting for the next scheduled read would
+   * leave that old number up for a couple of minutes. The read that was already out when the call finished is waited for, not reused: it began before the call ran.
+   * Buttons stay off meanwhile, so no call is made from a number that is about to change.
+   */
+  async function settle(moved) {
+    busy = "settling";
+    render();
+    try {
+      await reading;
+      for (const stop = now() + SETTLE_MS; ; await sleep(SETTLE_STEP_MS)) {
+        await readAccount();
+        if ((account !== null && !readFailed && moved(account)) || now() >= stop) return;
+      }
+    } finally {
+      busy = null;
+      render();
+    }
+  }
+
   /** One tick a second while the funded panel is up: the lock's countdown, and a read of the chain when it is due and the tab is showing. */
   function tick() {
     ticker = null;
@@ -513,6 +557,7 @@ export function createMine(doc, host, { section = null, request, post, token, ex
     const units = parseAmount(coins);
     const to = receiver.value.trim();
     const call = { stake: () => stakeCall(units, { first: account.firstStake }), unstake: () => unstakeCall(units), claim: () => claimCall(), send: () => transferCall(to, units) }[action]();
+    const before = account;
     busy = action;
     result = null;
     render();
@@ -522,12 +567,14 @@ export function createMine(doc, host, { section = null, request, post, token, ex
     } catch (e) {
       result = describeFailure(e, isTxHash(e.tx) ? e.tx : null);
     }
-    busy = null;
-    render();
-    await readAccount();
+    // A call that ran must show in the wallet, and in the stake for the two calls that move it; one that did not run changes nothing, so one read is enough.
+    await settle(result.tone === "ok" ? (a) => MOVED[action](a, before) : () => true);
   }
 
   // ---- the faucet ----
+
+  /** Whether the desk has told this visitor to wait, and the wait is not over. */
+  const waiting = () => WAITS.has(closed?.kind) && closed.untilMs > now();
 
   /** Whether the desk has the faucet on (GET /health), and what it would give (GET /faucet/state). Anything else is a closed panel for a visitor with no account. */
   async function check(auto = false) {
@@ -539,8 +586,9 @@ export function createMine(doc, host, { section = null, request, post, token, ex
     } catch {
       desk = "off";
     }
-    if (desk === "on") await readFaucetState();
-    else retryLater();
+    if (key === null && !waiting()) closed = null; // what the state says next replaces what an older look said, and a desk that stops answering leaves nothing to show
+    await readFaucetState(); // when the desk is off this says why (killed, dry, spent); when it did not answer there is nothing to read, and the panel says so
+    if (desk !== "on") retryLater();
     render();
   }
 
@@ -551,6 +599,7 @@ export function createMine(doc, host, { section = null, request, post, token, ex
       if (s === null) return;
       if (s.coins !== null) grantCoins = s.coins;
       if (key !== null) return; // a held key is not turned away by the state: the desk answers a key it has seen even when it is closed to new ones
+      if (waiting()) return; // the desk's wait for this visitor is not undone by the state, which is the same for everyone
       closed = s.open ? null : { kind: s.reason ?? "closed", untilMs: s.wait === null ? null : now() + s.wait * 1000, words: null };
       if (!s.open) retryLater();
     } catch {
@@ -577,7 +626,7 @@ export function createMine(doc, host, { section = null, request, post, token, ex
     try {
       if ((await rpc.nonce(held.accountId, held.publicKey)) === null) return;
       const coins = parseU128(await rpc.view(token, "ft_balance_of", { account_id: held.accountId }), "wallet");
-      if (coins > 0n && key === held && !held.funded) await granted([], "This browser already had a test account with coins in it, so it is open again. The numbers below are read from the chain.");
+      if (coins > 0n && key === held && !held.funded) await granted([], "This browser already had a test account with coins in it, so it is open again. The numbers above are read from the chain.");
     } catch {
       // The chain could not be read: the panel stays as it is.
     }
@@ -594,8 +643,7 @@ export function createMine(doc, host, { section = null, request, post, token, ex
     result = { tone, title, contract: null, tx: null, extra: txs.length === 0 ? null : h(doc, "p", { class: "or-tx" }, txs.length === 1 ? "The faucet's transaction: " : "The faucet's transactions: ", txs.flatMap((t, i) => [i === 0 ? "" : " ", txLink(doc, explorer, t)])) };
     shown = null;
     watch();
-    refreshAt = 0;
-    return readAccount();
+    return settle((a) => a.wallet > 0n); // the grant's last step may not show on the first read
   };
 
   async function getCoins() {
@@ -613,7 +661,7 @@ export function createMine(doc, host, { section = null, request, post, token, ex
       const body = await res.json().catch(() => null);
       if (res.status === 200 && grantedTxs(body) !== null) {
         creating = false;
-        return await granted(grantedTxs(body), "Your account is made and the faucet has sent its test coins. The numbers below are read from the chain.");
+        return await granted(grantedTxs(body), "Your account is made and the faucet has sent its test coins. The numbers above are read from the chain.");
       }
       if (res.status === 409) {
         // The account exists but this faucet never funded it: the key is no use here, so it is forgotten and the next press makes another.

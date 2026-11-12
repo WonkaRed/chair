@@ -9,7 +9,7 @@ import { base58Decode, base58Encode, parseSecretKey, RpcError } from "../site/js
 
 const root = join(fileURLToPath(import.meta.url), "..", "..");
 const { createPress, POLL_MS } = await import(join(root, "site", "js", "press.js"));
-const { clock, createMine, describeFailure, describeOutcome, fmtCoins, KEPT_NOT, mineModel, NO_ED25519, parseAmount, parseFaucetState, parseRefusal, sharePercent, STORE_KEY, waitWords } = await import(join(root, "site", "js", "mine.js"));
+const { clock, coinsOf, createMine, describeFailure, describeOutcome, fmtCoins, KEPT_NOT, mineModel, NO_ED25519, parseAmount, parseFaucetState, parseRefusal, sharePercent, shortId, STORE_KEY, waitWords } = await import(join(root, "site", "js", "mine.js"));
 
 const COIN = 10n ** 24n;
 const EXPLORER = "https://example.invalid";
@@ -27,15 +27,25 @@ const model = (over = {}) => mineModel({ supported: true, desk: "on", key: funde
 
 // ---- the model: state in, view model out ----
 
-test("no key: the panel is one button when the faucet is on, and is not there at all when it is off or the desk cannot be reached; a held key keeps it there either way", () => {
+test("no key: the panel is one button when the faucet is on; when it is off or the desk cannot be reached the panel is still there, with the button off and the reason said; a held key keeps it there either way", () => {
   const on = mineModel({ supported: true, desk: "on", now: NOW });
   assert.equal(on.visible, true);
   assert.equal(on.mode, "get");
   assert.equal(on.get.label, "Get 50 test coins");
   assert.equal(on.get.enabled, true);
   assert.equal(on.get.note, null);
+  assert.equal(mineModel({ supported: true, desk: null, now: NOW }).visible, false, "not until the desk has been asked");
+  const unreachable = mineModel({ supported: true, desk: "off", now: NOW });
+  assert.equal(unreachable.visible, true);
+  assert.equal(unreachable.get.enabled, false, "nothing to press when the desk did not answer");
+  assert.match(unreachable.get.note, /^The faucet could not be reached\./);
+  for (const reason of ["off", "killed"]) {
+    const shut = mineModel({ supported: true, desk: "off", closed: { kind: reason, untilMs: null, words: null }, now: NOW });
+    assert.equal(shut.visible, true, reason);
+    assert.equal(shut.get.enabled, false, reason);
+    assert.equal(shut.get.note, "The faucet is closed for now.", reason);
+  }
   for (const desk of ["off", null]) {
-    assert.equal(mineModel({ supported: true, desk, now: NOW }).visible, false, `desk ${desk}`);
     const held = mineModel({ supported: true, desk, key: { accountId: ME, funded: false }, now: NOW });
     assert.equal(held.visible, true, `desk ${desk} with a key that was never funded`);
     assert.equal(held.get.label, "Try again");
@@ -63,7 +73,8 @@ test("creating: the button says what is happening and cannot be pressed twice", 
   assert.equal(m.visible, true);
   assert.equal(m.get.label, "Making your account…");
   assert.equal(m.get.enabled, false);
-  assert.match(m.get.note, /about half a minute/);
+  assert.match(m.get.note, /takes a few seconds\./);
+  assert.doesNotMatch(m.get.note, /half a minute/);
 });
 
 test("funded: the account, the three numbers read from the chain, and the four buttons", () => {
@@ -85,7 +96,7 @@ test("until the chain has been read the numbers say so, and nothing can be press
 
 test("locked: a countdown, and Unstake waits for it; unlocked: the stake is free to take out", () => {
   const locked = model({ account: acct({ wallet: 40n * COIN, staked: 10n * COIN, unlockAtMs: NOW + 161_000 }), receiverText: "bob.testnet" });
-  assert.match(locked.lock, /^Your staked coins unlock in 2:41\. The contract keeps a stake in for two meetings of the Chair\.$/);
+  assert.equal(locked.lock, "Locked for two meetings of the Chair. Unlocks in 2:41.", "the reason Unstake is off, shown by it");
   assert.equal(locked.actions.unstake.enabled, false);
   assert.equal(locked.actions.stake.enabled, true, "a stake can always grow");
   assert.equal(locked.actions.send.enabled, true);
@@ -147,8 +158,8 @@ test("the desk down: with a stored funded key the panel is all there and needs n
     assert.equal(withKey.visible, true, `desk ${desk}`);
     assert.equal(withKey.mode, "funded");
     assert.equal(withKey.actions.stake.enabled, true);
-    assert.equal(model({ desk, key: null, account: null }).visible, false);
   }
+  assert.equal(model({ desk: "off", key: null, account: null }).visible, true, "without a key the panel says why the faucet is out of reach");
 });
 
 test("the faucet limited or dry: the button waits, says when it reopens, and opens again when the time has passed", () => {
@@ -180,14 +191,14 @@ test("the faucet limited or dry: the button waits, says when it reopens, and ope
   assert.equal(odd.get.enabled, true);
 });
 
-test("no ed25519 in this browser: one plain line and no button, and only where the panel would have shown", () => {
+test("no ed25519 in this browser: one plain line and no button, once the desk has been asked", () => {
   const m = mineModel({ supported: false, desk: "on", now: NOW });
   assert.equal(m.mode, "unsupported");
   assert.equal(m.visible, true);
   assert.equal(m.unsupported, NO_ED25519);
   assert.doesNotMatch(NO_ED25519, /ed25519|webcrypto/i, "no jargon in the line");
   assert.equal("get" in m, false);
-  assert.equal(mineModel({ supported: false, desk: "off", now: NOW }).visible, false);
+  assert.equal(mineModel({ supported: false, desk: null, now: NOW }).visible, false);
   assert.equal(mineModel({ supported: false, desk: "off", key: funded, now: NOW }).visible, true);
 });
 
@@ -253,7 +264,7 @@ test("a call that ran says what it did, with the amount the contract returned fo
   assert.equal(describeOutcome({ action: "stake", coins: "10" }, ok(), TX).title, "Staked 10 coins. They are locked for two meetings of the Chair, and they start earning at the next one.");
   assert.equal(describeOutcome({ action: "unstake", coins: "10" }, ok(), TX).title, "Took 10 coins out of the stake. They are back in your wallet.");
   assert.equal(describeOutcome({ action: "send", coins: "2", receiver: "alice.chair-coin-3.testnet" }, ok(), TX).title, "Sent 2 coins to alice.chair-coin-3.testnet.");
-  assert.equal(describeOutcome({ action: "claim", coins: "" }, ok(btoa(`"${31n * 10n ** 20n}"`)), TX).title, "Moved 0.0031 earned coins into your wallet.");
+  assert.equal(describeOutcome({ action: "claim", coins: "" }, ok(btoa(`"${31n * 10n ** 20n}"`)), TX).title, "Moved 0.0031 coins you earned into your wallet.");
   assert.equal(describeOutcome({ action: "claim", coins: "" }, ok(), TX).title, "Moved what you earned into your wallet.");
   assert.equal(describeOutcome({ action: "claim", coins: "" }, ok(), TX).tone, "ok");
   assert.equal(describeOutcome({ action: "stake", coins: "1" }, { status: "Unknown" }, TX).tone, "failed");
@@ -329,7 +340,7 @@ async function decode(signedBase64) {
 
 /** A stub NEAR node for one account: the token's views, the access key, a block, send_tx that applies the call, and a log of what it was sent. */
 function stubChain(over = {}) {
-  const chain = { wallet: 50n * COIN, staked: 0n, pending: 0n, unlock: 0, epoch: 10, endsMs: NOW + 60_000, epochMs: 90_000, nonce: 100, sent: [], reads: 0, fail: null, nonceErrors: 0, down: false, sendThrows: false, registered: new Set(["alice.chair-coin-3.testnet"]), exists: true, ...over };
+  const chain = { wallet: 50n * COIN, staked: 0n, pending: 0n, unlock: 0, epoch: 10, endsMs: NOW + 60_000, epochMs: 90_000, nonce: 100, sent: [], reads: 0, fail: null, nonceErrors: 0, down: false, sendThrows: false, lag: 0, staleWallet: 0n, registered: new Set(["alice.chair-coin-3.testnet"]), exists: true, ...over };
   chain.post = async (body) => {
     if (chain.down) throw new Error("no node answered");
     const p = body.params;
@@ -337,7 +348,7 @@ function stubChain(over = {}) {
       chain.reads++;
       const args = JSON.parse(atob(p.args_base64));
       const value = {
-        ft_balance_of: () => String(chain.wallet),
+        ft_balance_of: () => String(chain.lag > 0 ? (chain.lag--, chain.staleWallet) : chain.wallet), // `lag` reads come from a node a block behind
         get_staking: () => ({ staked: String(chain.staked), pending_reward: String(chain.pending), backing: null, unlock_epoch: chain.unlock }),
         get_policy: () => ({ epoch: chain.epoch, rate_bps: 100, chair: "chair.testnet", streak: 1, last_set_epoch: 9, epoch_ends_ms: chain.endsMs }),
         get_params: () => ({ epoch_ms: chain.epochMs }),
@@ -402,7 +413,7 @@ function setup({ desk = stubDesk(faucetOn), store = memoryStore(), chain = stubC
   const timers = { fns: [], set: (f) => (timers.fns.push(f), timers.fns.length), clear: () => undefined };
   const clockState = { now: NOW };
   const subtle = supported ? globalThis.crypto.subtle : { generateKey: async () => { throw new DOMException("no ed25519", "NotSupportedError"); } };
-  const mine = createMine(doc, el, { section, request: desk.request, post: chain.post, token: TOKEN, explorer: EXPLORER, sample: "alice.chair-coin-3.testnet", supply: () => supply, store, subtle, timers, now: () => clockState.now });
+  const mine = createMine(doc, el, { section, request: desk.request, post: chain.post, token: TOKEN, explorer: EXPLORER, sample: "alice.chair-coin-3.testnet", supply: () => supply, store, subtle, timers, sleep: async (ms) => void (clockState.now += ms), now: () => clockState.now });
   return { doc, el, section, mine, desk, chain, store, timers, clock: clockState };
 }
 const secretOf = (store) => JSON.parse(store.get(STORE_KEY));
@@ -452,7 +463,7 @@ test("the whole flow: a key made in the browser, coins from the faucet, then sta
   assert.deepEqual(nums(), ["40", "10", "0"]);
   assert.match(text(ui.el), /Staked 10 coins/);
   assert.ok(links(ui.el).includes(`${EXPLORER}/txns/${first.hash}`), "the result links to the real transaction");
-  assert.match(text(ui.el), /Your staked coins unlock in \d:\d\d/);
+  assert.match(text(ui.el), /Locked for two meetings of the Chair\. Unlocks in \d:\d\d\./);
   assert.equal(BUTTON(ui, "Unstake").disabled, true, "locked");
 
   // A second stake needs only 1 yoctoNEAR; the nonce moves on.
@@ -529,11 +540,21 @@ test("a visitor who comes back with a funded key finds the panel with the desk o
   assert.equal(shown(ui.el).some((x) => x.tag === "button" && text(x) === "Get 50 test coins"), false, "the faucet button is not offered");
 });
 
-test("with no key and the desk unreachable, or the faucet off, the panel is not on the page", async () => {
-  for (const routes of [{}, { "GET /health": reply(200, { ok: true, faucet: false }) }, { "GET /health": reply(502, null) }]) {
+test("with no key and the desk unreachable, or the faucet off or killed, the panel is on the page with the button off and the reason said", async () => {
+  const state = (reason) => reply(200, { open: false, grant_chair: "50", grant_near: "0.05", remaining: 0, next_opening_s: 0, reason });
+  const cases = [
+    [{}, /^The faucet could not be reached\./],
+    [{ "GET /health": reply(502, null) }, /^The faucet could not be reached\./],
+    [{ "GET /health": reply(200, { ok: true, faucet: false }) }, /^The faucet could not be reached\./],
+    [{ "GET /health": reply(200, { ok: true, faucet: false }), "GET /faucet/state": state("killed") }, /^The faucet is closed for now\.$/],
+    [{ "GET /health": reply(200, { ok: true, faucet: false }), "GET /faucet/state": state("budget") }, /^Every coin the faucet may give has been given\./],
+  ];
+  for (const [routes, note] of cases) {
     const ui = setup({ desk: stubDesk(routes) });
-    await settle(() => ui.mine.state().desk !== null);
-    assert.equal(ui.section.hidden, true);
+    await settle(() => ui.timers.fns.length > 0); // the desk has been asked: it looks again by itself
+    assert.equal(ui.section.hidden, false, "never a heading with nothing under it");
+    assert.equal(ui.mine.elements.get.disabled, true);
+    assert.match(text(find(ui.el, (x) => x.attrs.role === "status")[0]), note);
     assert.equal(ui.store.map.size, 0, "no key was made");
     assert.equal(ui.timers.fns.length, 1, "it looks again by itself");
     ui.mine.stop();
@@ -868,4 +889,152 @@ test("the page carries the panel's section hidden, its stylesheet, and the discl
   assert.match(html, /<div id="mine-body"/);
   assert.match(html, /plus test accounts funded by the faucet for page visitors/);
   assert.match(html, /Test accounts funded by the faucet for page visitors may appear here too\./);
+});
+
+// ---- one named fix each: the long account, the lagging wallet, the per-address wait, the hidden section ----
+
+test("coins say coin for exactly one, and a visitor's 64-character account is shortened in a sentence with the full name kept for a title", async () => {
+  assert.equal(coinsOf("1"), "1 coin");
+  assert.equal(coinsOf("2.5"), "2.5 coins");
+  assert.equal(coinsOf("0"), "0 coins");
+  assert.equal(coinsOf("1.5"), "1.5 coins");
+  const ok = { status: { SuccessValue: "" } };
+  assert.equal(describeOutcome({ action: "stake", coins: "1" }, ok, TX).title.slice(0, 15), "Staked 1 coin. ");
+  assert.match(describeOutcome({ action: "unstake", coins: "1" }, ok, TX).title, /^Took 1 coin out of the stake\./);
+  assert.equal(describeOutcome({ action: "claim", coins: "" }, { status: { SuccessValue: btoa(`"${COIN}"`) } }, TX).title, "Moved 1 coin you earned into your wallet.");
+  assert.equal(shortId("a".repeat(64)), `${"a".repeat(8)}…${"a".repeat(6)}`);
+  assert.equal(shortId("alice.chair-coin-3.testnet"), "alice.chair-coin-3.testnet", "a name people wrote stays whole");
+  const long = `${"b".repeat(60)}0a1b`;
+  const out = describeOutcome({ action: "send", coins: "1", receiver: long }, ok, TX);
+  assert.equal(out.title, "Sent 1 coin to bbbbbbbb…bb0a1b.");
+  assert.equal(out.full, long);
+  assert.equal(describeOutcome({ action: "send", coins: "1", receiver: "bob.testnet" }, ok, TX).full, null);
+
+  // Through the panel: the sentence is short, its title holds the whole account, and nothing long sits in the page text outside the key area.
+  const { store } = await storedKey();
+  const ui = setup({ store, chain: stubChain({ registered: new Set([long]) }), desk: stubDesk({}) });
+  await settle(() => ui.mine.state().account !== null);
+  ui.mine.elements.receiver.value = long;
+  ui.mine.elements.amount.value = "1";
+  await ui.mine.act("send");
+  const card = find(ui.el, (x) => x.attrs.class === "mn-title")[0];
+  assert.equal(text(card), `Sent 1 coin to ${shortId(long)}.`);
+  assert.equal(card.attrs.title, long);
+  assert.equal(text(ui.el).includes(long), false);
+  ui.mine.stop();
+});
+
+test("after a call the numbers are read again until the one that must move has moved: a wallet read from a node a block behind is not left for the next scheduled read", async () => {
+  const { store } = await storedKey();
+  const chain = stubChain({ wallet: 40n * COIN, staked: 10n * COIN, pending: 3n * 10n ** 21n, unlock: 0 });
+  const ui = setup({ store, chain, desk: stubDesk({}) });
+  await settle(() => ui.mine.state().account !== null);
+  const nums = () => find(ui.el, (x) => x.tag === "strong").map(text);
+  assert.deepEqual(nums(), ["40", "10", "0.003"]);
+  const readsBefore = chain.reads;
+  const t0 = ui.clock.now;
+  chain.lag = 2; // the first two wallet reads after the call still say 40; the stake and the earned number are already right
+  chain.staleWallet = 40n * COIN;
+  await ui.mine.act("claim");
+  assert.deepEqual(nums(), ["40.003", "10", "0"], "the wallet caught up before the call came back");
+  assert.equal(chain.lag, 0);
+  assert.equal(chain.reads - readsBefore, 3 * 3, "three rounds of all the visitor's numbers: wallet, stake and the meeting clock");
+  assert.ok(ui.clock.now - t0 <= 3_000, "it stopped as soon as the wallet moved");
+  assert.equal(ui.mine.elements.claim.disabled, true, "nothing earned left to claim");
+
+  // Unstake and Send are held to the same: the wallet must move (the stake too, for Unstake).
+  chain.unlock = 0;
+  ui.mine.elements.amount.value = "5";
+  chain.lag = 1;
+  chain.staleWallet = chain.wallet;
+  await ui.mine.act("unstake");
+  assert.deepEqual(nums(), ["45.003", "5", "0"]);
+  ui.mine.elements.receiver.value = "alice.chair-coin-3.testnet";
+  ui.mine.elements.amount.value = "2";
+  chain.lag = 3;
+  chain.staleWallet = chain.wallet;
+  await ui.mine.act("send");
+  assert.deepEqual(nums(), ["43.003", "5", "0"]);
+  assert.equal(ui.mine.state().busy, null, "buttons are back");
+  ui.mine.stop();
+});
+
+test("a chain that never shows the change is waited on for about ten seconds, and then the panel shows what the chain says", async () => {
+  const { store } = await storedKey();
+  const chain = stubChain({ wallet: 40n * COIN });
+  const ui = setup({ store, chain, desk: stubDesk({}) });
+  await settle(() => ui.mine.state().account !== null);
+  chain.lag = 10_000;
+  chain.staleWallet = 40n * COIN;
+  const t0 = ui.clock.now;
+  ui.mine.elements.receiver.value = "alice.chair-coin-3.testnet";
+  ui.mine.elements.amount.value = "2";
+  await ui.mine.act("send");
+  const waited = ui.clock.now - t0;
+  assert.ok(waited >= 10_000 && waited <= 11_000, `waited ${waited} ms`);
+  assert.deepEqual(find(ui.el, (x) => x.tag === "strong").map(text), ["40", "0", "0"], "what the node says");
+  assert.equal(ui.mine.state().busy, null);
+  assert.equal(ui.mine.elements.send.disabled, false, "and the visitor can go on");
+  ui.mine.stop();
+});
+
+test("a call the contract refused changed nothing: one read, no waiting", async () => {
+  const { store } = await storedKey();
+  const chain = stubChain({ wallet: 40n * COIN });
+  const ui = setup({ store, chain, desk: stubDesk({}) });
+  await settle(() => ui.mine.state().account !== null);
+  const t0 = ui.clock.now;
+  const readsBefore = chain.reads;
+  ui.mine.elements.receiver.value = "stranger.testnet";
+  ui.mine.elements.amount.value = "1";
+  await ui.mine.act("send");
+  assert.equal(ui.clock.now, t0);
+  assert.equal(chain.reads - readsBefore, 3, "one round of the visitor's numbers");
+  ui.mine.stop();
+});
+
+test("the grant's coins are waited for too: a first read that still says 0 is read again", async () => {
+  const chain = stubChain({ wallet: 50n * COIN, exists: false });
+  chain.lag = 2;
+  chain.staleWallet = 0n;
+  const desk = stubDesk({ ...faucetOn, "POST /faucet": (b) => (chain.exists = true, reply(200, { account_id: Buffer.from(base58Decode(b.public_key.slice(8))).toString("hex"), txs: [TX], chair: "50", near: "0.05" })) });
+  const ui = setup({ chain, desk });
+  await settle(() => ui.mine.state().desk === "on");
+  await ui.mine.getCoins();
+  assert.deepEqual(find(ui.el, (x) => x.tag === "strong").map(text), ["50", "0", "0"]);
+  assert.equal(chain.lag, 0);
+  ui.mine.stop();
+});
+
+test("the desk's per-address answer is told apart from its totals: this network's own words, the wait in hours, and the state cannot undo it", async () => {
+  assert.deepEqual(parseRefusal(429, { error: "x", retry_after_s: 86_400, limit: "address" }), { kind: "address", wait: 86_400, words: null });
+  assert.equal(parseRefusal(429, { error: "x", retry_after_s: 86_400, limit: "other" }).kind, "limited");
+  assert.equal(parseRefusal(429, { error: "x", retry_after_s: 5 }).kind, "limited");
+  assert.equal(parseRefusal(503, { limit: "address", reason: "dry" }).kind, "dry");
+  const ui = setup({ desk: stubDesk({ ...faucetOn, "POST /faucet": reply(429, { error: `this address has already had its 3 test coin grants for today ${EVIL}`, retry_after_s: 86_400, limit: "address" }) }) });
+  await settle(() => ui.mine.state().supported === true && ui.mine.state().desk === "on");
+  await ui.mine.getCoins();
+  const note = () => text(find(ui.el, (x) => x.attrs.role === "status")[0]);
+  assert.equal(note(), "This network has had its test coins for today. Try again in 24 hours.");
+  assert.doesNotMatch(text(ui.el), /handing coins out slowly|The faucet's words/);
+  assert.equal(ui.mine.elements.get.disabled, true);
+  assertInert(ui.el);
+  // The desk looks again by itself; its state is the same for everyone and says open, which must not lift this network's wait.
+  await ui.mine.check(true);
+  assert.equal(note(), "This network has had its test coins for today. Try again in 24 hours.");
+  assert.equal(ui.mine.elements.get.disabled, true);
+  ui.clock.now += 86_401_000;
+  await ui.mine.check(true);
+  assert.equal(ui.mine.elements.get.disabled, false, "a day later it is open");
+  ui.mine.stop();
+});
+
+test("the sections' own hidden attribute is not beaten by their display rules, which is what showed a heading with nothing under it", async () => {
+  const { readFile } = await import("node:fs/promises");
+  for (const [file, id] of [["mine.css", "mine"], ["join.css", "join"]]) {
+    const css = await readFile(join(root, "site", file), "utf8");
+    assert.match(css, new RegExp(`#${id}\\[hidden\\][^{]*\\{[^}]*display: none`), `${file} hides #${id} when it has the hidden attribute`);
+    assert.match(css, new RegExp(`#${id} \\[hidden\\][^{]*\\{[^}]*display: none`), `${file} hides what is inside it too`);
+  }
+  assert.match(await readFile(join(root, "site", "mine.css"), "utf8"), /#mine \{ overflow-wrap: anywhere; \}/, "a long account wraps inside the panel");
 });

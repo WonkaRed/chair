@@ -7,7 +7,9 @@ import { join } from "node:path";
 import { after, test } from "node:test";
 import { KeyPair, SignedTransaction } from "near-api-js";
 import { FAUCET_GAS_MARGIN, Faucet, MAX_SIGNATURES, type FaucetLimits, type FaucetReader } from "../src/press-faucet.js";
-import { FAUCET_GRANT_CHAIR, FAUCET_GRANT_NEAR, FAUCET_STEPS, FAUCET_STORAGE_DEPOSIT, FaucetSigner, type FaucetSender, type FaucetStep } from "../src/signer.js";
+import { FAUCET_GRANT_CHAIR, FAUCET_GRANT_NEAR, FAUCET_STEPS, FAUCET_STORAGE_DEPOSIT, FaucetSigner, type FaucetSender } from "../src/signer.js";
+import type { Clock } from "../src/rpc.js";
+import { FakeClock } from "./clock.js";
 import { ChainSim } from "./faucet-chain.js";
 import { tempDir } from "./helpers.js";
 
@@ -32,8 +34,10 @@ function desk(sim = new ChainSim()) {
   // The chain's own answer for "does this account exist": the reader that finds out about a visitor's key, as the live one does.
   const reader: FaucetReader = { exists: (id) => Promise.resolve(sim.count("transfer", id) > 0), funds: () => Promise.resolve(ENOUGH) };
   /** A desk process: a faucet and a signer, new every time (a restart forgets what the signer remembered), over the same file and the same chain. */
-  const boot = (wrap: (real: FaucetSigner) => FaucetSender = (real) => real, limits: Partial<FaucetLimits> = {}): Faucet =>
-    new Faucet({ reader, sender: wrap(new FaucetSigner(secret, "faucet.test", "token.test", sim.rpc, sim.archival, instant)), stateFile, limits: { hourlyCap: 100, dailyCap: 100, ...limits } });
+  const boot = (wrap: (real: FaucetSigner) => FaucetSender = (real) => real, limits: Partial<FaucetLimits> = {}, clock?: Clock): Faucet => {
+    const time = clock === undefined ? {} : { clock };
+    return new Faucet({ reader, sender: wrap(new FaucetSigner(secret, "faucet.test", "token.test", sim.rpc, sim.archival, { ...instant, ...time })), stateFile, limits: { hourlyCap: 100, dailyCap: 100, ...limits }, ...time });
+  };
   const ledger = (): { grants: { account: string; steps: Record<string, string>; signed: number; gaveUp?: string; pending?: { step: string; hash: string; tx: string } }[] } => JSON.parse(readFileSync(stateFile, "utf8"));
   return { sim, boot, ledger };
 }
@@ -306,15 +310,15 @@ test("an archival node that never answers cannot hold a request: it ends in a 50
   const stored = ledger().grants[0]!.pending!;
   sim.gc();
   sim.archivalHangs = true;
-  const f = boot(undefined, { requestDeadlineMs: 1_000 });
-  const t0 = Date.now();
-  const stuck = await f.start(key, "1.1.1.1");
+  const clock = new FakeClock();
+  const f = boot(undefined, { requestDeadlineMs: 1_000 }, clock);
+  const stuck = await clock.run(f.start(key, "1.1.1.1"));
   assert.equal(stuck.status, 502);
-  assert.ok(Date.now() - t0 < 5_000, `answered in ${Date.now() - t0} ms`);
+  assert.equal(clock.now(), 1_000, "it was the deadline that ended the wait, to the millisecond");
   assert.equal(ledger().grants[0]!.pending!.hash, stored.hash);
   sim.plan = () => "land";
   const other = newKey();
-  assert.equal((await f.start(other.key, "2.2.2.2")).status, 200, "the queue is free");
+  assert.equal((await clock.run(f.start(other.key, "2.2.2.2"))).status, 200, "the queue is free");
   sim.archivalHangs = false;
   assert.equal((await f.start(key, "1.1.1.1")).status, 200);
   assert.equal(sim.count("transfer", account), 1);
@@ -324,14 +328,15 @@ test("an archival node that never answers cannot hold a request: it ends in a 50
 
 test("three slow but successful steps stop with a 502 inside the request's deadline, whichever step it falls in, and the next ask finishes the grant with one payment each", async () => {
   const { sim, boot, ledger } = desk();
+  const clock = new FakeClock();
+  sim.delay = (ms) => clock.sleep(ms);
   sim.latencyMs = 120; // 360 ms of sends against a 300 ms deadline
   const { key, account } = newKey();
-  const f = boot(undefined, { requestDeadlineMs: 300 });
-  const t0 = Date.now();
-  const cut = await f.start(key, "1.1.1.1");
-  assert.ok(Date.now() - t0 < 1_500, `answered in ${Date.now() - t0} ms`);
+  const f = boot(undefined, { requestDeadlineMs: 300 }, clock);
+  const cut = await clock.run(f.start(key, "1.1.1.1"));
+  assert.equal(clock.now(), 300, "the deadline ended the request, to the millisecond, in the third send");
   assert.equal(cut.status, 502);
-  assert.ok(FAUCET_STEPS.includes(body(cut)["failed_step"] as FaucetStep), JSON.stringify(body(cut)));
+  assert.equal(body(cut)["failed_step"], FAUCET_STEPS[2], JSON.stringify(body(cut)));
   assert.ok(ledger().grants[0]!.pending, "the step in hand is kept");
   sim.latencyMs = 0;
   assert.equal((await boot().start(key, "1.1.1.1")).status, 200);

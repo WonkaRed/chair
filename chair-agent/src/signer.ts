@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { actions, baseDecode, baseEncode, createTransaction, KeyPairSigner, type Action, type SignedTransaction } from "near-api-js";
 import { DEFAULT_BOUNDS, type Rate, type RefusedRate } from "./bounds.js";
-import { DeadlineError, NearRpc, RpcError, withinDeadline, type AccessKeyInfo, type TxStatus } from "./rpc.js";
+import { DeadlineError, NearRpc, RpcError, realClock, withinDeadline, type AccessKeyInfo, type Clock, type TxStatus } from "./rpc.js";
 import type { Decision } from "./types.js";
 import { cleanReasoning, MAX_REASONING_CHARS, reasoningHash } from "./reasoning.js";
 import { accountId as checkAccountId } from "./validate.js";
@@ -310,6 +310,7 @@ export interface SettleOptions {
   readonly attempts?: number;
   readonly backoffMs?: number;
   readonly sleep?: (ms: number) => Promise<void>;
+  readonly clock?: Clock;
 }
 
 /**
@@ -325,7 +326,7 @@ export class FaucetSigner extends TokenCaller implements FaucetSender {
   /** `archival` is asked after the ordinary nodes, because it still knows a transaction they forgot (about 31 hours); it settles nothing by not knowing one (see `settleKnown`). */
   constructor(secretKey: string, accountId: string, token: string, rpc: NearRpc, private readonly archival: NearRpc, settle: SettleOptions = {}) {
     super(secretKey, accountId, token, rpc);
-    this.settle = { attempts: settle.attempts ?? 4, backoffMs: settle.backoffMs ?? 1000, sleep: settle.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))) };
+    this.settle = { attempts: settle.attempts ?? 4, backoffMs: settle.backoffMs ?? 1000, sleep: settle.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))), clock: settle.clock ?? realClock };
   }
 
   private checkReceiver(receiver: string): void {
@@ -361,17 +362,17 @@ export class FaucetSigner extends TokenCaller implements FaucetSender {
         if (stored !== null && stored.step === step) {
           sent = true;
           carried = null;
-          res = await withinDeadline(() => this.settleKnown(stored), deadlineAt);
+          res = await withinDeadline(() => this.settleKnown(stored), deadlineAt, this.settle.clock);
         }
         if (res === null) {
           sent = false; // from here on a throw means the fresh transaction was not sent
           if (hooks.halt()) return { txs, failed: null, halted: true };
           this.raiseNonce(hooks.nonceFloor());
-          const signed = await withinDeadline(() => this.prepare((nonce, block) => this.build(step, receiver, nonce, block), assertFullAccess), deadlineAt);
+          const signed = await withinDeadline(() => this.prepare((nonce, block) => this.build(step, receiver, nonce, block), assertFullAccess), deadlineAt, this.settle.clock);
           const fresh = { step, hash: hashOf(signed), tx: Buffer.from(signed.encode()).toString("base64") };
           hooks.onPending(fresh);
           sent = true;
-          res = await withinDeadline(() => this.deliver(fresh), deadlineAt);
+          res = await withinDeadline(() => this.deliver(fresh), deadlineAt, this.settle.clock);
         }
         if (res.failure !== null) return { txs, failed: { step, failure: res.failure } };
         txs.push(res.txHash);

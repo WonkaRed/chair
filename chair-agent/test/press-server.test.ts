@@ -9,7 +9,7 @@ import { BOOK } from "../src/press-book.js";
 import { clientKey, createPressServer, listen, MAX_BODY_BYTES, type PressServerOptions } from "../src/press-server.js";
 import { entryLine, PressStore, type PressEntry } from "../src/press-store.js";
 import { reasoningHash } from "../src/reasoning.js";
-import { tempDir } from "./helpers.js";
+import { eventually, tempDir } from "./helpers.js";
 
 interface Desk {
   base: string;
@@ -161,8 +161,10 @@ test("503 when the Chair is not taking questions, and when the queue is full; on
   let running = 0;
   let peak = 0;
   const release: (() => void)[] = [];
+  let arrived = 0;
   const e = await desk({
     limits: { perIpCount: 1000, globalCount: 1000 },
+    available: () => (arrived++, true), // asked synchronously before a question joins the queue: when it has been asked six times, six are in
     answer: () => new Promise((resolve) => {
       running++;
       peak = Math.max(peak, running);
@@ -171,14 +173,13 @@ test("503 when the Chair is not taking questions, and when the queue is full; on
   });
   try {
     const pending = Array.from({ length: 6 }, (_, i) => ask(e, `queued ${i}`));
-    for (let i = 0; i < 100 && release.length < 1; i++) await new Promise((r) => setTimeout(r, 10));
+    await eventually(() => release.length >= 1 && arrived === 6);
     assert.equal(release.length, 1, "one model call runs, five wait");
-    await new Promise((r) => setTimeout(r, 50));
     const full = await ask(e, "one too many");
     assert.equal(full.status, 503, "the queue holds five");
     assert.equal(((await full.json()) as { code: unknown }).code, "press_full", "a full room is not a closed desk");
     for (let n = 0; n < 6; n++) {
-      for (let i = 0; i < 100 && release.length <= n; i++) await new Promise((r) => setTimeout(r, 10));
+      await eventually(() => release.length > n);
       release[n]!();
     }
     assert.deepEqual((await Promise.all(pending)).map((r) => r.status), [200, 200, 200, 200, 200, 200]);
@@ -299,7 +300,7 @@ test("chair-agent press takes questions through the real command and stops on ab
   try {
     const file = join(dir, "press.jsonl");
     const done = main(["press", "--port", "0", "--press", file], {}, { out: (l) => out.push(l), err: (l) => out.push(l) }, { llmClient, signal: ac.signal });
-    for (let i = 0; i < 100 && !out.some((l) => l.includes("press on 127.0.0.1")); i++) await new Promise((r) => setTimeout(r, 20));
+    await eventually(() => out.some((l) => l.includes("press on 127.0.0.1")));
     const port = /127\.0\.0\.1:(\d+)/.exec(out.join("\n"))?.[1];
     assert.ok(port !== undefined, out.join("\n"));
     const res = await fetch(`http://127.0.0.1:${port}/ask`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: "hello Chair" }) });
@@ -331,7 +332,7 @@ test("the desk stays off the model while a decision is waiting on it, and asks a
     const file = join(dir, "press.jsonl");
     const store = new PressStore(file);
     const done = main(["press", "--port", "0", "--press", file], {}, { out: (l) => out.push(l), err: (l) => out.push(l) }, { llmClient, signal: ac.signal });
-    for (let i = 0; i < 100 && !out.some((l) => l.includes("press on 127.0.0.1")); i++) await new Promise((r) => setTimeout(r, 20));
+    await eventually(() => out.some((l) => l.includes("press on 127.0.0.1")));
     const port = /127\.0\.0\.1:(\d+)/.exec(out.join("\n"))?.[1];
     assert.ok(port !== undefined);
     store.decisionStarted();
@@ -351,25 +352,31 @@ test("the desk stays off the model while a decision is waiting on it, and asks a
 
 test("a visitor who has gone away before the model call starts is not answered, and nothing is stored or asked for them", async () => {
   const release: (() => void)[] = [];
-  const d = await desk({ answer: (q) => new Promise((resolve) => { release.push(() => resolve({ answer: BOOK[0]!, source: "model" })); void q; }) });
+  let arrived = 0;
+  let left = 0;
+  const d = await desk({
+    available: () => (arrived++, true), // asked synchronously before a question joins the queue
+    answer: (q) => new Promise((resolve) => { release.push(() => resolve({ answer: BOOK[0]!, source: "model" })); void q; }),
+  });
+  d.server.on("connection", (socket) => socket.once("close", () => left++)); // the server has seen a visitor's connection end
   try {
     const first = ask(d, "first question");
-    for (let i = 0; i < 100 && release.length === 0; i++) await new Promise((r) => setTimeout(r, 10));
+    await eventually(() => release.length === 1);
     assert.equal(release.length, 1, "the first is with the model");
     const ac = new AbortController();
     const second = ask(d, "second question", {}).catch(() => undefined);
     const gone = fetch(`${d.base}/ask`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: "a visitor who leaves" }), signal: ac.signal }).catch(() => undefined);
-    await new Promise((r) => setTimeout(r, 100));
+    await eventually(() => arrived === 3);
     ac.abort();
     await gone;
-    await new Promise((r) => setTimeout(r, 100));
+    await eventually(() => left === 1);
     release[0]!();
     assert.equal((await first).status, 200);
-    for (let i = 0; i < 100 && release.length < 2; i++) await new Promise((r) => setTimeout(r, 10));
+    await eventually(() => release.length >= 2);
     assert.equal(release.length, 2, "the one who stayed is asked next");
     release[1]!();
     assert.equal((await second)?.status, 200);
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((r) => setImmediate(r)); // the turn of the one who left comes straight after the second's, before its answer reaches the client
     assert.equal(release.length, 2, "nobody else was asked");
     assert.equal(d.store.recent(10).length, 2, "two answers stored, none for the one who left");
   } finally {

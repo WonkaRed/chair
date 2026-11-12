@@ -25,6 +25,20 @@ export function tempDir(prefix: string): string {
   return mkdtempSync(join(root, `${prefix}-`));
 }
 
+const LOOKS = 60_000;
+
+/**
+ * Waits, a few ms at a time, until `cond` holds: true when it does. What the test goes on to assert never depends on how long that took. It gives up
+ * (false) only after `LOOKS` looks, a guard against a hang that no machine reaches by being slow.
+ */
+export async function eventually(cond: () => boolean | Promise<boolean>): Promise<boolean> {
+  for (let looks = 0; looks < LOOKS; looks++) {
+    if (await cond()) return true;
+    await new Promise((r) => setTimeout(r, 5));
+  }
+  return false;
+}
+
 /**
  * The time limit for a chair stand-in that answers at once (or fails at once). Far beyond any scheduler stall, so
  * the timeout can never win a race it is not meant to; a test that wants the timeout to win uses a stand-in that never answers.

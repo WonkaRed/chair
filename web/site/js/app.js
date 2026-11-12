@@ -254,7 +254,7 @@ const committee = createJoin(doc, $("join-body"), { section: $("join"), request:
 // Your own test coins: the visitor's key, the faucet's coins, and calls signed in this browser and sent to the same RPC nodes the page reads from (not in the recorded-run mode, which has none).
 const wire = (ms) => failoverPoster(fetch.bind(globalThis), "rpc", config.rpcUrls, undefined, ms);
 const [readNodes, sendNodes] = config.fixture === null ? [wire(10_000), wire(SEND_TIMEOUT_MS)] : [null, null]; // a node may take some seconds to run a transaction
-const mine = readNodes === null ? null : createMine(doc, $("mine-body"), { section: $("mine"), request: press.request, post: (body) => (body.method === "send_tx" ? sendNodes : readNodes).post("", body), token: config.account, explorer: pageExplorer, sample: config.sampleReceiver, supply: () => chainData?.supply.totalSupply ?? null });
+const mine = readNodes === null ? null : createMine(doc, $("mine-body"), { section: $("mine"), link: $("nav-mine"), request: press.request, post: (body) => (body.method === "send_tx" ? sendNodes : readNodes).post("", body), token: config.account, explorer: pageExplorer, sample: config.sampleReceiver, supply: () => chainData?.supply.totalSupply ?? null });
 showGuarantees();
 showSimulation();
 setupPage();

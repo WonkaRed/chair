@@ -366,15 +366,16 @@ test("the reconciliation table labels every cell, so the narrow layout can stack
   assert.match(await readFile(join(dist, "style.css"), "utf8"), /\.recon td::before \{ content: attr\(data-label\)/);
 });
 
-test("the page opens with the joke: the headline, the plain words, the latest minutes, then the dare and the press conference; the nav has at most five items and names the refusals plainly", async () => {
+test("the page opens with the joke: the headline, the plain words, the latest minutes, then the dare and the press conference; the nav has at most six items and names the refusals plainly", async () => {
   const html = await readFile(join(dist, "index.html"), "utf8");
   assert.match(html, /<h1[^>]*>.*An AI runs this memecoin's central bank\..*The contract keeps it on a leash\..*<\/h1>/);
   const at = (needle) => html.indexOf(needle);
   assert.ok(at('id="now-plain"') > at("<h1") && at('id="hero-minutes"') > at('id="now-plain"'), "headline, then what is happening in plain words, then the Chair's own minutes");
   assert.ok(at('id="overreach"') > at('id="hero-minutes"') && at('id="press"') > at('id="overreach"') && at('id="minutes"') > at('id="press"'), "then the dare, the press conference, and the list");
   const nav = html.match(/<nav[^>]*>([\s\S]*?)<\/nav>/)[1];
-  const links = [...nav.matchAll(/<a href="(#[\w-]+)">([^<]+)<\/a>/g)];
-  assert.ok(links.length > 0 && links.length <= 5, `${links.length} nav items`);
+  const links = [...nav.matchAll(/<a href="(#[\w-]+)"[^>]*>([^<]+)<\/a>/g)];
+  assert.ok(links.length > 0 && links.length <= 6, `${links.length} nav items`); // five, and "Your coins", which is hidden until the panel is
+  assert.match(nav, /<a href="#mine" id="nav-mine" hidden>Your coins<\/a>/, "the panel's link stays hidden while the panel is");
   assert.ok(links.some(([, id, label]) => id === "#refusals" && label === "Contract said no"));
   assert.ok(links.some(([, id]) => id === "#overreach") && links.some(([, id]) => id === "#press"), "the two toys are in the nav");
   assert.ok(html.includes('href="#overreach">Make the Chair overreach</a>') && html.includes('href="#press">Ask the Chair a question</a>'), "the landing screen names both things to do");

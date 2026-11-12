@@ -6,7 +6,7 @@ import { KeyPair } from "near-api-js";
 import { main } from "../src/cli.js";
 import { FakeChain } from "../src/fake-chain.js";
 import { FakeNode } from "./fake-node.js";
-import { tempDir } from "./helpers.js";
+import { eventually, tempDir } from "./helpers.js";
 
 const FAUCET = "faucet.test";
 const TOKEN = "token.test";
@@ -36,7 +36,7 @@ async function press(env: NodeJS.ProcessEnv, run: (port: string, log: string[]) 
   mkdirSync(stateDir, { recursive: true });
   const done = main(["press", "--port", "0", "--press", join(stateDir, "press.jsonl")], { CHAIR_RPC_URL: node.url, CHAIR_TOKEN: TOKEN, ...env }, { out: (l) => log.push(l), err: (l) => log.push(l) }, { llmClient, signal: ac.signal });
   try {
-    for (let i = 0; i < 100 && !log.some((l) => l.includes("press on 127.0.0.1")); i++) await new Promise((r) => setTimeout(r, 20));
+    await eventually(() => log.some((l) => l.includes("press on 127.0.0.1")));
     const port = /127\.0\.0\.1:(\d+)/.exec(log.join("\n"))?.[1];
     assert.ok(port !== undefined, log.join("\n"));
     await run(port, log);
@@ -47,15 +47,6 @@ async function press(env: NodeJS.ProcessEnv, run: (port: string, log: string[]) 
 }
 
 const faucetOn = async (port: string): Promise<boolean> => ((await (await fetch(`http://127.0.0.1:${port}/health`)).json()) as { faucet: boolean }).faucet;
-
-/** The chain checks run after the port is bound, so a test waits for what it expects: true when `until` holds in time. */
-async function within(until: () => boolean | Promise<boolean>): Promise<boolean> {
-  for (let i = 0; i < 100; i++) {
-    if (await until()) return true;
-    await new Promise((r) => setTimeout(r, 20));
-  }
-  return until();
-}
 
 function files(name: string, key: KeyPair): { CHAIR_FAUCET_KEY_FILE: string; CHAIR_FAUCET_ACCOUNT: string; CHAIR_FAUCET_STATE_FILE: string; CHAIR_FAUCET_KILL_FILE: string } {
   const keyFile = join(dir, `${name}.key`);
@@ -68,7 +59,7 @@ test("press with the faucet's env switches it on; the kill file switches it off 
   await press(env, async (port, log) => {
     assert.ok(log.some((l) => l.startsWith(`faucet on: ${FAUCET}`)), log.join("\n"));
     assert.ok(!log.join("\n").includes(pair.toString().slice(8)), "the log never holds the key");
-    assert.equal(await within(() => faucetOn(port)), true, "up once the chain checks pass");
+    assert.equal(await eventually(() => faucetOn(port)), true, "up once the chain checks pass");
     assert.ok(log.some((l) => l === "faucet ready: the chain checks passed"), log.join("\n"));
     assert.equal(((await (await fetch(`http://127.0.0.1:${port}/faucet/state`)).json()) as { open: boolean }).open, true);
     writeFileSync(env.CHAIR_FAUCET_KILL_FILE, "");
@@ -97,7 +88,7 @@ test("an unusable faucet setup leaves it off with the reason in the log and the 
   ];
   for (const [env, why] of cases) {
     await press(env, async (port, log) => {
-      assert.equal(await within(() => why.test(log.join("\n"))), true, log.join("\n"));
+      assert.equal(await eventually(() => why.test(log.join("\n"))), true, log.join("\n"));
       assert.equal(await faucetOn(port), false);
     });
   }
@@ -110,7 +101,7 @@ test("a chain id of mainnet leaves the faucet off for good, with the reason in t
   await main.start();
   try {
     await press({ ...files("mainnet", pair), CHAIR_RPC_URL: main.url }, async (port, log) => {
-      assert.equal(await within(() => log.some((l) => /faucet off: refusing to run against mainnet/.test(l))), true, log.join("\n"));
+      assert.equal(await eventually(() => log.some((l) => /faucet off: refusing to run against mainnet/.test(l))), true, log.join("\n"));
       assert.equal(await faucetOn(port), false);
     });
   } finally {
@@ -121,11 +112,11 @@ test("a chain id of mainnet leaves the faucet off for good, with the reason in t
 test("moving the state file to a new path does not hand out the budget again: the marker made with the first one keeps the faucet off, with the reason", async () => {
   const stateDir = join(dir, "moved");
   const env = files("first", pair);
-  await press(env, async (port) => assert.equal(await within(() => faucetOn(port)), true), stateDir);
+  await press(env, async (port) => assert.equal(await eventually(() => faucetOn(port)), true), stateDir);
   assert.ok(existsSync(join(stateDir, `faucet-${FAUCET}.began`)), "the marker is beside the press record");
   await press(files("second", pair), async (port, log) => {
-    assert.equal(await within(() => /faucet off: this faucet has run on this desk before, but its state file is missing/.test(log.join("\n"))), true, log.join("\n"));
+    assert.equal(await eventually(() => /faucet off: this faucet has run on this desk before, but its state file is missing/.test(log.join("\n"))), true, log.join("\n"));
     assert.equal(await faucetOn(port), false);
   }, stateDir);
-  await press(env, async (port) => assert.equal(await within(() => faucetOn(port)), true), stateDir); // the same path as before still starts
+  await press(env, async (port) => assert.equal(await eventually(() => faucetOn(port)), true), stateDir); // the same path as before still starts
 });
