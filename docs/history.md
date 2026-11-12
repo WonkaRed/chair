@@ -4,7 +4,7 @@
 
 ## The first token
 
-This is the second token. The first, `token.chair-coin-2.testnet`, took its rate per meeting, so a rogue Chair at the ceiling could compound 2% every 90 seconds; I made the rate per day for that reason. Its records stay in [`docs/chair-coin-2/`](chair-coin-2/), and the logs of the agents that chaired it are the `docs/testnet-run-agent-*` files, indexed in [`docs/ai-chair-runs.md`](ai-chair-runs.md).
+This is the second token. The first, `token.chair-coin-2.testnet`, took its rate per meeting, so a rogue Chair at the ceiling could compound 2% every 90 seconds; I made the rate per day for that reason. Its records stay in [`docs/chair-coin-2/`](chair-coin-2/), and the logs of the agents that chaired it are the `docs/testnet-run-agent-*` files, indexed in [`docs/ai-chair-runs.md`](ai-chair-runs.md). The old token is retired, its agent is stopped, and its only Chair key is held by me and is not used.
 
 ## Which chairs have run
 

@@ -43,10 +43,10 @@ The first `make test` compiles the NEAR dependency tree and downloads the sandbo
 
 ## What keeps the AI on a leash
 
-- **At most 2% of all coins a day (200 bps).** The contract refuses any rate beyond it, either way: [`MAX_RATE_BPS`](contract/src/policy.rs#L10). [Worst case](docs/how-it-works.md#the-worst-case-plainly).
+- **The rate is capped at 2% a day (200 bps), which compounds to at most about 2.02% of supply in a day.** The contract refuses any rate beyond the cap, either way: [`MAX_RATE_BPS`](contract/src/policy.rs#L10). [Worst case](docs/how-it-works.md#the-worst-case-plainly).
 - **At most 50 bps a step.** [`MAX_STEP_BPS`](contract/src/policy.rs#L12).
 - **One decision per 90-second meeting.** A second is refused: [`AlreadySet`](contract/src/policy.rs#L152-L154).
-- **The Chair's key can call `set_policy` and nothing else.** The protocol refuses any other method (`MethodNameMismatch`): [test](sandbox-tests/tests/policy.rs#L179), [`SPEC.md`](SPEC.md#the-chairs-key).
+- **The sitting Chair's only key can call `set_policy` on the token and nothing else (checked on chain).** The protocol refuses any other method (`MethodNameMismatch`): [test](sandbox-tests/tests/policy.rs#L179). A stakers' vote can seat any account, and [`SPEC.md`](SPEC.md#the-chairs-key) says what that means.
 - **No admin key, no upgrade.** The token account has no key at all, so nobody can upgrade it or move its NEAR: [test](sandbox-tests/tests/no_admin.rs#L96), [`SPEC.md`](SPEC.md#no-admin-no-owner).
 
 ## What it is not

@@ -202,6 +202,16 @@ async fn a_refund_to_a_sender_that_closed_its_account_is_burned_and_counted() ->
         "the resolver logged no burn: {:?}",
         batch.logs()
     );
+    // The substring above also matches the contract's own `log!`; this is the NEP-141 event itself.
+    let refund_burns: Vec<Value> = events(&batch)
+        .into_iter()
+        .filter(|e| {
+            e["standard"] == "nep141" && e["event"] == "ft_burn" && e["data"][0]["memo"] == "refund"
+        })
+        .collect();
+    assert_eq!(refund_burns.len(), 1, "expected one refund ft_burn: {refund_burns:?}");
+    assert_eq!(refund_burns[0]["data"][0]["owner_id"], receiver.id().as_str());
+    assert_eq!(refund_burns[0]["data"][0]["amount"], (10 * TOKEN).to_string());
 
     let ledger: Ledger = t.token.view("get_supply").await?.json()?;
     assert_eq!(ledger.burned.parse::<u128>()?, 10 * TOKEN);

@@ -78,8 +78,8 @@ impeachment at the last boundary. Checks then run in this order and each panics 
 `rate_in_effect` is the rate after any pending missed-epoch decay (see "Rollover"), so after a silent
 stretch the step bound is measured from the decayed rate. Setting the same rate again in a later epoch is
 valid. On success: state is updated, then `rate_decayed` events (one per missed epoch, oldest first),
-then one `policy_set`. `reasoning_hash` is the **lowercase SHA-256 hex digest** (64 characters, no `0x`, no uppercase) of the chair's written reasoning, so the same text always yields the same string; the contract checks the format, not the preimage. The call may carry further JSON fields: the contract ignores any it does not declare (a sandbox test pins that a call with an extra `reasoning` field succeeds and stores the same hash). The chair agent uses this to send the reasoning text itself as `reasoning` in the same call, so the transaction's arguments publish the text whose hash the event logs; the contract never reads or stores it. (Before this version the contract accepted any 1..=128 bytes; `persona_hash` in `nominate` still does.) Events are emitted only after every check has passed, so a reverted call never
-leaves an event in the logs.
+then one `policy_set`. `reasoning_hash` is the **lowercase SHA-256 hex digest** (64 characters, no `0x`, no uppercase) of the chair's written reasoning, so the same text always yields the same string; the contract checks the format, not the preimage. The call may carry further JSON fields: the contract ignores any it does not declare (a sandbox test pins that a call with an extra `reasoning` field succeeds and stores the same hash). The chair agent uses this to send the reasoning text itself as `reasoning` in the same call, so the transaction's arguments publish the text whose hash the event logs; the contract never reads or stores it. (Before this version the contract accepted any 1..=128 bytes; `persona_hash` in `nominate` still does.) Events are emitted only after every check has passed, so a call that panics in contract
+code leaves no event in the logs.
 
 NEP-141 and storage management, **[implemented]** in `token.rs`: `ft_transfer` and `ft_transfer_call` burn
 under a negative rate (see "Transfer burn") and `ft_total_supply` includes mints that are due but not yet
@@ -224,8 +224,8 @@ a JSON number); `reward_pool` is minted and not yet claimed, rounding remainders
    however long the contract sat idle: once the rate is 0 and no candidate beats the threshold and the quorum
    every later boundary is a no-op (`is_quiescent && no winner`), so the first boundary after a quiet stretch
    with such a candidate runs, and clears the candidates.
-4. `roll()` collects events and every method logs them only after its last panic point, so a reverted call
-   never leaves an event. A `roll()` that ends an impeachment refunds every bond as a NEAR transfer and
+4. `roll()` collects events and every method logs them only after its last panic point, so a call that panics in contract
+   code leaves no event. A `roll()` that ends an impeachment refunds every bond as a NEAR transfer and
    logs one `nomination_withdrawn` per nomination after the rollover's other events.
 5. No loop over stakers anywhere: per-staker work is O(1) and a call's cost is bounded by
    `MAX_CANDIDATES` and the 4-step decay.
@@ -419,7 +419,7 @@ test harness does exactly that and a test shows a key claiming to be the account
 
 NEP-297. Every event is logged as `EVENT_JSON:{"standard":"chair","version":"1.0.0","event":"<name>","data":{...}}`.
 `standard` is `chair` for the events below; supply changes also emit the NEP-141 `ft_mint` / `ft_burn`
-events (`nep141`) with memo `chair:easing`, `chair:tightening` or `launch`, so generic indexers track supply.
+events (`nep141`) with memo `chair:easing`, `chair:tightening` or `launch`, so generic indexers track supply (count only events from successful receipts).
 The contract account is the custodian of stake and unclaimed rewards as far as those events go: `epoch_minted`
 also logs `ft_mint` to the contract account, `stake` / `unstake` / `claim` log `ft_transfer` to / from it
 (memos `chair:stake`, `chair:unstake`, `chair:claim`), so event-derived balances reconcile with
