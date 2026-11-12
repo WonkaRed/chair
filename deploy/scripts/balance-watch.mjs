@@ -27,7 +27,7 @@ const UNTIL_MS = Date.parse(process.env.WATCH_UNTIL ?? "2026-11-26T23:59:59Z");
 const MARGIN_DAYS = Number(process.env.WATCH_MARGIN_DAYS ?? "1");
 const GIST_ID = process.env.PRESS_GIST_ID ?? "03480ab34ee914911577adfd2a8b6a63";
 const GIST_OWNER = "WonkaRed";
-const STATE = process.env.CHAIR_STATE_DIR ?? join(homedir(), ".local", "state", "chair-agent");
+const STATE = process.env.CHAIR_STATE_DIR ?? join(homedir(), ".local", "state", "chair3-agent");
 const NO_NOTIFY = process.env.WATCH_NO_NOTIFY === "1";
 
 if (!Number.isFinite(UNTIL_MS) || !Number.isFinite(MARGIN_DAYS)) throw new Error("bad WATCH_UNTIL or WATCH_MARGIN_DAYS");
@@ -36,15 +36,17 @@ if (!/^(test\.|rpc\.testnet\.)/.test(new URL(RPC).hostname)) throw new Error(`re
 /** The live token's accounts, read from its deployment record, so the watch cannot drift from the token the units run. */
 const { parent, accounts: deployed } = JSON.parse(readFileSync(new URL("../../docs/testnet-deployment.json", import.meta.url), "utf8"));
 
-/** Everything the live demo spends gas from: the chair signer, the three activity bots, the Join pool, and the sister demo's two spenders. */
+/** Everything the live demo spends gas from: the chair signer, the three activity bots, the Join pool, the visitor faucet, and the sister demo's three spenders. */
 const ACCOUNTS = [
   deployed.challenger,
   deployed.alice,
   deployed.bob,
   deployed.carol,
   `visitors.${parent}`,
+  "chair-faucet-3.testnet",
   "switch.preflight-guard.testnet",
   "chameleon.preflight-guard.testnet",
+  "robber.preflight-guard.testnet",
 ];
 const UNITS = ["chair3-agent", "chair3-activity", "chair3-press", "chair3-press-tunnel"];
 
