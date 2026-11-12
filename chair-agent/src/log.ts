@@ -60,6 +60,8 @@ export interface EpochState {
   readonly failedSends: number;
   /** The contract ruled on it: an `executed` or `rejected` outcome exists. */
   readonly settled: boolean;
+  /** The transaction of the latest failed send that had been broadcast (its answer was lost, so it may still have landed), or null. */
+  readonly lastTxHash: string | null;
 }
 
 export interface LogScope {
@@ -119,18 +121,22 @@ export class DecisionLog {
     let decision: EpochState["decision"] = null;
     let failedSends = 0;
     let settled = false;
+    let lastTxHash: string | null = null;
     for (const rec of this.mine()) {
       if (rec.epoch !== epoch) continue;
       if (rec.kind === "decision") {
         decision = rec;
         failedSends = 0;
         settled = false;
+        lastTxHash = null;
       } else if (decision !== null && rec.reasoning_hash === decision.reasoning_hash) {
-        if (rec.status === "send_failed") failedSends++;
-        else settled = true;
+        if (rec.status === "send_failed") {
+          failedSends++;
+          lastTxHash = rec.tx_hash ?? lastTxHash;
+        } else settled = true;
       }
     }
-    return { decision, failedSends, settled };
+    return { decision, failedSends, settled, lastTxHash };
   }
 
   /**

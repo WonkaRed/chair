@@ -23,7 +23,7 @@
 import type { PoolReader } from "./chain.js";
 import type { Reply } from "./press-overreach.js";
 import { SerialQueue, SlidingWindow } from "./press-window.js";
-import { RpcError } from "./rpc.js";
+import { RpcError, withinDeadline } from "./rpc.js";
 import { stakedShareBps } from "./rule-chair.js";
 import { unconfirmedHash, type PoolSender, type SubmitResult } from "./signer.js";
 import { sanitize } from "./text.js";
@@ -49,6 +49,8 @@ export const DEFAULT_JOIN_LIMITS = {
   /** After a move, how often and how long the pool is read again for the stake to show in the newest block. */
   confirmTries: 4,
   confirmEveryMs: 1_000,
+  /** Whatever the reads do, the wait for the stake to show ends within this: the desk is serial, so a dead node must not hold it for minutes. */
+  confirmWithinMs: 45_000,
   /** No press for this long with coins staked: the desk takes the pool's whole stake back out. The unit sets it with CHAIR_JOIN_IDLE_RESET_S (cli.ts). */
   idleResetMs: 600_000,
   /** How often the desk reads the pool to learn what the next click does, and whether it is idle. */
@@ -278,9 +280,9 @@ export class Join {
       log(joinedAt(record));
       return { status: 200, body: { status: step.direction === "join" ? "joined" : "stepped_down", ...record, pool: this.deps.poolAccount, now_ms: this.now() } };
     } catch (err) {
-      log(`${broadcast ? "unconfirmed" : "not sent"} (${why(err)})`);
-      if (!broadcast) return { status: 503, body: { error: "the desk cannot read the chain just now", code: "desk_closed" } };
       const txHash = res?.txHash ?? unconfirmedHash(err);
+      log(`${broadcast ? "unconfirmed" : "not sent"} (${why(err)})${txHash === null ? "" : ` tx ${txHash}`}`);
+      if (!broadcast) return { status: 503, body: { error: "the desk cannot read the chain just now", code: "desk_closed" } };
       return this.notNow(200, { status: "unconfirmed", line: UNCONFIRMED, ...(txHash === null ? {} : { tx_hash: txHash }) });
     }
   }
@@ -342,14 +344,15 @@ export class Join {
 
   /** The pool at the newest block once its stake is `expected`: the move shows in it at once, or within a block or two. A read the node did not answer is one missed try. Throws when it never shows. */
   private async settled(expected: bigint): Promise<PoolView> {
+    const until = Date.now() + this.limits.confirmWithinMs; // the real clock: `now` is the chain's, which a test moves by hand
     for (let i = 1; ; i++) {
       try {
-        const view = await this.deps.reader.pool();
+        const view = await withinDeadline(() => this.deps.reader.pool(), until);
         if (view.staked === expected) return view;
       } catch (err) {
         if (!(err instanceof RpcError && err.transient)) throw err;
       }
-      if (i >= this.limits.confirmTries) throw new Error("the new stake did not show on chain");
+      if (i >= this.limits.confirmTries || Date.now() >= until) throw new Error("the new stake did not show on chain");
       await this.sleep(this.limits.confirmEveryMs);
     }
   }

@@ -16,6 +16,8 @@ export class FakeNode {
   chainId = "testnet";
   readonly keys = new Map<string, KeyEntry>();
   readonly sent: SignedTransaction[] = [];
+  /** What the chain made of each transaction that reached `send_tx`, by the transaction's own hash: what `tx` answers. */
+  private readonly outcomes = new Map<string, unknown>();
   nonce = 100n;
   /** The next this-many `send_tx` calls fail with an RPC error (a node that is down or refusing). */
   failSends = 0;
@@ -75,6 +77,11 @@ export class FakeNode {
         if (p["request_type"] === "call_function") return this.view(String(p["method_name"]));
         if (p["request_type"] === "view_access_key_list") return this.accessKeyList(String(p["account_id"]));
         return this.accessKey(String(p["public_key"]));
+      case "tx": {
+        const known = this.outcomes.get(String(p["tx_hash"]));
+        if (known === undefined) throw new RpcFail({ name: "HANDLER_ERROR", message: "Server error", cause: { name: "UNKNOWN_TRANSACTION" } });
+        return { final_execution_status: "EXECUTED_OPTIMISTIC", status: known, transaction: { hash: String(p["tx_hash"]) } };
+      }
       case "send_tx":
         this.sendCalls++;
         if (this.failSends > 0) {
@@ -138,7 +145,10 @@ export class FakeNode {
     const key = this.keys.get(tx.publicKey.toString());
     const action = tx.actions[0]?.functionCall;
     const hash = baseEncode(createHash("sha256").update(b64).digest());
-    const out = (status: unknown) => ({ final_execution_status: "EXECUTED_OPTIMISTIC", status, transaction: { hash } });
+    const out = (status: unknown) => {
+      this.outcomes.set(baseEncode(createHash("sha256").update(tx.encode()).digest()), status);
+      return { final_execution_status: "EXECUTED_OPTIMISTIC", status, transaction: { hash } };
+    };
     if (key === undefined || key.account !== tx.signerId || tx.nonce <= this.nonce) return out({ Failure: { InvalidTxError: "InvalidNonce or key" } });
     if (tx.actions.length !== 1 || action === undefined || tx.receiverId !== this.token) return out({ Failure: { InvalidTxError: "unexpected action" } });
     if (key.permission !== "FullAccess" && (key.permission.receiver_id !== tx.receiverId || !key.permission.method_names.includes(action.methodName))) {

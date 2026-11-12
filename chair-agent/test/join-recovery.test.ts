@@ -5,10 +5,10 @@ import { test } from "node:test";
 import { KeyPair, SignedTransaction } from "near-api-js";
 import type { PoolReader } from "../src/chain.js";
 import { FakeChain } from "../src/fake-chain.js";
-import { Join } from "../src/press-join.js";
+import { Join, type JoinLimits } from "../src/press-join.js";
 import { Overreach } from "../src/press-overreach.js";
 import { NearRpc, RpcError } from "../src/rpc.js";
-import { ChairSigner, PoolSigner, type SettleOptions } from "../src/signer.js";
+import { ChairSigner, PoolSigner, UnconfirmedSend, type PoolSender, type SettleOptions } from "../src/signer.js";
 import type { PoolView } from "../src/types.js";
 import { ChainSim, hashOf } from "./faucet-chain.js";
 
@@ -20,7 +20,7 @@ const BASE_STAKED = 10n ** 29n;
 const sentHash = (sim: ChainSim, i = 0): string => hashOf(SignedTransaction.decode(Buffer.from(sim.sends[i]!, "base64")));
 
 /** The pool as the chain shows it: staked once a `stake` has executed in the model, and a read that can be made to fail. */
-function rig(failReads: (n: number) => Error | null = () => null) {
+function rig(failReads: (n: number) => Error | Promise<never> | null = () => null, o: { sender?: PoolSender; limits?: Partial<JoinLimits> } = {}) {
   const chain = new FakeChain({ chair: "chair.test", totalSupply: SUPPLY, totalStaked: BASE_STAKED });
   chain.advanceEpochs(5, 10_000);
   const sim = new ChainSim();
@@ -28,7 +28,8 @@ function rig(failReads: (n: number) => Error | null = () => null) {
   const reader: PoolReader = {
     async pool(): Promise<PoolView> {
       const fail = failReads(++reads);
-      if (fail !== null) throw fail;
+      if (fail instanceof Error) throw fail;
+      if (fail !== null) await fail;
       const staked = sim.effects.some((e) => e.step === ("stake" as never)) ? STEP : 0n;
       chain.totalStaked = BASE_STAKED + staked;
       return { snapshot: await chain.snapshot(), staked, liquid: 10n * STEP, unlockEpoch: 0, backing: null };
@@ -37,7 +38,8 @@ function rig(failReads: (n: number) => Error | null = () => null) {
   const logs: string[] = [];
   const join = new Join({
     reader,
-    sender: new PoolSigner(secret, "pool.test", "token.test", sim.rpc, instant),
+    sender: o.sender ?? new PoolSigner(secret, "pool.test", "token.test", sim.rpc, instant),
+    limits: o.limits,
     poolAccount: "pool.test",
     now: () => chain.nowMs,
     sleep: (ms) => (chain.advanceTo(chain.nowMs + ms), Promise.resolve()),
@@ -135,4 +137,28 @@ test("overreach: a call that never confirms is logged with its message and repli
   assert.equal(sim.sends[1], sim.sends[0]);
   const line = logs.find((l) => l.includes("unconfirmed"));
   assert.ok(line !== undefined && /TimeoutError/.test(line), `the log line: ${line}`);
+});
+
+test("a long error message cannot push the transaction out of the log line: the hash is a field of its own", async () => {
+  const hash = "H".repeat(44);
+  const sender: PoolSender = {
+    stake: (_amount, onBroadcast) => (onBroadcast(), Promise.reject(new UnconfirmedSend(new RpcError(`rpc send_tx: ${"timed out ".repeat(60)}`, false, true), hash))),
+    unstake: () => Promise.reject(new Error("not used")),
+  };
+  const r = rig(() => null, { sender });
+  const res = await r.join.start("a");
+  assert.equal(res.body["tx_hash"], hash);
+  const line = r.logs.find((l) => l.includes("unconfirmed"));
+  assert.ok(line !== undefined && line.endsWith(` tx ${hash}`), `the log line: ${line}`);
+  assert.match(String(line), /\.\.\. ?\) tx /, "the message was cut, the hash was not");
+});
+
+test("the wait for the stake to show has a total deadline: reads that never answer do not hold the desk", async () => {
+  const hang = new Promise<never>(() => undefined);
+  const r = rig((n) => (n >= 2 ? hang : null), { limits: { confirmWithinMs: 50 } });
+  const started = Date.now();
+  const res = await r.join.start("a");
+  assert.equal(res.body["status"], "unconfirmed");
+  assert.equal(res.body["tx_hash"], sentHash(r.sim));
+  assert.ok(Date.now() - started < 2_000);
 });

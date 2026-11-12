@@ -334,7 +334,7 @@ test("a send that keeps failing: one model call, one logged decision, three send
   });
   node.failSends = 0;
   assert.equal(llmCalls, 1, "one model call for the epoch");
-  assert.equal(node.sendCalls - sendsBefore, 3, "three send attempts, no more");
+  assert.equal(node.sendCalls - sendsBefore, 6, "three send attempts, no more; each one's lost answer is settled by a look-up (unknown) and the same bytes sent once more");
   const records = readFileSync(logPath, "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
   assert.deepEqual(records.map((r) => r["kind"]), ["decision", "outcome", "outcome", "outcome"]);
   assert.deepEqual(records.slice(1).map((r) => r["status"]), ["send_failed", "send_failed", "send_failed"]);
@@ -349,7 +349,7 @@ test("a send that keeps failing: one model call, one logged decision, three send
   const next = io();
   assert.equal(await main([...argv, "--once"], env({ ANTHROPIC_API_KEY: "present" }), next, { llmClient: counting }), 0, next.err_.join("\n"));
   assert.equal(llmCalls, 2);
-  assert.equal(node.sendCalls - sendsBefore, 4);
+  assert.equal(node.sendCalls - sendsBefore, 7);
   assert.equal(chain.refusals.length, 0);
 });
 
@@ -370,13 +370,13 @@ test("a read that gets HTTP 429 is retried, and a dead first endpoint fails over
   assert.equal(records.at(-1)?.["status"], "executed");
 });
 
-test("a tick whose send fails once is tried again in the same epoch and lands", async () => {
+test("a tick whose send fails (and its same-bytes resend with it) is tried again in the same epoch and lands", async () => {
   nextEpoch();
   const logPath = join(dir, "recover.jsonl");
   const argv = ["run", "--rpc", node.url, "--token", TOKEN, "--account", CHAIR, "--log", logPath];
   const sleeps: number[] = [];
   const ac = new AbortController();
-  node.failSends = 1;
+  node.failSends = 2;
   const o = io();
   await main(argv, env(), o, {
     signal: ac.signal,

@@ -77,7 +77,7 @@ test("history is scoped to this token and account and to epochs strictly before 
 test("epochState counts failed sends of the epoch's decision and knows when the contract ruled", async () => {
   await withLog(async (_path, log) => {
     const { d, s } = await decideAt(4, 5_000n);
-    assert.deepEqual(log.epochState(4), { decision: null, failedSends: 0, settled: false });
+    assert.deepEqual(log.epochState(4), { decision: null, failedSends: 0, settled: false, lastTxHash: null });
     log.recordDecision(d, s);
     log.recordOutcome(d, "send_failed", null, "boom");
     log.recordOutcome(d, "send_failed", null, "boom");

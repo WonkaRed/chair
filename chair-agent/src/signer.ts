@@ -85,7 +85,10 @@ export interface SubmitResult {
 }
 
 export interface Submitter {
-  submit(decision: Decision): Promise<SubmitResult>;
+  /** `resendBefore` (ms since 1970): past it the identical bytes are never sent again, only looked up (a late landing would count in the wrong meeting). */
+  submit(decision: Decision, resendBefore?: number): Promise<SubmitResult>;
+  /** Where an earlier send of this key stands, by its hash: null when no node knows it. Optional: a submitter that cannot look up is never asked. */
+  lookUp?(txHash: string): Promise<TxStatus | null>;
 }
 
 /**
@@ -112,10 +115,15 @@ export interface SettleOptions {
   readonly clock?: Clock;
 }
 
-/** A send that was signed and broadcast but never seen to execute: the transaction may still land, so the reply must name it. The cause's flags are kept. */
+/**
+ * A send that was signed and broadcast but never seen to execute: the transaction may still land, so the reply must name it (`txHash`, a field of its own:
+ * a log line that cuts the message must not cut the hash). The cause's message and flags are kept; any other error than an `RpcError` (a malformed answer)
+ * says nothing about the transaction, so it counts as an answer that did not come.
+ */
 export class UnconfirmedSend extends RpcError {
-  constructor(cause: RpcError, readonly txHash: string) {
-    super(`${cause.message} (transaction ${txHash} not confirmed)`, cause.methodMissing, cause.transient, cause.unaccepted);
+  constructor(cause: unknown, readonly txHash: string) {
+    const rpc = cause instanceof RpcError ? cause : null;
+    super(cause instanceof Error ? cause.message : "send failed", rpc?.methodMissing ?? false, rpc?.transient ?? true, rpc?.unaccepted ?? false);
     this.name = "UnconfirmedSend";
   }
 }
@@ -169,10 +177,10 @@ abstract class TokenCaller {
    * reuse its nonce; and it is never lower than the last one this signer used, in case the node answering is behind. `allowed` throws when the key is not
    * the kind this caller may use. `onBroadcast` runs once, just before the transaction is sent; a throw before it means nothing was sent.
    */
-  protected async send(call: (nonce: bigint, blockHash: string) => Promise<SignedTransaction>, allowed: (info: AccessKeyInfo) => void, onBroadcast: () => void): Promise<SubmitResult> {
+  protected async send(call: (nonce: bigint, blockHash: string) => Promise<SignedTransaction>, allowed: (info: AccessKeyInfo) => void, onBroadcast: () => void, resendBefore = Infinity): Promise<SubmitResult> {
     const signed = await this.prepare(call, allowed);
     onBroadcast();
-    return this.sendSigned(signed);
+    return this.sendSigned(signed, resendBefore);
   }
 
   /** Signs the call at the next nonce without sending it. */
@@ -186,8 +194,8 @@ abstract class TokenCaller {
     return signed;
   }
 
-  protected sendSigned(signed: SignedTransaction): Promise<SubmitResult> {
-    return this.deliver({ hash: hashOf(signed), tx: Buffer.from(signed.encode()).toString("base64") });
+  protected sendSigned(signed: SignedTransaction, resendBefore = Infinity): Promise<SubmitResult> {
+    return this.deliver({ hash: hashOf(signed), tx: Buffer.from(signed.encode()).toString("base64") }, resendBefore);
   }
 
   /** Waits out the pause between two looks at a transaction, doubling each time; false once the looks are used up. */
@@ -201,24 +209,25 @@ abstract class TokenCaller {
    * Sends a signed transaction, every call of every signer through here. An answer that never came (timeout, throttle, dropped connection) does not say whether the
    * node took it: so look it up by its hash, wait while it is still on its way, and send the identical signed bytes again, once, when the node does not know it. The same bytes
    * cannot be paid twice (the network keeps one transaction per nonce), they are never signed again, and a transaction this young is not yet forgotten, so no archival
-   * look is needed here. The recovery ends within `recoverMs`; what it could not settle is thrown as `UnconfirmedSend`, which carries the hash.
+   * look is needed here. The recovery ends within `recoverMs`; what it could not settle is thrown as `UnconfirmedSend`, which carries the hash. Past `resendBefore`
+   * the bytes are not sent again, only looked up: the contract counts a call in the meeting open when it executes, so a late resend could land in the next one.
+   * Any error after the broadcast gets this treatment, a malformed answer included: it says nothing about whether the transaction landed.
    */
-  protected async deliver(p: { readonly hash: string; readonly tx: string }): Promise<SubmitResult> {
+  protected async deliver(p: { readonly hash: string; readonly tx: string }, resendBefore = Infinity): Promise<SubmitResult> {
     try {
       return await this.rpc.sendTx(p.tx);
     } catch (err) {
-      if (!(err instanceof RpcError)) throw err;
-      if (!err.transient) throw new UnconfirmedSend(err, p.hash);
-      const until = this.settle.clock.now() + this.settle.recoverMs;
-      const within = <T>(work: () => Promise<T>): Promise<T> => withinDeadline(work, until, this.settle.clock);
+      if (err instanceof RpcError && !err.transient) throw new UnconfirmedSend(err, p.hash);
+      const { clock } = this.settle;
+      const until = clock.now() + this.settle.recoverMs;
       for (let attempt = 1; await this.pause(attempt); attempt++) {
-        const seen = await within(() => this.rpc.txOutcome(p.hash, this.accountId)).catch(() => undefined);
+        const seen = await withinDeadline(() => this.rpc.txOutcome(p.hash, this.accountId), until, clock).catch(() => undefined);
         if (seen?.executed === true) return { txHash: p.hash, failure: seen.failure };
-        if (seen !== null) continue;
+        if (seen !== null || clock.now() >= resendBefore) continue;
         try {
-          return await within(() => this.rpc.sendTx(p.tx));
+          return await withinDeadline(() => this.rpc.sendTx(p.tx), Math.min(until, resendBefore), clock);
         } catch (again) {
-          throw again instanceof RpcError ? new UnconfirmedSend(again, p.hash) : again;
+          throw new UnconfirmedSend(again, p.hash);
         }
       }
       throw new UnconfirmedSend(err, p.hash);
@@ -236,8 +245,13 @@ export class ChairSigner extends TokenCaller implements Submitter {
     return this.sign(actions.functionCall(METHOD, policyArgs(rate, reasoning), GAS, 0n), nonce, blockHash);
   }
 
-  async submit(decision: Decision): Promise<SubmitResult> {
-    return this.sendPolicy(decision.rate, decision.reasoning);
+  async submit(decision: Decision, resendBefore?: number): Promise<SubmitResult> {
+    return this.sendPolicy(decision.rate, decision.reasoning, () => undefined, resendBefore);
+  }
+
+  /** Where an earlier `submit` stands, by its hash (`Submitter.lookUp`). Throws `RpcError` when no node answers. */
+  lookUp(txHash: string): Promise<TxStatus | null> {
+    return this.rpc.txOutcome(txHash, this.accountId);
   }
 
   /**
@@ -253,8 +267,8 @@ export class ChairSigner extends TokenCaller implements Submitter {
   }
 
   /** Both the agent's decision and the desk's overreach go through here, signed by the same key, so the nonce is counted at `optimistic` finality (see `send`). */
-  private sendPolicy(rate: Rate | RefusedRate, reasoning: string, onBroadcast: () => void = () => undefined): Promise<SubmitResult> {
-    return this.send((nonce, block) => this.build(rate, reasoning, nonce, block), (info) => assertScoped(info, this.token), onBroadcast);
+  private sendPolicy(rate: Rate | RefusedRate, reasoning: string, onBroadcast: () => void = () => undefined, resendBefore?: number): Promise<SubmitResult> {
+    return this.send((nonce, block) => this.build(rate, reasoning, nonce, block), (info) => assertScoped(info, this.token), onBroadcast, resendBefore);
   }
 }
 
