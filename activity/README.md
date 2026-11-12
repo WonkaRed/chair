@@ -1,6 +1,6 @@
 # $CHAIR testnet activity bot
 
-**This is scripted test activity by three accounts we control, not organic users.** It exists so the live testnet token has a
+**This is scripted test activity by three accounts I control, not organic users.** It exists so the live testnet token has a
 small, moving economy for the chair to react to: negative rates burn on transfers, the staked share changes, stakers claim.
 Nothing here pretends to be a crowd: the log lines and every record in the JSON log say so in these words, and the three
 accounts are named in the run script. Testnet only; the bot refuses any RPC that is not testnet and any account that does not

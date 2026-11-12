@@ -10,7 +10,7 @@ export const MAX_QUESTION = 140;
 export const OFFLINE = "The Chair is not taking questions at this time.";
 // What the page says when it does not know whether the desk answered: the desk may still answer and enter it, and the record below then shows it.
 const LATE = "The desk did not answer in time. If it does, the answer will appear in the record below.";
-export const DESK_NOTE = "The press desk runs on the submitter's workstation, not on a hosted server, so it is closed whenever that machine is off.";
+export const DESK_NOTE = "The press desk runs on my workstation, not on a hosted server, so it is closed whenever that machine is off.";
 export const POLL_MS = 15_000;
 const STALE_MS = 15 * 60_000; // an answer asked longer ago than this stops being polled for
 const KEEP = 20; // own questions remembered

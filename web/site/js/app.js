@@ -1,11 +1,14 @@
 import { formatTokens } from "./amounts.js";
+import { renderBound } from "./bound.js";
 import { lineChart } from "./charts.js";
 import { clear, h } from "./dom.js";
 import { renderGuarantees, VERIFY_COMMAND } from "./guarantees.js";
+import { holdersModel, renderHolders, renderHoldersUnavailable } from "./holders.js";
 import { loadLog } from "./loadlog.js";
 import { loadTexts, renderHero, renderMinutes, resolveTexts } from "./minutes.js";
 import { createOverreach } from "./overreach.js";
 import { createPress, pressFromChain } from "./press.js";
+import { linkFallback, newestAnswer, setPullQuote } from "./pullquote.js";
 import { renderRefusals } from "./refusals.js";
 import { openFoldsAround, setupReveal } from "./reveal.js";
 import { BEHAVIOURS, simulate } from "./simview.js";
@@ -48,6 +51,20 @@ async function makeTransport() {
   return { transport: fixtureTransport(fixture), fixture };
 }
 
+/** The hero's right-hand column keeps its place when the minutes cannot be read: a short note in the same box instead of an empty hole. */
+function heroUnavailable() {
+  const host = $("hero-minutes");
+  clear(host);
+  host.append(h(doc, "p", { class: "empty hero-empty" }, "The Chair's latest minutes could not be read just now. The numbers below say what the chain did say."));
+}
+
+/** The chain's own numbers, as soon as the quick views answer: the plain sentence, the holders' panel and the worst-case section. */
+function showViews({ params, policy, supply, candidates }, made) {
+  renderPlain(doc, $("now-plain"), { policy, params });
+  renderHolders(doc, $("holders-body"), holdersModel({ params, policy, supply, candidates }), { explorer: made.fixture ? null : config.explorerUrl, specUrl: `${config.repoUrl}/blob/${config.repoRef}/SPEC.md#epochs-and-rollover`, showPast: made.fixture === null });
+  renderBound(doc, $("bound-body"), { ...params, launchSupply: supply.launchSupply }, { explorer: made.fixture ? null : config.explorerUrl });
+}
+
 async function showChain() {
   const state = { filter: "all", newestFirst: true, shown: LOG_PAGE };
   let made;
@@ -56,7 +73,8 @@ async function showChain() {
   } catch (e) {
     renderFailure(doc, $("now"), e);
     renderFailure(doc, $("now-plain"), e);
-    clear($("hero-minutes"));
+    renderHoldersUnavailable(doc, $("holders-body"), e);
+    heroUnavailable();
     renderFailure(doc, $("minutes-body"), e);
     renderFailure(doc, $("refusals-body"), e);
     clear($("ledger-body"));
@@ -69,7 +87,7 @@ async function showChain() {
   const run = async () => {
     let data;
     try {
-      data = await loadLog(made.transport);
+      data = await loadLog(made.transport, { onViews: (views) => showViews(views, made) });
     } catch (e) {
       if (shown !== null) {
         // A failed retry must not take down what was read: keep it, and say quietly that the chain is out of reach for the moment.
@@ -79,7 +97,8 @@ async function showChain() {
       }
       renderFailure(doc, $("now"), e);
       renderFailure(doc, $("now-plain"), e);
-      clear($("hero-minutes"));
+      renderHoldersUnavailable(doc, $("holders-body"), e);
+      heroUnavailable();
       renderFailure(doc, $("minutes-body"), e);
       renderFailure(doc, $("refusals-body"), e);
       clear($("ledger-body"));
@@ -93,13 +112,15 @@ async function showChain() {
     const explorer = made.fixture ? null : config.explorerUrl;
     const indexerUrl = made.fixture ? null : config.indexerUrl;
     const ctx = { texts: bundled, resolved: await resolveTexts(data.decisions, bundled), explorer, indexerUrl, repoBase: `${config.repoUrl}/blob/${config.repoRef}`, network: made.fixture ? null : config.network, epochMs: data.params.epochMs };
-    renderPlain(doc, $("now-plain"), data);
     renderHero(doc, $("hero-minutes"), data, ctx);
     renderMinutes(doc, $("minutes-body"), data, ctx);
     renderRefusals(doc, $("refusals-body"), data, { explorer, indexerUrl });
     chainData = data;
     overreach.refresh();
-    press.setChain(pressFromChain(data.decisions, ctx.resolved));
+    const answers = pressFromChain(data.decisions, ctx.resolved);
+    press.setChain(answers);
+    const newest = newestAnswer(answers);
+    if (newest !== null) setPullQuote(doc, $("pull"), newest, { explorer, live: true });
     renderNow(doc, $("now"), data);
     renderLedger(doc, $("ledger-body"), data);
     renderReconcile(doc, $("reconcile"), data, { onRetry: run });
@@ -206,6 +227,8 @@ function setupPage() {
 setupTheme();
 const pageExplorer = config.fixture === null ? config.explorerUrl : null;
 linkQuips(pageExplorer);
+linkFallback(doc, $("pull"), pageExplorer);
+renderBound(doc, $("bound-body"), {}, { explorer: pageExplorer });
 const press = createPress(doc, $("press-body"), { discoveryUrl: config.pressDiscoveryUrl, explorer: pageExplorer });
 let chainData = null; // loadLog's latest result, for the overreach panel's hint and its desk-closed list
 const overreach = createOverreach(doc, $("overreach-body"), { request: press.request, explorer: pageExplorer, rpcUrl: config.rpcUrls[0], refusals: () => chainData });

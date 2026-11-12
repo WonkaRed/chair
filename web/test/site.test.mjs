@@ -389,6 +389,6 @@ test("the best-of strip quotes only lines in the reviewed book, carries no host,
   assert.doesNotMatch(strip, /href=/, "the links are built in the page from the configured explorer");
   for (const id of ["ledger", "log"]) {
     const section = html.match(new RegExp(`<section id="${id}"[\\s\\S]*?</section>`))[0];
-    assert.match(section, /<\/h3>\s*<p class="scripted"><strong>Scripted test activity\.<\/strong>[^<]*test accounts run by this project, not users\./, `${id}: the notice follows the heading`);
+    assert.match(section, /<\/h3>\s*<p class="scripted"><strong>Scripted test activity\.<\/strong>[^<]*test accounts I run, not users\./, `${id}: the notice follows the heading`);
   }
 });

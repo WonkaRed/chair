@@ -3,7 +3,7 @@
 // anything without script. Fake DOM, no browser.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { fakeDoc, host, walk } from "./fakedom.mjs";
@@ -54,8 +54,8 @@ test("the sentence at the top of the page says what the AI is doing right now, i
     renderPlain(doc, el, { policy: { rateBps }, params });
     return text(el);
   };
-  assert.equal(draw(5), "Right now the AI is printing 0.05% more coins every 90 seconds and giving them to holders who staked. The most the contract will ever let it print is 2%.");
-  assert.match(draw(-5), /^Right now the AI is burning 0\.05% of every transfer\. The most the contract will ever let it burn is 2%\.$/);
+  assert.equal(draw(5), "Right now the AI is printing 0.05% more coins every 90 seconds and giving them to holders who staked. The most the contract lets it print each time is 2%. Holders who staked can vote it out.");
+  assert.match(draw(-5), /^Right now the AI is burning 0\.05% of every transfer\. The most the contract lets it burn is 2%\. Holders who staked can vote it out\.$/);
   assert.match(draw(0), /^Right now the AI is holding the supply still: nothing is being printed or burned\./);
   for (const r of [5, -5, 0]) assert.doesNotMatch(draw(r), JARGON);
   const doc = fakeDoc();
@@ -215,4 +215,41 @@ test("minute cards follow the same rule: plain text needs no second line", () =>
   const cards = find(list, (n) => n.attrs?.class?.startsWith("minute card"));
   assert.equal(find(cards[0], (n) => n.attrs?.class === "plain-line").length, 0);
   assert.equal(find(cards[1], (n) => n.attrs?.class === "plain-line").length, 1);
+});
+
+test("first paint: one announcement of the wait, grey bars that hold the size of what is coming, and no empty hole in the hero", () => {
+  assert.equal(html.split("Reading the chain").length - 1, 1, "the wait is announced once, to screen readers, not shown as text twice");
+  const slot = (id) => html.match(new RegExp(`<div id="${id}"[^>]*>[\\s\\S]*?</div>`))[0];
+  assert.match(slot("now-plain"), /class="skel"/);
+  assert.match(html, /<div id="hero-minutes" class="slot hero-slot"><div class="minutes-paper skeleton" aria-hidden="true">/);
+  assert.match(html, /<div id="holders-body"[^>]*><div class="hold-grid skeleton" aria-hidden="true">/);
+});
+
+test("the Chair's line sits right under the hero, is a real line from the reviewed book, and names the transaction it came from", async () => {
+  const book = await readFile(join(root, "..", "chair-agent", "src", "press-book.ts"), "utf8");
+  const fig = html.match(/<figure id="pull" class="pull" data-tx="([^"]+)" data-epoch="(\d+)">\s*<blockquote lang="en">([^<]+)<\/blockquote>\s*<figcaption>([^<]+)<\/figcaption>/);
+  assert.ok(fig, "the pull quote is in the page");
+  assert.ok(book.includes(`"${fig[3]}"`), "the fallback is a line of the reviewed book");
+  assert.match(fig[1], /^[1-9A-HJ-NP-Za-km-z]{43,44}$/);
+  assert.ok(html.includes(`data-tx="${fig[1]}" data-epoch="${fig[2]}"><blockquote lang="en">${fig[3]}</blockquote>`) , "the best-of strip holds the same answer, so the transaction is a recorded one");
+  assert.equal(fig[4], `A line the Chair gave the press, meeting ${fig[2]}.`, "labelled as a fallback until the chain's newest answer replaces it");
+  const at = (n) => html.indexOf(n);
+  assert.ok(at('id="pull"') > at('id="hero-minutes"') && at('id="pull"') < at('id="overreach"'));
+});
+
+test("'What holders control' follows the toys and comes before the technical sections, with the plain sentence in the page itself", () => {
+  const at = (n) => html.indexOf(n);
+  assert.ok(at('id="holders"') > at('id="best-of"') && at('id="holders"') < at('id="minutes"'));
+  assert.ok(html.includes("<strong>Holders who stake get every new coin. Holders who stake can also fire the Chair.</strong>"));
+  assert.ok(at('id="bound-body"') > at('id="sim-h"') && at('id="bound-body"') < at('id="sim-legend"'), "the worst case comes before the simulation");
+});
+
+test("the page speaks as one person and keeps its typography plain", async () => {
+  const files = ["index.html", ...(await readdir(join(root, "site", "js"))).map((f) => `js/${f}`)];
+  for (const f of files) {
+    const src = await readFile(join(root, "site", f), "utf8");
+    const visible = f === "index.html" ? src.replace(/<script[\s\S]*?<\/script>|<svg[\s\S]*?<\/svg>/g, "") : src.split("\n").filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
+    assert.doesNotMatch(visible, /\bwe\b|\bour\b|\bours\b|submitter|this project/i, `${f}: the page says I, not we`);
+    assert.doesNotMatch(src.split("\n").filter((l) => !l.includes(".replace(")).join("\n"), /\u2014|\u2013/, `${f}: no en or em dashes (the one input normaliser that accepts them is exempt)`);
+  }
 });

@@ -77,7 +77,7 @@ test("no press desk configured: the page says the Chair is not taking questions,
   let calls = 0;
   const { root, press, timers } = await make({ discoveryUrl: "", fetchImpl: async () => { calls++; throw new Error("no network"); } });
   assert.match(text(root), new RegExp(OFFLINE.replace(".", "\\.")));
-  assert.ok(text(root).includes(DESK_NOTE) && /submitter's workstation/.test(DESK_NOTE));
+  assert.ok(text(root).includes(DESK_NOTE) && /my workstation/.test(DESK_NOTE));
   assert.equal(button(root).disabled, true);
   assert.equal(press.input.disabled, true);
   assert.equal(find(root, (n) => n.tag === "button" && /Check again/.test(text(n))), undefined, "nothing to check again");
