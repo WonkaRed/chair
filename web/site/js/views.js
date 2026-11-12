@@ -116,6 +116,15 @@ function corridor(doc, policy, params) {
   return root;
 }
 
+/** The sentence for `silentPath`: a rate already at 0%, or a run of rates ending at 0% (or, when the path is cut short, still on its way there). */
+export function silentLine(path) {
+  const settled = path.at(-1) === 0;
+  if (path.length === 1) return "If the chair does nothing more, every following meeting runs at 0%.";
+  const lead = settled ? path.slice(0, -1) : path;
+  const steps = lead.map(plainSigned).join(", then ");
+  return `If the chair does nothing more, the next meeting${lead.length > 1 ? "s" : ""} ${lead.length > 1 ? "run" : "runs"} at ${steps}${settled ? ", and every meeting after that at 0%" : ", and the rate keeps stepping toward 0%"}.`;
+}
+
 /** The first thing on the page: what the Chair is doing to the coin supply right now, in words anyone can read, from the same views as the numbers below. */
 export function renderPlain(doc, host, d) {
   clear(host);
@@ -146,7 +155,7 @@ export function renderNow(doc, host, d) {
       h(doc, "li", {}, h(doc, "span", { class: "sw sw-bounds", "aria-hidden": "true" }), `Allowed by the contract: ${plainSigned(-params.maxRateBps)} to ${plainSigned(params.maxRateBps)}`),
       h(doc, "li", {}, h(doc, "span", { class: "sw sw-reach", "aria-hidden": "true" }), `Where the chair can move it next: ${plainSigned(Math.max(-params.maxRateBps, policy.rateBps - params.maxStepBps))} to ${plainSigned(Math.min(params.maxRateBps, policy.rateBps + params.maxStepBps))} (at most ${plainPct(params.maxStepBps)} per meeting)`),
     )),
-    h(doc, "p", { class: "note" }, `If the chair does nothing more, the next meetings run at ${path.map(plainSigned).join(", ")}.`),
+    h(doc, "p", { class: "note" }, silentLine(path)),
   );
 }
 

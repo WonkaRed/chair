@@ -214,6 +214,9 @@ function readable(d, resolved) {
   return rec?.verdict === "verified" && !d.byVisitor ? safeLines(rec.text) : null;
 }
 
+/** How many meetings before the newest the hero looks back through for a closing sentence that passed, when the newest has none: about fifteen minutes of meetings, so it is still "recent". */
+const HERO_LOOKBACK = 10;
+
 /** The closing sentences the AI wrote itself in the newest of `decisions` (newest first), at most `limit`: `{ text, epoch, tx }`. */
 export function ownLines(decisions, resolved, limit) {
   const out = [];
@@ -352,13 +355,19 @@ const verdictLabel = (state, ctx) => (state === "verified" ? (ctx.network ? `Ver
  * What a minute leads with: the sentence the AI wrote itself, large, labelled as the AI's. A text without one (the rule chair's, a fallback, an old text,
  * one a visitor forced) leads with the page's plain line built from the numbers, labelled so; the whole text stays behind "Read the full minutes".
  */
-function headline(doc, p, d, ctx, { explain = false } = {}) {
+function headline(doc, p, d, ctx, { explain = false, earlier = null } = {}) {
   if (p.own !== null) return [h(doc, "blockquote", { class: "reasoning has-own ai-line", lang: "en" }, h(doc, "span", { class: "m-own-line" }, p.own)), h(doc, "p", { class: "m-own-k" }, "Written by the AI this meeting")];
-  return [h(doc, "p", { class: "plain-line ai-line" }, plainDecision(d.rateBps, d.previousRateBps, ctx.unit)), p.rec ? h(doc, "p", { class: "said-k" }, "A plain summary of this meeting's numbers") : p.lead, p.rec && explain ? h(doc, "p", { class: "said-why" }, SUMMARY_WHY) : null];
+  const plain = plainDecision(d.rateBps, d.previousRateBps, ctx.unit);
+  // The newest closing sentence that passed, from an earlier meeting, leads; it is labelled with its own meeting and never passed off as this one's, and this meeting's numbers follow in plain size.
+  if (earlier !== null && p.rec) return [h(doc, "blockquote", { class: "reasoning has-own ai-line", lang: "en" }, h(doc, "span", { class: "m-own-line" }, earlier.text)), h(doc, "p", { class: "m-own-k" }, `Written by the AI in meeting ${earlier.epoch}. Meeting ${d.epoch} has no closing line of its own.`), h(doc, "p", { class: "plain-line" }, plain), h(doc, "p", { class: "said-k" }, "A plain summary of this meeting's numbers")];
+  return [h(doc, "p", { class: "plain-line ai-line" }, plain), p.rec ? h(doc, "p", { class: "said-k" }, "A plain summary of this meeting's numbers") : p.lead, p.rec && explain ? h(doc, "p", { class: "said-why" }, SUMMARY_WHY) : null];
 }
 
 /** Why a minute can lead with the plain summary instead of the AI's sentence (chair-agent README "The Chair's own remark"): the sentence goes through a filter before the Chair signs. */
 const SUMMARY_WHY = "The AI's closing sentence goes through a filter before the Chair signs it. When it fails the filter twice, or the model call fails, a fixed line closes the minutes and this summary leads instead.";
+
+/** The same filter, explained inside the hero's "Read the full minutes" when an earlier meeting's sentence leads the card. */
+const earlierWhy = (earlier) => `The sentence at the top is from meeting ${earlier.epoch}, the newest closing line that passed. The AI's closing sentence goes through a filter before the Chair signs it. When it fails the filter twice, or the model call fails, a fixed line closes the minutes instead, so a meeting can have no sentence of its own.`;
 
 /** The standing figure under the rate: how often the AI chose another rate than the formula's, with the newest such meeting on chain. */
 function overrideLine(doc, stat, ctx) {
@@ -368,20 +377,20 @@ function overrideLine(doc, stat, ctx) {
 }
 
 /** The whole text, verbatim: it is what the chain's hash covers, so it stays one tap away. */
-const fullMinutes = (doc, p) => (p.full === null ? null : h(doc, "details", { class: "fold m-full" }, h(doc, "summary", {}, "Read the full minutes, word for word"), p.full));
+const fullMinutes = (doc, p, why = null) => (p.full === null ? null : h(doc, "details", { class: "fold m-full" }, h(doc, "summary", {}, "Read the full minutes, word for word"), why === null ? null : h(doc, "p", { class: "said-why" }, why), p.full));
 
 /**
  * A decision as the page's pull-quote: the prose large, the epoch, the rate as a percent with bps second, and the proof folded behind the mark.
  * `note` is a line of status under the rate. `saved` is a decision from this browser's saved copy, not read just now: it is never called the latest.
  */
-function heroCard(doc, d, ctx, { note = null, noteCls = "warn", saved = false, confirmed = false, stat = null } = {}) {
+function heroCard(doc, d, ctx, { note = null, noteCls = "warn", saved = false, confirmed = false, stat = null, earlier = null } = {}) {
   const p = parts(doc, d, ctx, saved);
   const title = saved && !confirmed ? "Saved minutes of the Committee of One" : "Latest minutes of the Committee of One";
   return h(doc, "figure", { class: `minutes-paper ${p.state}`, "aria-label": `${saved && !confirmed ? "Saved" : "Latest"} minutes, meeting ${d.epoch}` },
     svg(doc, "svg", { class: "watermark", "aria-hidden": "true" }, svg(doc, "use", { href: "#seal" })),
     h(doc, "p", { class: "paper-head" }, h(doc, "span", {}, title), h(doc, "span", { class: "paper-epoch" }, `Meeting ${d.epoch}`)),
     p.fallback,
-    headline(doc, p, d, ctx, { explain: true }),
+    headline(doc, p, d, ctx, { explain: true, earlier }),
     h(doc, "figcaption", { class: "paper-rate" },
       h(doc, "span", { class: "rate-big" }, fmtSignedPct(d.rateBps)),
       h(doc, "span", { class: "rate-effect" }, effect(d.rateBps, ctx.unit)),
@@ -401,7 +410,7 @@ function heroCard(doc, d, ctx, { note = null, noteCls = "warn", saved = false, c
         proof(doc, d, ctx),
       ),
     ),
-    fullMinutes(doc, p),
+    fullMinutes(doc, p, earlier !== null && p.own === null && p.rec ? earlierWhy(earlier) : null),
   );
 }
 
@@ -449,7 +458,8 @@ export function renderHero(doc, host, d, ctx) {
   if (latest !== undefined) {
     const s = silence(d.policy, latest);
     const behind = d.policy.lastSetEpoch !== d.policy.epoch; // the card's meeting is not the current one: say so, so its number and "the current meeting" below agree
-    return host.append(heroCard(doc, latest, ctx, { note: behind ? s.text : null, noteCls: s.cls, stat: d.status === "partial" ? null : overrideStat(d.decisions, ctx.resolved) }));
+    const earlier = latest.byVisitor ? null : ownLines(d.decisions.slice(1, 1 + HERO_LOOKBACK), ctx.resolved, 1)[0] ?? null;
+    return host.append(heroCard(doc, latest, ctx, { note: behind ? s.text : null, noteCls: s.cls, stat: d.status === "partial" ? null : overrideStat(d.decisions, ctx.resolved), earlier }));
   }
   if (d.outOfReach) return host.append(chainOnly(doc, d, ctx));
   if (d.status !== "incomplete") return host.append(h(doc, "p", { class: "empty hero-empty" }, "No decision has been recorded on chain yet."));

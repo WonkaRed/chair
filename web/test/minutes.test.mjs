@@ -669,6 +669,37 @@ test("the hero and the log set the Chair's own closing line apart and say so in 
   for (const q of [...walk(old)].filter((n) => n.tag === "blockquote")) assert.equal(textOf(q), `${OWN_BODY} The Chair asks that this be recorded.`);
 });
 
+test("the hero leads with the newest recent closing sentence that passed when the newest meeting has none, labelled with its own meeting; else the plain summary stays", () => {
+  const BOOKED = `${OWN_HEAD}\n${OWN_BODY} ${CLOSING_BOOK}`;
+  const OWN = `${OWN_HEAD}\n${OWN_BODY} ${REMARK}`;
+  const OLDER = `${OWN_HEAD}\n${OWN_BODY} The Chair has noted the Chair's own enthusiasm.`;
+  const hero = (texts, over = {}) => {
+    const decisions = texts.map((t, i) => decision({ hash: sha(t), rateBps: 190, previousRateBps: 190, epoch: 310 - i, ...(i === 0 ? over : {}) }));
+    const resolved = new Map(decisions.map((x, i) => [x.tx, { text: texts[i], chair: "local:qwen3.8-27b", kind: "llm", source: null, onChain: true, verdict: "verified" }]));
+    const doc = fakeDoc();
+    const slot = host(doc);
+    renderHero(doc, slot, { decisions, policy, status: "complete" }, ctx(new Map(), resolved));
+    return slot;
+  };
+  const cls = (slot, c) => [...walk(slot)].filter((n) => n.attrs?.class === c).map(textOf);
+  const led = hero([BOOKED, BOOKED, OWN, OLDER]);
+  assert.deepEqual([...walk(led)].filter((n) => /m-own-line/.test(n.attrs?.class ?? "")).map(textOf), [REMARK], "the newest earlier sentence that passed leads");
+  assert.deepEqual(cls(led, "m-own-k"), ["Written by the AI in meeting 308. Meeting 310 has no closing line of its own."], "labelled with its own meeting, never as this one's");
+  assert.match(textOf(led), /Meeting 310/, "the card is still the newest meeting's");
+  assert.equal(cls(led, "plain-line").length, 1, "this meeting's numbers follow in plain size");
+  assert.equal(cls(led, "said-k").length, 1);
+  assert.equal(cls(led, "plain-line ai-line").length, 0, "no big plain line competes with the sentence");
+  assert.match(cls(led, "said-why")[0], /meeting 308.*filter.*fixed line/, "the filter's explanation moved into the full-minutes fold");
+  assert.ok([...walk(led)].some((n) => n.tag === "details" && /\bm-full\b/.test(n.attrs?.class ?? "") && [...walk(n)].some((c) => c.attrs?.class === "said-why")), "and it sits inside that fold");
+  assert.equal(cls(hero([OWN, OLDER]), "m-own-k")[0], OWN_LABEL, "a newest sentence that passed is never swapped for an older one");
+  const none = hero([BOOKED, BOOKED, BOOKED]);
+  assert.equal(cls(none, "plain-line ai-line").length, 1, "none passed: the plain summary leads as before");
+  assert.match(cls(none, "said-why")[0], /this summary leads instead/, "with its explanation in place");
+  const far = hero([BOOKED, ...Array(10).fill(BOOKED), OLDER]);
+  assert.equal(cls(far, "plain-line ai-line").length, 1, "a sentence beyond the lookback is not recent");
+  assert.equal(cls(hero([BOOKED, OWN], { byVisitor: true }), "plain-line ai-line").length, 1, "a visitor-forced newest meeting is not given the AI's sentence");
+});
+
 // ---- the formula's number beside the Chair's (chair-agent choice.ts `choiceLine`; chair-agent/test/choice.test.ts proves the page reads every form the agent writes)
 
 const FORMULA = "The formula suggested printing 0.12% a day.";

@@ -2,9 +2,13 @@
 
 An AI runs this memecoin's central bank. The contract keeps it on a leash.
 
-$CHAIR is a coin on a test network (NEAR testnet, not the real one). An AI called the Chair decides, every 90 seconds, whether to print more coins for the holders who staked them or to burn some, and writes down why. The model picks the rate within a band around a formula's advice and gives one reason from a fixed list, and each meeting's minutes end with one sentence it writes itself, checked by a filter before the Chair signs, with a fixed line as the fallback (detail in [`chair-agent/README.md`](chair-agent/README.md#the-chairs-own-remark)).
+![The $CHAIR page: the AI's newest minutes, the rate in force and the contract refusing a rate past its limit](web/site/og.png)
 
 Try it, no install: <https://wonkared.github.io/chair/>
+
+$CHAIR is a coin on a test network (NEAR testnet, not the real one). Every 90 seconds a local LLM picks the coin's print or burn rate. The contract refuses anything past its limits.
+
+Each meeting the AI, called the Chair, either prints more coins for the holders who staked them or burns some, and writes down why. It picks the rate within a band around a formula's advice and gives one reason from a fixed list. Each meeting's minutes end with one sentence the model writes itself, checked by a filter before the Chair signs, with a fixed line as the fallback (detail in [`chair-agent/README.md`](chair-agent/README.md#the-chairs-own-remark)). The minutes carry the model's name, as `chair local:qwen3.8-27b`: a model running on my own GPUs, not Claude.
 
 The Chair is given a formula's rate each meeting as advice and may choose another rate within 25 bps (0.25%) of it, always inside the contract's limits. Its minutes say what the formula suggested, what the Chair chose and why. Here are the minutes of meeting 669, recorded on chain and quoted exactly (its first two lines, a header and the rate, are left out; this is [the transaction](https://testnet.nearblocks.io/txns/9W2u49CdoosXPMBTh6D3zQ9QqgFZBHk2urkXjEyGUxNS), and the live page shows the newest ones):
 
