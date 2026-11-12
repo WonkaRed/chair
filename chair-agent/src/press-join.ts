@@ -23,8 +23,10 @@
 import type { PoolReader } from "./chain.js";
 import type { Reply } from "./press-overreach.js";
 import { SerialQueue, SlidingWindow } from "./press-window.js";
+import { RpcError } from "./rpc.js";
 import { stakedShareBps } from "./rule-chair.js";
-import type { PoolSender, SubmitResult } from "./signer.js";
+import { unconfirmedHash, type PoolSender, type SubmitResult } from "./signer.js";
+import { sanitize } from "./text.js";
 import type { PoolView } from "./types.js";
 
 export const DEFAULT_JOIN_LIMITS = {
@@ -139,6 +141,9 @@ function shareOf(v: PoolView): number {
   return stakedShareBps(v.snapshot.staking.totalStaked, v.snapshot.totalSupply);
 }
 
+/** What a log line says of a failure: its message, cleaned (it may come from a node). Never a key: nothing that reaches here holds one. */
+const why = (err: unknown): string => (err instanceof Error ? sanitize(err.message, 200) : "error");
+
 const joinedAt = (r: JoinRecord): string => `${r.direction} tx ${r.tx_hash} share ${r.share_before_bps} -> ${r.share_after_bps} bps`;
 
 /** After a reset the contract refused or that did not finish, the meetings to leave alone before the next try. */
@@ -233,7 +238,7 @@ export class Join {
       this.note(before);
       step = plan(before, this.limits);
     } catch (err) {
-      log(`not sent (${err instanceof Error ? err.message : "unreadable"})`);
+      log(`not sent (${why(err)})`);
       return { status: 503, body: { error: "the desk cannot read the chain just now", code: "desk_closed" } };
     }
     if (step.kind === "locked") return this.notNow(200, { status: "locked", line: LOCKED, retry_at_ms: step.unlockAtMs, now_ms: this.now() });
@@ -273,9 +278,10 @@ export class Join {
       log(joinedAt(record));
       return { status: 200, body: { status: step.direction === "join" ? "joined" : "stepped_down", ...record, pool: this.deps.poolAccount, now_ms: this.now() } };
     } catch (err) {
-      log(`${broadcast ? "unconfirmed" : "not sent"} (${err instanceof Error ? err.name : "error"})`);
+      log(`${broadcast ? "unconfirmed" : "not sent"} (${why(err)})`);
       if (!broadcast) return { status: 503, body: { error: "the desk cannot read the chain just now", code: "desk_closed" } };
-      return this.notNow(200, { status: "unconfirmed", line: UNCONFIRMED, ...(res === null ? {} : { tx_hash: res.txHash }) });
+      const txHash = res?.txHash ?? unconfirmedHash(err);
+      return this.notNow(200, { status: "unconfirmed", line: UNCONFIRMED, ...(txHash === null ? {} : { tx_hash: txHash }) });
     }
   }
 
@@ -299,7 +305,7 @@ export class Join {
       if (this.seen === null || this.seen.staked === 0n || this.now() - this.lastPressAt < this.limits.idleResetMs || !this.queue.hasRoom) return;
       await this.queue.run(() => this.idleReset());
     } catch (err) {
-      this.deps.log?.(`join idle-reset did not finish (${err instanceof Error ? err.name : "error"})`);
+      this.deps.log?.(`join idle-reset did not finish (${why(err)})`);
     } finally {
       this.watching = false;
     }
@@ -334,11 +340,15 @@ export class Join {
     await this.settled(0n).then((v) => this.note(v), () => undefined); // a miss is made good by the next look
   }
 
-  /** The pool at the newest block once its stake is `expected`: the move shows in it at once, or within a block or two. Throws when it never does. */
+  /** The pool at the newest block once its stake is `expected`: the move shows in it at once, or within a block or two. A read the node did not answer is one missed try. Throws when it never shows. */
   private async settled(expected: bigint): Promise<PoolView> {
     for (let i = 1; ; i++) {
-      const view = await this.deps.reader.pool();
-      if (view.staked === expected) return view;
+      try {
+        const view = await this.deps.reader.pool();
+        if (view.staked === expected) return view;
+      } catch (err) {
+        if (!(err instanceof RpcError && err.transient)) throw err;
+      }
       if (i >= this.limits.confirmTries) throw new Error("the new stake did not show on chain");
       await this.sleep(this.limits.confirmEveryMs);
     }

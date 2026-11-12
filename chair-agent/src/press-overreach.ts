@@ -12,7 +12,8 @@ import type { Reader } from "./chain.js";
 import { DEFAULT_BOUNDS, type Bounds, type RefusedRate } from "./bounds.js";
 import { SlidingWindow } from "./press-window.js";
 import { reasoningHash } from "./reasoning.js";
-import type { SubmitResult } from "./signer.js";
+import { unconfirmedHash, type SubmitResult } from "./signer.js";
+import { sanitize } from "./text.js";
 import type { Snapshot } from "./types.js";
 
 /** The text every overreach carries on chain, so a refusal a visitor caused can be told from the chair's own calls. No visitor text ever goes on chain: the rate is the only thing a visitor chooses. */
@@ -271,8 +272,9 @@ export class Overreach {
       note(`refused (${hit})`, res.txHash);
     } catch (err) {
       job.status = broadcast ? "unconfirmed" : "unreadable";
-      job.result = { line: broadcast ? UNCONFIRMED : UNREADABLE };
-      note(`${job.status} (${err instanceof Error ? err.name : "error"})`);
+      const tx = unconfirmedHash(err);
+      job.result = { line: broadcast ? UNCONFIRMED : UNREADABLE, ...(tx === null ? {} : { tx_hash: tx }) };
+      note(`${job.status} (${err instanceof Error ? sanitize(err.message, 200) : "error"})`, tx ?? undefined);
     } finally {
       if (broadcast) this.spacing.hit("all", this.now());
       this.active = null;

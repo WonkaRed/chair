@@ -99,17 +99,44 @@ export function policyArgs(rate: Rate | RefusedRate, reasoning: string): { rate_
   return { rate_bps: rate, reasoning_hash: reasoningHash(reasoning), reasoning };
 }
 
+/**
+ * How a send whose answer got lost is settled: look the transaction up by its hash, and send the same signed bytes again if no node knows it.
+ * `attempts` looks are taken, with pauses of `backoffMs`, twice that, and so on between them; `recoverMs` caps the whole recovery, so a caller never waits longer
+ * than that after the first answer failed (the agent's meeting margin is 15 s, a visitor's click should not hang).
+ */
+export interface SettleOptions {
+  readonly attempts?: number;
+  readonly backoffMs?: number;
+  readonly recoverMs?: number;
+  readonly sleep?: (ms: number) => Promise<void>;
+  readonly clock?: Clock;
+}
+
+/** A send that was signed and broadcast but never seen to execute: the transaction may still land, so the reply must name it. The cause's flags are kept. */
+export class UnconfirmedSend extends RpcError {
+  constructor(cause: RpcError, readonly txHash: string) {
+    super(`${cause.message} (transaction ${txHash} not confirmed)`, cause.methodMissing, cause.transient, cause.unaccepted);
+    this.name = "UnconfirmedSend";
+  }
+}
+
+/** The hash of the transaction a failed send had signed, or null when the error is not about a sent transaction. */
+export const unconfirmedHash = (err: unknown): string | null => (err instanceof UnconfirmedSend ? err.txHash : null);
+
 /** One key on one account, signing single function calls to the token. The subclasses decide which call they can construct. */
 abstract class TokenCaller {
   private readonly keys: KeyPairSigner;
+  protected readonly settle: Required<SettleOptions>;
   constructor(
     secretKey: string,
     readonly accountId: string,
     readonly token: string,
     protected readonly rpc: NearRpc,
+    settle: SettleOptions = {},
   ) {
     checkAccountId(accountId, "signer account");
     checkAccountId(token, "token account");
+    this.settle = { attempts: settle.attempts ?? 4, backoffMs: settle.backoffMs ?? 500, recoverMs: settle.recoverMs ?? 8_000, sleep: settle.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))), clock: settle.clock ?? realClock };
     try {
       this.keys = KeyPairSigner.fromSecretKey(secretKey as `ed25519:${string}`);
     } catch {
@@ -160,7 +187,42 @@ abstract class TokenCaller {
   }
 
   protected sendSigned(signed: SignedTransaction): Promise<SubmitResult> {
-    return this.rpc.sendTx(Buffer.from(signed.encode()).toString("base64"));
+    return this.deliver({ hash: hashOf(signed), tx: Buffer.from(signed.encode()).toString("base64") });
+  }
+
+  /** Waits out the pause between two looks at a transaction, doubling each time; false once the looks are used up. */
+  protected async pause(attempt: number): Promise<boolean> {
+    if (attempt >= this.settle.attempts) return false;
+    await this.settle.sleep(this.settle.backoffMs * 2 ** (attempt - 1));
+    return true;
+  }
+
+  /**
+   * Sends a signed transaction, every call of every signer through here. An answer that never came (timeout, throttle, dropped connection) does not say whether the
+   * node took it: so look it up by its hash, wait while it is still on its way, and send the identical signed bytes again, once, when the node does not know it. The same bytes
+   * cannot be paid twice (the network keeps one transaction per nonce), they are never signed again, and a transaction this young is not yet forgotten, so no archival
+   * look is needed here. The recovery ends within `recoverMs`; what it could not settle is thrown as `UnconfirmedSend`, which carries the hash.
+   */
+  protected async deliver(p: { readonly hash: string; readonly tx: string }): Promise<SubmitResult> {
+    try {
+      return await this.rpc.sendTx(p.tx);
+    } catch (err) {
+      if (!(err instanceof RpcError)) throw err;
+      if (!err.transient) throw new UnconfirmedSend(err, p.hash);
+      const until = this.settle.clock.now() + this.settle.recoverMs;
+      const within = <T>(work: () => Promise<T>): Promise<T> => withinDeadline(work, until, this.settle.clock);
+      for (let attempt = 1; await this.pause(attempt); attempt++) {
+        const seen = await within(() => this.rpc.txOutcome(p.hash, this.accountId)).catch(() => undefined);
+        if (seen?.executed === true) return { txHash: p.hash, failure: seen.failure };
+        if (seen !== null) continue;
+        try {
+          return await within(() => this.rpc.sendTx(p.tx));
+        } catch (again) {
+          throw again instanceof RpcError ? new UnconfirmedSend(again, p.hash) : again;
+        }
+      }
+      throw new UnconfirmedSend(err, p.hash);
+    }
   }
 }
 
@@ -305,14 +367,6 @@ export interface FaucetSender {
   grant(receiver: string, finished: ReadonlySet<FaucetStep>, pending: PendingTx | null, hooks: FaucetHooks, deadlineAt: number): Promise<FaucetOutcome>;
 }
 
-/** How a send whose answer got lost is settled: look the transaction up by its hash, and send the same signed bytes again if it was not seen to execute. */
-export interface SettleOptions {
-  readonly attempts?: number;
-  readonly backoffMs?: number;
-  readonly sleep?: (ms: number) => Promise<void>;
-  readonly clock?: Clock;
-}
-
 /**
  * The press desk's faucet signer. The only actions it can construct are the three of one grant to a visitor's own new account: a Transfer of
  * `FAUCET_GRANT_NEAR`, the token's `storage_deposit` for that account with `FAUCET_STORAGE_DEPOSIT`, and `ft_transfer` of `FAUCET_GRANT_CHAIR`
@@ -321,12 +375,9 @@ export interface SettleOptions {
  * needs it); the account holds only the faucet's budget.
  */
 export class FaucetSigner extends TokenCaller implements FaucetSender {
-  private readonly settle: Required<SettleOptions>;
-
   /** `archival` is asked after the ordinary nodes, because it still knows a transaction they forgot (about 31 hours); it settles nothing by not knowing one (see `settleKnown`). */
   constructor(secretKey: string, accountId: string, token: string, rpc: NearRpc, private readonly archival: NearRpc, settle: SettleOptions = {}) {
-    super(secretKey, accountId, token, rpc);
-    this.settle = { attempts: settle.attempts ?? 4, backoffMs: settle.backoffMs ?? 1000, sleep: settle.sleep ?? ((ms) => new Promise((r) => setTimeout(r, ms))), clock: settle.clock ?? realClock };
+    super(secretKey, accountId, token, rpc, settle);
   }
 
   private checkReceiver(receiver: string): void {
@@ -385,13 +436,6 @@ export class FaucetSigner extends TokenCaller implements FaucetSender {
     return { txs, failed: null };
   }
 
-  /** Waits out the pause between two looks at a transaction, doubling each time; false once the looks are used up. */
-  private async pause(attempt: number): Promise<boolean> {
-    if (attempt >= this.settle.attempts) return false;
-    await this.settle.sleep(this.settle.backoffMs * 2 ** (attempt - 1));
-    return true;
-  }
-
   /**
    * The rule: a step gets a fresh signature ONLY after its stored transaction is seen executed with an ACTION failure on the chain (`TxStatus.executed`
    * with a `failure`: one of its actions failed, so its nonce is used and it ran). Nothing else ever leads to a new signature: not a rejected resend
@@ -428,25 +472,6 @@ export class FaucetSigner extends TokenCaller implements FaucetSender {
       await this.rpc.sendTx(p.tx);
     } catch (err) {
       if (!(err instanceof RpcError)) throw err;
-    }
-  }
-
-  /**
-   * Sends a new transaction. An answer that never came (timeout, throttle, dropped connection) does not say whether the node took it: so look it up
-   * by its hash, wait while it is still on its way, and send the identical signed bytes again when the node does not know it. The same bytes cannot be
-   * paid twice (the network keeps one transaction per nonce), and a transaction this young is not yet forgotten, so no archival look is needed here.
-   */
-  private async deliver(p: PendingTx): Promise<SubmitResult> {
-    try {
-      return await this.rpc.sendTx(p.tx);
-    } catch (err) {
-      if (!(err instanceof RpcError) || !err.transient) throw err;
-      for (let attempt = 1; await this.pause(attempt); attempt++) {
-        const seen = await this.rpc.txOutcome(p.hash, this.accountId).catch(() => undefined);
-        if (seen?.executed === true) return { txHash: p.hash, failure: seen.failure };
-        if (seen === null) return this.rpc.sendTx(p.tx);
-      }
-      throw err;
     }
   }
 }
