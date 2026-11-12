@@ -23,9 +23,10 @@ export const PROJECT_TEST_CALLS = new Set([
 ]);
 
 /** The contract's panic messages (contract/src/lib.rs, policy.rs) in plain words. The raw text stays on screen beside it. */
+const OUT_OF_BOUNDS = /^rate_bps out of bounds/;
 const HUMAN = [
   [/^only the chair may set policy/, "The account that signed was not the chair."],
-  [/^rate_bps out of bounds/, "The rate asked for was beyond the contract's limit: it can never go above 2% a day when printing or 2% of a transfer when burning."],
+  [OUT_OF_BOUNDS, "The rate asked for was beyond the contract's limit: it can never go above 2% a day when printing or 2% of a transfer when burning."],
   [/^rate step too large/, "The rate asked for was more than 0.5% away from the rate in effect."],
   [/^policy already set this epoch/, "The chair had already decided in that meeting."],
   [/^reasoning_hash must be/, "The reasoning hash was not a SHA-256 digest."],
@@ -114,10 +115,12 @@ const sentBy = (r, sitting) => (r.byVisitor ? "A visitor had the Chair's account
 
 /**
  * The newest refusal on chain that says what was asked for, as the stamp it is, for the top of the page: the contract's own answer to a rate it will not take.
+ * One that went past the limit is preferred, since that is the cap holding; a wrong signer or a step that was too large is the stamp only when none did.
  * Nothing is drawn when there is none (or the index could not be read). It is drawn again only when the newest one changes, so its stamp lands once.
  */
 export function renderHeroStamp(doc, host, d, { explorer }) {
-  const r = d.status === "incomplete" ? undefined : d.refusals.find((x) => x.rateBps !== null);
+  const asked = d.status === "incomplete" ? [] : d.refusals.filter((x) => x.rateBps !== null);
+  const r = asked.find((x) => OUT_OF_BOUNDS.test(x.reason)) ?? asked[0];
   if (r === undefined) return;
   if (host.dataset.tx === r.tx) return;
   host.dataset.tx = r.tx;

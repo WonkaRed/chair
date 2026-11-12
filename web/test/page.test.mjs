@@ -10,7 +10,7 @@ import { fakeDoc, host, walk } from "./fakedom.mjs";
 
 const root = join(fileURLToPath(import.meta.url), "..", "..");
 const site = (f) => import(join(root, "site", "js", f));
-const { plainPct, plainSigned, askedRate, printUnit, everyEpoch, plainDecision, renderPlain } = await site("views.js");
+const { plainPct, plainSigned, askedRate, printUnit, everyEpoch, plainDecision, renderPlain, silentLine, silentPath } = await site("views.js");
 const { setupReveal, openFoldsAround } = await site("reveal.js");
 const { renderHero, renderHeroPending, renderMinutes, overrideStat, ownLines } = await site("minutes.js");
 const { renderRefusals, renderHeroStamp } = await site("refusals.js");
@@ -282,6 +282,35 @@ test("the page speaks as one person and keeps its typography plain", async () =>
     assert.doesNotMatch(visible, /\bwe\b|\bour\b|\bours\b|submitter|this project/i, `${f}: the page says I, not we`);
     assert.doesNotMatch(src.split("\n").filter((l) => !l.includes(".replace(")).join("\n"), /\u2014|\u2013/, `${f}: no en or em dashes (the one input normaliser that accepts them is exempt)`);
   }
+});
+
+test("the hero stamp prefers the newest refusal past the limit (the cap holding) over a newer one for a wrong signer or a big step, and falls back to the newest when none went past it", () => {
+  const r = (n, over = {}) => ({ tx: String(n).repeat(44), signer: "chair.test.near", rateBps: 500, reason: "rate_bps out of bounds: must be within -200..=200", tsMs: 1_700_000_000_000, byVisitor: false, ...over });
+  const stamp = (refusals) => {
+    const doc = fakeDoc();
+    const slot = host(doc);
+    renderHeroStamp(doc, slot, { status: "complete", refusals }, { explorer: "https://example.invalid" });
+    return slot;
+  };
+  const wrong = r(1, { rateBps: 0, reason: "only the chair may set policy: caller x is not the chair" });
+  const step = r(2, { rateBps: 150, reason: "rate step too large: 150 from 0" });
+  const unreadable = r(3, { rateBps: null });
+  const over = stamp([wrong, step, unreadable, r(4, { rateBps: 201 }), r(5, { rateBps: -800 })]);
+  assert.match(text(find(over, (n) => n.attrs?.class === "or-stamp")[0]), /^2\.01% a day: Refused by the contract$/, "the newest one past the limit, not the newer wrong signer");
+  assert.match(text(over), /can never go above 2% a day/);
+  assert.equal(find(over, (n) => n.tag === "a")[0].attrs.href, `https://example.invalid/txns/${"4".repeat(44)}`);
+  assert.match(text(stamp([wrong, step])), /^0%: Refused by the contract/, "none past the limit: the newest that says what it asked for");
+  assert.match(text(find(stamp([unreadable, step, wrong]), (n) => n.attrs?.class === "or-stamp")[0]), /^1\.50% a day/, "an unreadable rate is never the stamp");
+});
+
+test("the silent-path sentence reads cleanly for a rate at 0%, one more step, and several", () => {
+  const line = (rate, set = true) => silentLine(silentPath({ rateBps: rate, epoch: 9, lastSetEpoch: set ? 9 : 5 }));
+  assert.equal(line(0), "If the chair does nothing more, every following meeting runs at 0%.");
+  assert.equal(line(27), "If the chair does nothing more, the next meeting runs at +0.27%, and every meeting after that at 0%.");
+  assert.equal(line(-27), "If the chair does nothing more, the next meeting runs at \u22120.27%, and every meeting after that at 0%.");
+  assert.equal(line(100), "If the chair does nothing more, the next meetings run at +1%, then +0.50%, and every meeting after that at 0%.");
+  assert.equal(line(27, false), "If the chair does nothing more, every following meeting runs at 0%.", "an undecided meeting decays at once");
+  assert.equal(silentLine([40, 30, 20]), "If the chair does nothing more, the next meetings run at +0.40%, then +0.30%, then +0.20%, and the rate keeps stepping toward 0%.", "a path cut short says it is still on its way");
 });
 
 test("the hero stamp: the newest refusal with its rate, the contract's plain reason and a transaction link; drawn once per refusal; nothing when there is none", () => {
