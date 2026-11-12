@@ -1,4 +1,4 @@
-// The worst case the contract allows, stated plainly and from the contract's own numbers. Every figure in the "What if the Chair went rogue?"
+// The worst case the contract allows, stated plainly and from the contract's own numbers. Every figure in the "How bad could a rogue Chair get?"
 // section comes from `worstCase`, and the restraints are one list (`RESTRAINTS`): to change or add a sentence, edit it here and nowhere else.
 // Nothing is claimed that the contract does not enforce.
 import { h } from "./dom.js";
@@ -78,7 +78,7 @@ function longSpan(hours) {
 export const RESTRAINTS = [
   {
     head: "Holders can fire the Chair.",
-    body: (p) => `Anyone who stakes can back a challenger. A challenger with more than ${plainPct(p.impeachThresholdBps)} of the staked coins behind them (and more than ${plainPct(p.quorumBps)} of all coins) takes the seat at the next meeting. This has already happened on the testnet, at meeting ${IMPEACHMENT.epoch}. My own scripted accounts did it, not a crowd.`,
+    body: (p) => `Anyone who stakes can back a challenger. A challenger with more than ${plainPct(p.impeachThresholdBps)} of the staked coins behind them (and more than ${plainPct(p.quorumBps)} of all coins) takes the seat at the next meeting. This has already happened on the testnet, at meeting ${IMPEACHMENT.epoch}.`,
   },
   {
     head: "New coins go only to people who staked.",
@@ -110,7 +110,7 @@ export function boundText(params) {
   }
   const times = (n) => `${sig(n, 3)} times`;
   return {
-    lead: `The Chair can print at most ${plainPct(p.maxRateBps)} of all coins a day. A meeting comes ${everyEpoch(p.epochMs)}, and each one prints only ${p.meetingsPerDay > 1 ? `1/${grouped(p.meetingsPerDay)} of ` : ""}that day's rate. It cannot jump to the ceiling either: ${ramp}`,
+    lead: `The rate can never go above ${plainPct(p.maxRateBps)} a day. A meeting comes ${everyEpoch(p.epochMs)}, and each one prints only ${p.meetingsPerDay > 1 ? `1/${grouped(p.meetingsPerDay)} of ` : ""}that day's rate. It cannot jump to the ceiling either: ${ramp}`,
     worst: `Even if it holds the rate at the ceiling forever, the supply grows by at most about ${sig((w.perDay - 1) * 100, 3)}% a day: the ${plainPct(p.maxRateBps)} plus a little, because each meeting's new coins count toward the next. The only hard stop is a supply limit written into the code, about ${grouped(sig(w.capMultiple, 2))} times the launch supply.`,
     figures: [
       { k: "In a day", v: `+${sig((w.perDay - 1) * 100, 3)}%` },

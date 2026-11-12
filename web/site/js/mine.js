@@ -19,7 +19,6 @@ const MEETING_GRACE_MS = 3_000; // the chain applies a meeting a little after it
 const SETTLE_MS = 10_000; // after a call, the numbers are read again until they move, for at most this long
 const SETTLE_STEP_MS = 1_000;
 export const SEND_TIMEOUT_MS = 45_000; // one node's time to run a transaction
-const LIFETIME_COINS = "10000"; // the most the faucet can ever give: its visitor cap times the grant
 
 export const NO_ED25519 = "This browser cannot make the key your test account needs, so this part of the page is switched off. A recent Chrome, Edge, Firefox or Safari can.";
 export const HELP = "Stake locks coins up: staked coins earn the new coins the Chair prints, and count as votes. Unstake takes them out again after two meetings. Claim moves what they earned into your wallet.";
@@ -123,16 +122,15 @@ function closedNote(closed, now) {
 /**
  * The whole panel, from plain state. `supported` is whether this browser has ed25519 (null while that is being checked), `desk` is "on" when the faucet reports
  * it is on, `key` is `{ accountId, funded }` or null, `account` is the last read of the chain (`wallet`, `staked`, `pending` as BigInt, `unlockAtMs`), `readFailed`
- * says the last read did not work, `closed` is why the faucet will not give coins now, `result` is what the last action did, `grant` is `{ coins, percent, cap }`:
- * what one visit gets, and that and the faucet's whole lifetime limit as shares of the supply (null while the supply is not known). A browser that holds a key sees
+ * says the last read did not work, `closed` is why the faucet will not give coins now, `result` is what the last action did, `grant` is `{ coins, percent }`:
+ * what one visit gets, and that as a share of the supply (null while the supply is not known). A browser that holds a key sees
  * the panel and a Try again button whatever the faucet says: the desk answers a key it has already seen even when it is closed to new ones.
  */
-export function mineModel({ supported = null, desk = null, key = null, creating = false, closed = null, account = null, readFailed = false, busy = null, amountText = DEFAULT_AMOUNT, receiverText = "", result = null, kept = true, grant = { coins: "50", percent: null, cap: null }, now = 0 } = {}) {
+export function mineModel({ supported = null, desk = null, key = null, creating = false, closed = null, account = null, readFailed = false, busy = null, amountText = DEFAULT_AMOUNT, receiverText = "", result = null, kept = true, grant = { coins: "50", percent: null }, now = 0 } = {}) {
   const funded = key?.funded === true;
   const honest = [
     "These are test coins from a pool I control. They have no value, and nothing of yours is spent.",
     `Your ${grant.coins} coins are ${grant.percent === null ? "a tiny share" : grant.percent} of the supply, far too few to move the Chair's rate.`,
-    `The faucet can give out at most 10,000 coins in total (200 visitors x 50), ${grant.cap ?? "about 1%"} of the coins that exist, on purpose: visitors can never vote the Chair out, which takes over 5%.`,
   ];
   const base = { honest, help: HELP, result };
   const held = key !== null;
@@ -347,7 +345,7 @@ export function createMine(doc, host, { section = null, link = null, request, po
   const how = h(doc, "details", { class: "fold mn-how" });
   host.append(getBox, unsupported, fundedBox, honest, how);
 
-  const snapshot = () => ({ supported, desk, key, creating, closed, account, readFailed, busy, amountText: amount.value ?? "", receiverText: receiver.value ?? "", result, kept, grant: { coins: grantCoins, percent: sharePercent(grantCoins, supply()), cap: sharePercent(LIFETIME_COINS, supply()) }, now: now() });
+  const snapshot = () => ({ supported, desk, key, creating, closed, account, readFailed, busy, amountText: amount.value ?? "", receiverText: receiver.value ?? "", result, kept, grant: { coins: grantCoins, percent: sharePercent(grantCoins, supply()) }, now: now() });
   const model = () => mineModel(snapshot());
 
   function renderHow() {

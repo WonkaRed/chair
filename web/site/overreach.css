@@ -4,7 +4,7 @@
 #overreach .preset:hover:not(:disabled) { border-color: var(--brass); transform: translateY(-2px); }
 #overreach .preset[aria-pressed="true"] { border-color: var(--brass); background: rgb(224 194 106 / 0.14); box-shadow: 0 0 0 1px var(--brass); }
 #overreach .preset:disabled { opacity: 0.5; cursor: not-allowed; }
-#overreach .p-big { font: 700 clamp(1.9rem, 4vw, 2.7rem)/1 var(--serif); font-variant-numeric: lining-nums; }
+#overreach .p-big { white-space: nowrap; font: 700 clamp(1.9rem, 4vw, 2.7rem)/1 var(--serif); font-variant-numeric: lining-nums; }
 #overreach .tag { color: var(--muted); }
 #overreach .or-row { display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center; margin-bottom: 1rem; }
 #overreach .or-or { color: var(--muted); font-size: 0.92rem; }
@@ -43,6 +43,7 @@
 #overreach .chip { color: var(--ink); background: transparent; }
 #overreach .or-how { margin-top: 1.25rem; }
 #overreach .or-how > :not(summary) { max-width: 60ch; }
+#overreach .or-how .note { color: var(--ink); font-size: 1rem; }
 @media (max-width: 30rem) { #overreach input[type="text"] { flex-basis: 100%; } #overreach .or-or { flex-basis: 100%; } }
 
 /* The stamp lands: it arrives large and tilted and settles with a thud. */
@@ -66,3 +67,9 @@
 #overreach .or-check { margin-top: 1rem; }
 #overreach .or-check .or-tx { margin: 0.2rem 0 0.8rem; }
 #overreach .or-check .acct { font-family: var(--mono); overflow-wrap: anywhere; }
+
+@media (max-width: 40rem) {
+  #overreach .or-presets { gap: 0.5rem; }
+  #overreach .preset { padding: 0.8rem 0.7rem; }
+  #overreach .p-big { font-size: 1.55rem; }
+}

@@ -5,17 +5,20 @@ import { clear, h } from "./dom.js";
 import { renderEarlier } from "./earlier.js";
 import { renderGuarantees, VERIFY_COMMAND } from "./guarantees.js";
 import { holdersModel, renderHolders, renderHoldersUnavailable } from "./holders.js";
-import { loadEarlier, loadLog } from "./loadlog.js";
+import { createLive } from "./live.js";
+import { loadEarlier, loadLog, parsePolicy } from "./loadlog.js";
 import { createJoin } from "./join.js";
 import { createMine, SEND_TIMEOUT_MS } from "./mine.js";
-import { loadTexts, renderHero, renderMinutes, resolveTexts } from "./minutes.js";
+import { decisionsOfTxs } from "./decisions.js";
+import { loadTexts, renderHero, renderHeroPending, renderMinutes, resolveTexts } from "./minutes.js";
 import { createOverreach } from "./overreach.js";
 import { keepFoldsOpen } from "./keepopen.js";
 import { setupPhoneFolds } from "./phonefold.js";
 import { createPress, pressFromChain } from "./press.js";
 import { linkFallback, newestAnswer, setPullQuote } from "./pullquote.js";
-import { renderRefusals } from "./refusals.js";
+import { refusalDisclosure, renderHeroStamp, renderRefusals } from "./refusals.js";
 import { openFoldsAround, setupReveal } from "./reveal.js";
+import { setupTabs } from "./tabs.js";
 import { BEHAVIOURS, simulate } from "./simview.js";
 import { failoverPoster, fixtureTransport, rpcTransport } from "./sources.js";
 import { isTxHash, safeText } from "./text.js";
@@ -94,7 +97,35 @@ async function showChain() {
   const explorer = made.fixture ? null : config.explorerUrl;
   const indexerUrl = made.fixture ? null : config.indexerUrl;
   const contextFor = (bundled, resolved, params) => ({ texts: bundled, resolved, explorer, indexerUrl, repoBase: `${config.repoUrl}/blob/${config.repoRef}`, network: made.fixture ? null : config.network, unit: printUnit(params) });
-  const drawHero = (d, ctx) => keepFoldsOpen($("hero-minutes"), () => renderHero(doc, $("hero-minutes"), d, ctx)); // every read redraws it: its silence line follows the meeting, and an open proof stays open
+  let heroEpoch = null; // the meeting of the decision the hero shows, once it shows one
+  const drawHero = (d, ctx) => {
+    keepFoldsOpen($("hero-minutes"), () => renderHero(doc, $("hero-minutes"), d, ctx)); // every read redraws it: its silence line follows the meeting, and an open proof stays open
+    // Where the two columns stack, the minutes (and their mark) fall below the first screen: a link-sized copy of the mark, only for a minute that checked out, sits under the sentence.
+    const mark = $("hero-minutes").querySelector(".minutes-paper.verified .seal .verdict");
+    const quick = $("hero-verified");
+    clear(quick);
+    quick.hidden = mark === null;
+    if (mark !== null) quick.append(h(doc, "a", { class: mark.className, href: "#hero-minutes" }, mark.textContent.trim()));
+    const meeting = d.decisions[0]?.epoch ?? null;
+    if (meeting !== null && heroEpoch !== null && meeting > heroEpoch) $("hero-minutes").firstElementChild?.classList.add("fresh"); // a minute that arrives while the page is open eases in (style.css; not under reduced motion)
+    if (meeting !== null) heroEpoch = meeting;
+  };
+  const live = config.fixture === null ? createLive(doc, $("next-meeting"), {
+    readPolicy: () => made.transport.view("get_policy").then(parsePolicy),
+    reload: async () => {
+      await reloadChain();
+      return shown?.decisions[0]?.epoch ?? -1;
+    },
+  }) : null;
+  /** The chain's views have answered but the index has not: what is already true goes in the hero (see `renderHeroPending`), unless a read has drawn it. */
+  const showPending = async ({ policy, params }) => {
+    const bundled = await texts;
+    const remembered = decisionsOfTxs(made.transport.remembered?.() ?? [], made.transport.token).decisions.slice(0, 1);
+    const resolved = await resolveTexts(remembered, bundled);
+    if (!pendingOpen) return;
+    renderHeroPending(doc, $("hero-minutes"), { policy, remembered }, contextFor(bundled, resolved, params));
+  };
+  let pendingOpen = true; // false once any read has drawn the hero for real
   const run = async () => {
     let data;
     let over = false; // the whole read has ended: its own hero draw is the last word
@@ -105,12 +136,14 @@ async function showChain() {
       const resolved = await resolveTexts([decision], bundled);
       if (over) return;
       early = true;
+      pendingOpen = false;
       drawHero({ decisions: [decision], remembered: [], status: "partial", policy }, contextFor(bundled, resolved, params));
     };
     try {
-      data = await loadLog(made.transport, { onViews: (views) => showViews(views, made), onLatest: showLatest });
+      data = await loadLog(made.transport, { onViews: (views) => (showViews(views, made), live?.setPolicy(views.policy), pendingOpen && !over && !early && void showPending(views)), onLatest: showLatest });
     } catch (e) {
       over = true;
+      pendingOpen = false;
       if (shown !== null) {
         // A failed retry must not take down what was read: keep it, and say quietly that the chain is out of reach for the moment.
         renderReconcile(doc, $("reconcile"), shown, { onRetry: run });
@@ -149,6 +182,9 @@ async function showChain() {
     keepFoldsOpen($("minutes-body"), () => renderMinutes(doc, $("minutes-body"), data, ctx, minutesView));
     renderEarlier(doc, $("minutes-earlier"), data, { what: "decisions", label: "Show earlier meetings", more });
     renderRefusals(doc, $("refusals-body"), data, { explorer, indexerUrl });
+    renderHeroStamp(doc, $("hero-stamp"), data, { explorer });
+    const disclosure = refusalDisclosure(data);
+    if (disclosure !== null) $("limits-refusals").textContent = disclosure;
     renderEarlier(doc, $("refusals-earlier"), data, { what: "refusals", label: "Show earlier refusals", more });
     renderReconcile(doc, $("reconcile"), data, { onRetry: run });
     const draw = () => renderLog(doc, $("log-body"), data, state, { explorer, indexerUrl, rerender: draw });
@@ -156,6 +192,8 @@ async function showChain() {
     renderEarlier(doc, $("log-earlier"), data, { what: "mints and burns", label: "Show earlier mints and burns", more });
     if (earlier && !before?.outOfReach) return; // an earlier read changes the hero only when it has just found the first decision
     // What the read-ahead drew stands when the index failed part-way and the whole read has no decision to say.
+    live?.setPolicy(data.policy);
+    pendingOpen = false;
     if (data.decisions.length > 0 || !early) drawHero(data, ctx);
     overreach.refresh();
     committee.refresh();
@@ -186,7 +224,7 @@ function stayedPut(series) {
   if (flat.length < 2) return "";
   const worst = Math.max(...flat.flatMap((s) => s.supplyPct.map((v) => Math.abs(v - 100))));
   const names = flat.map((s) => s.label).join(", ").replace(/, ([^,]*)$/, " and $1");
-  return ` ${names} all stay within ${worst.toFixed(2)}% of the launch supply, so they run together here as bands of colour. The rate chart under More charts shows how they differ.`;
+  return ` ${names} all stay within ${worst.toFixed(2)}% of the launch supply, so they run together here as bands of colour. The rate chart above shows how they differ.`;
 }
 
 function showSimulation() {
@@ -198,8 +236,9 @@ function showSimulation() {
     lineChart(doc, { title: "Rate in effect", caption: "Basis points. Above zero mints for stakers, as basis points of supply a day, shared out over the day's meetings. Below zero burns a share of each transfer.", series: series("rateBps"), domain: [-200, 200], fmt: (v, axis) => (axis ? fmtRate(Math.round(v)).replace(" bps", "") : fmtRate(Math.round(v))), guides: [] }),
     lineChart(doc, { title: "Staking reward per epoch", caption: "New tokens an epoch's mint pays per staked token, as a percentage of the stake. Zero whenever the rate is not positive.", series: series("rewardPct"), fmt: (v, axis) => (axis ? `${v}%` : `${v.toFixed(3)}% of stake`) }),
   ];
-  $("sim-charts").append(charts[0].element); // one chart up front; the other two sit in the fold-out
-  for (const c of charts.slice(1)) $("sim-charts-more").append(c.element);
+  // Up front, the chart that tells all five apart (the rate); the two where some of them run together sit in the fold-out.
+  $("sim-charts").append(charts[1].element);
+  for (const c of [charts[0], charts[2]]) $("sim-charts-more").append(c.element);
 
   const legend = $("sim-legend");
   const visible = new Set(BEHAVIOURS.map((b) => b.id));
@@ -245,7 +284,6 @@ function showSimulation() {
 
 function showGuarantees() {
   $("guarantee-list").append(renderGuarantees(doc, config));
-  $("verify-cmd").textContent = VERIFY_COMMAND;
   const copy = $("copy");
   copy.addEventListener("click", async () => {
     try {
@@ -261,6 +299,7 @@ function showGuarantees() {
 /** Sections ease in as they are reached; a link into a folded section opens the fold. */
 function setupPage() {
   setupPhoneFolds(doc);
+  const tabs = setupTabs(doc, $("try"));
   setupReveal([...doc.querySelectorAll(".reveal")], doc.documentElement);
   const open = (fragment) => {
     let id = "";
@@ -271,6 +310,8 @@ function setupPage() {
     }
     const target = id === "" ? null : doc.getElementById(id);
     if (target) {
+      const panel = tabs?.panelOf(target);
+      if (panel) tabs.select(panel); // a link to a panel of the "Try it" strip opens its tab
       for (const fold of target.querySelectorAll(":scope > .phone-fold")) fold.open = true; // a link to a section opens its phone fold
       openFoldsAround(target);
     }

@@ -51,14 +51,14 @@ test("the panel says the live figures in plain words and the past impeachment wi
   assert.equal(fold.length, 1, "the challenger list and the past replacement sit in one phone fold");
   assert.match(text(fold[0]), /Challengers right now.*It has already happened once/);
   assert.doesNotMatch(text(fold[0]), /Who holds the seat/, "the figures above the fold stay outside it");
-  assert.match(t, /Who holds the seat.*The Chair's account.*challenger\.chair-coin-3\.testnet.*654 meetings in office\./, "a human label leads, the raw account name is the detail");
+  assert.match(t, /Who holds the seat.*challenger\.chair-coin-3\.testnet.*Took the seat at meeting 10, when stakers voted out the first Chair\..*654 meetings in office\./, "the seat says how it was won");
   assert.match(t, /600 000 of 1 600 000 coins\. Every coin the Chair prints is shared among these\./);
   assert.match(t, /654 meetings in office\./);
   assert.match(t, /180 000 coins/);
   assert.match(t, /more than 30% of the staked coins and 5% of all coins behind them/);
   assert.match(t, /Nobody is challenging the Chair right now\./);
   assert.match(t, /At meeting 10, stakers backing 400,000 of the 400,000 staked coins replaced the first Chair/);
-  assert.match(t, /my own scripted test accounts voting, not a crowd/);
+  assert.doesNotMatch(t, /scripted/, "who the voters were is told under the honest limits");
   assert.match(t, /Holders do not set the rate\. The Chair does/);
   assert.match(t, /How a holder does it/);
   assert.deepEqual(find(el, (n) => n.tag === "a").map((n) => n.attrs.href), ["https://explorer.example/txns/6Wd6BQSZ7GdNYcD2sXkaubK86y4DSnAYeVWnT2SWE7Cn", "https://repo.example/SPEC.md"]);

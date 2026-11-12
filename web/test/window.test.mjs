@@ -84,15 +84,15 @@ test("refusals over the newest transactions say what was read, and never that th
   const withTests = host();
   renderRefusals(fakeDoc(), withTests, { ...base, partial: true, status: "complete", refusals: [refusal(known)] }, { explorer: null });
   assert.match(withTests.textContent, /In none of the refusals read here did the AI chair choose a rate the contract refused\./);
-  assert.match(withTests.textContent, /1 refused set_policy call read \(the latest 200 transactions and the test calls made on purpose\)/);
+  assert.match(withTests.textContent, /1 refused call read \(the latest 200 transactions and the test calls made on purpose\)/);
 
   const none = host();
   renderRefusals(fakeDoc(), none, { ...base, partial: true, status: "complete", refusals: [] }, { explorer: null });
-  assert.equal(none.textContent, "The contract has refused no set_policy call in the transactions read.");
+  assert.equal(none.textContent, "The contract has refused no call to set the rate in the transactions read.");
 
   const whole = host();
   renderRefusals(fakeDoc(), whole, { ...base, partial: false, status: "complete", refusals: [] }, { explorer: null });
-  assert.equal(whole.textContent, "The contract has refused no set_policy call yet.");
+  assert.equal(whole.textContent, "The contract has refused no call to set the rate yet.");
   const all = host();
   renderRefusals(fakeDoc(), all, { ...base, partial: false, status: "complete", refusals: [refusal(known)] }, { explorer: null });
   assert.match(all.textContent, /In none of them did the AI chair choose a rate the contract refused\./);
@@ -136,10 +136,10 @@ test("when the known test refusals could not be read, no line says they were: ea
   assert.doesNotMatch(scopeLine(missing, "refusals"), /always|read by their hashes/);
   const out = host();
   renderRefusals(fakeDoc(), out, { ...missing, status: "complete", refusals: [refusal("T".repeat(43))] }, { explorer: null });
-  assert.ok(out.textContent.includes(`1 refused set_policy call read (the latest 200 transactions ${line})`), out.textContent);
+  assert.ok(out.textContent.includes(`1 refused call read (the latest 200 transactions ${line})`), out.textContent);
   const none = host();
   renderRefusals(fakeDoc(), none, { ...missing, status: "complete", refusals: [] }, { explorer: null });
-  assert.equal(none.textContent, `The contract has refused no set_policy call in the transactions read (2 of the ${n} test calls made on purpose could not be read just now).`);
+  assert.equal(none.textContent, `The contract has refused no call to set the rate in the transactions read (2 of the ${n} test calls made on purpose could not be read just now).`);
 });
 
 test("a window with no decision in it says so, in the hero and the list, and never that the index could not be read or that none was ever made", () => {
