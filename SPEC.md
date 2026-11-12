@@ -311,7 +311,7 @@ then logs the four `rate_decayed` events, and transfers, staking and a new `set_
 `supply * rate / (10_000 * meetings_per_day)`, with `meetings_per_day = ceil(86_400_000 / epoch_ms)` fixed by the epoch
 length at launch (960 at 90 s; 2880 at 30 s; 1 for an epoch of a day or more). The divisor is rounded up so a span of 24 hours
 never holds more boundaries than the divisor: epochs sit on a fixed grid `epoch_ms` apart, and a half-open span of `D` ms
-holds at most `ceil(D / epoch_ms)` of them. The chair is bounded at `|rate| <= 200` (2% a day) and the bound is checked by
+holds at most `ceil(D / epoch_ms)` of them. The rate is per day for epochs of 12 hours or less (to within the rounding up of the divisor), and at most the rate per day for longer epochs. The chair is bounded at `|rate| <= 200` (2% a day) and the bound is checked by
 `set_policy` and by nothing else; the step of 50 bps per epoch still applies to the per-day level, which means a chair can
 walk the rate from 0 to 200 in four meetings (six minutes); that is harmless, because a meeting at 200 mints only one 48,000th of the supply.
 
@@ -323,7 +323,7 @@ rollover that was applied late applies each boundary on its own, so waiting chan
 | --- | --- | --- | --- |
 | one meeting | 1 | 1.0000208 | |
 | 1 hour | 40 | 1.000833 | |
-| one day | 960 | `(1 + 1/48_000)^960` = 1.0202011 (2.02%, not 2%) | 1.020169x from launch (the first four epochs climb); largest over any 960 epochs 1.020201x |
+| one day | 960 | `(1 + 1/48_000)^960` = 1.0202011 (about 2.02% a day, exactly 2.02011%) | 1.020169x from launch (the first four epochs climb); largest over any 960 epochs 1.020201x |
 | 7 days | 6_720 | 1.1502721 | 1.150236x |
 | 30 days | 28_800 | 1.8221074 | 1.822050x |
 

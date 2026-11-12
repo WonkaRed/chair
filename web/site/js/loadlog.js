@@ -36,9 +36,15 @@ export function parseSupply(v) {
   }
 }
 
+/** `meetings_per_day` divides the mint, so a chain that reports 0 is malformed, not "no limit". */
+const positive = (v, what) => {
+  if (int(v, what) === 0) throw new SourceError("rpc", `${what}: must be at least 1`);
+  return v;
+};
+
 export function parseParams(v) {
   if (!isObj(v)) throw new SourceError("rpc", "get_params: not an object");
-  return { epochMs: int(v.epoch_ms, "epoch_ms"), startMs: int(v.start_ms, "start_ms"), maxRateBps: int(v.max_rate_bps, "max_rate_bps"), maxStepBps: int(v.max_step_bps, "max_step_bps"), impeachThresholdBps: int(v.impeach_threshold_bps, "impeach_threshold_bps"), quorumBps: v.quorum_bps === undefined ? null : int(v.quorum_bps, "quorum_bps") };
+  return { epochMs: int(v.epoch_ms, "epoch_ms"), startMs: int(v.start_ms, "start_ms"), maxRateBps: int(v.max_rate_bps, "max_rate_bps"), maxStepBps: int(v.max_step_bps, "max_step_bps"), impeachThresholdBps: int(v.impeach_threshold_bps, "impeach_threshold_bps"), quorumBps: v.quorum_bps === undefined ? null : int(v.quorum_bps, "quorum_bps"), meetingsPerDay: v.meetings_per_day === undefined ? null : positive(v.meetings_per_day, "meetings_per_day") };
 }
 
 /** `get_candidates`: who is up against the Chair and how many staked coins back each. Any other shape is an error, never a guess. */

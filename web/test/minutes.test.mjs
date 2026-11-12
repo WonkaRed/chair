@@ -181,7 +181,7 @@ const txId = (n) => `${"1".repeat(42)}${BASE58[Math.floor(n / 58)]}${BASE58[n % 
 let txCount = 0;
 const decision = (over = {}) => ({ chair: "chair.test.near", epoch: 5, rateBps: 10, previousRateBps: 0, hash: sha("t"), chainText: null, tx: txId(++txCount), tsMs: 1_700_000_000_000, height: 1, ...over });
 const policy = { epoch: 9, rateBps: 0, lastSetEpoch: 5, streak: 1, epochEndsMs: 1, chair: "chair.test.near" };
-const ctx = (texts, resolved) => ({ texts, resolved, explorer: "https://example.invalid", repoBase: "https://example.invalid/repo/blob/main" });
+const ctx = (texts, resolved) => ({ texts, resolved, explorer: "https://example.invalid", repoBase: "https://example.invalid/repo/blob/main", unit: "a day" });
 /** The page's two slots, hero (the latest decision) and the minutes list (the earlier ones), in one host. */
 const render = (d, c) => {
   const doc = fakeDoc();
@@ -292,7 +292,7 @@ test("the refusals are labelled by what they were: every known one is a delibera
   const refusedSteps = deployment.transactions.filter((s) => s.outcome === "refused" && s.hash);
   assert.deepEqual([...PROJECT_TEST_CALLS].sort(), refusedSteps.map((s) => s.hash).sort(), "the labelled hashes are exactly the scripted run's refused transactions");
   assert.equal(humanReason("only the chair may set policy: caller x"), "The account that signed was not the chair.");
-  assert.match(humanReason("rate_bps out of bounds: must be within -200..=200"), /limit of 2% \(200 bps\)/);
+  assert.match(humanReason("rate_bps out of bounds: must be within -200..=200"), /limit of 200 bps either way: 2% of supply a day when printing/);
   assert.match(humanReason("rate step too large: moving from 190 to 100"), /more than 0.5% \(50 bps\) away/);
   assert.match(humanReason("policy already set this epoch"), /already decided in that epoch/);
   assert.match(humanReason("reasoning_hash must be 64 lowercase hex characters"), /not a SHA-256 digest/);
@@ -307,7 +307,7 @@ test("the refusals are labelled by what they were: every known one is a delibera
   };
   const all = draw([row(known, "launch.chair.testnet", "rate_bps out of bounds: must be within -200..=200")]);
   assert.match(textOf(all), /All 1 were deliberate test calls that I made to show the bounds hold, signed by launch\.chair\.testnet \(1\)\. In none of them did the AI chair choose a rate the contract refused\./);
-  assert.match(textOf(all), /limit of 2% \(200 bps\) either way/);
+  assert.match(textOf(all), /limit of 200 bps either way: 2% of supply a day when printing, 2% of a transfer when burning/);
   assert.match(textOf(all), /The contract's own words: rate_bps out of bounds: must be within -200\.\.=200/, "the raw text stays, in small print");
   assert.ok([...walk(all)].some((n) => n.tag === "td" && n.attrs.title === "The contract's own words: rate_bps out of bounds: must be within -200..=200"), "and on hover");
   const forced = draw([row(known, "launch.chair.testnet", "x"), { ...row(txId(8), "ai.chair.testnet", "x"), byVisitor: true }]);
@@ -402,7 +402,10 @@ test("the hero leads with the prose, the rate as a percent with bps second, what
   assert.match(textOf(fx), /Verified against the recorded sandbox run/);
   assert.doesNotMatch(textOf(fx), /testnet/);
   const rates = (bps) => { const x = host(doc); renderHero(doc, x, { ...d, decisions: [{ ...d.decisions[0], rateBps: bps }] }, ctx(null, resolved)); return textOf(x); };
-  assert.match(rates(40), /\+0\.40%[\s\S]*Mints 0\.40% of supply for stakers each round\./);
+  assert.match(rates(40), /\+0\.40%[\s\S]*Mints 0\.40% of supply a day for stakers\./, "a printing rate is per day");
+  const older = host(doc);
+  renderHero(doc, older, { ...d, decisions: [{ ...d.decisions[0], rateBps: 40 }] }, { ...ctx(null, resolved), unit: "every 90 seconds" });
+  assert.match(textOf(older), /Mints 0\.40% of supply every 90 seconds for stakers\./, "a token without meetings_per_day keeps its own unit");
   assert.match(rates(0), /0\.00%[\s\S]*Nothing minted, nothing burned\./);
 });
 

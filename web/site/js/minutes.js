@@ -105,7 +105,7 @@ const move = (d) => {
 };
 
 /** What a rate does, in the contract's terms (SPEC "Rollover"). */
-const effect = (bps) => (bps > 0 ? `Mints ${fmtPct(bps)} of supply for stakers each round.` : bps < 0 ? `Burns ${fmtPct(bps)} of every transfer.` : "Nothing minted, nothing burned.");
+const effect = (bps, unit = "each round") => (bps > 0 ? `Mints ${fmtPct(bps)} of supply ${unit} for stakers.` : bps < 0 ? `Burns ${fmtPct(bps)} of every transfer.` : "Nothing minted, nothing burned.");
 
 function who(doc, d, rec) {
   const label = rec?.chair ? safeText(rec.chair, 80) : null;
@@ -172,12 +172,12 @@ function heroCard(doc, d, ctx, silent) {
   return h(doc, "figure", { class: `minutes-paper ${p.state}`, "aria-label": `Latest minutes, meeting ${d.epoch}` },
     svg(doc, "svg", { class: "watermark", "aria-hidden": "true" }, svg(doc, "use", { href: "#seal" })),
     h(doc, "p", { class: "paper-head" }, h(doc, "span", {}, "Latest minutes of the Committee of One"), h(doc, "span", { class: "paper-epoch", title: `Epoch ${d.epoch}` }, `Meeting ${d.epoch}`)),
-    needsPlain(p) ? [h(doc, "p", { class: "plain-line" }, plainDecision(d.rateBps, d.previousRateBps, ctx.epochMs)), h(doc, "p", { class: "said-k" }, "In the Chair's words")] : null,
+    needsPlain(p) ? [h(doc, "p", { class: "plain-line" }, plainDecision(d.rateBps, d.previousRateBps, ctx.unit)), h(doc, "p", { class: "said-k" }, "In the Chair's words")] : null,
     p.lead,
     h(doc, "figcaption", { class: "paper-rate" },
       h(doc, "span", { class: "rate-big" }, fmtSignedPct(d.rateBps)),
       h(doc, "span", { class: "rate-bps" }, fmtRate(d.rateBps)),
-      h(doc, "span", { class: "rate-effect" }, effect(d.rateBps)),
+      h(doc, "span", { class: "rate-effect" }, effect(d.rateBps, ctx.unit)),
       h(doc, "span", { class: "rate-prev" }, `Before: ${plainSigned(d.previousRateBps)}.`),
     ),
     silent ? h(doc, "p", { class: "m-status warn" }, silent) : null,
@@ -206,7 +206,7 @@ export function renderHero(doc, host, d, ctx) {
 function card(doc, d, ctx) {
   const p = parts(doc, d, ctx);
   return h(doc, "article", { class: `minute card ${p.state}` },
-    needsPlain(p) ? h(doc, "p", { class: "plain-line" }, plainDecision(d.rateBps, d.previousRateBps, ctx.epochMs)) : null,
+    needsPlain(p) ? h(doc, "p", { class: "plain-line" }, plainDecision(d.rateBps, d.previousRateBps, ctx.unit)) : null,
     p.lead,
     h(doc, "p", { class: "m-line" },
       h(doc, "strong", { title: `Epoch ${d.epoch}` }, `Meeting ${d.epoch}`),
@@ -239,7 +239,7 @@ function cards(doc, list, ctx) {
   return [count, rows, more];
 }
 
-/** The earlier decisions as cards, newest first (the latest is the hero). `ctx` is `{texts, resolved, explorer, indexerUrl, repoBase, network, epochMs}`: `indexerUrl` the transactions index, null on a recorded run; `texts` the bundled texts or null, `resolved` from `resolveTexts`. */
+/** The earlier decisions as cards, newest first (the latest is the hero). `ctx` is `{texts, resolved, explorer, indexerUrl, repoBase, network, unit}`: `indexerUrl` the transactions index, null on a recorded run; `texts` the bundled texts or null, `resolved` from `resolveTexts`. */
 export function renderMinutes(doc, host, d, ctx) {
   while (host.firstChild) host.removeChild(host.firstChild);
   const [latest, ...older] = d.decisions;

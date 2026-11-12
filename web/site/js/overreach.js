@@ -5,7 +5,7 @@
 import { clear, h } from "./dom.js";
 import { isAccountId, isTxHash, safeText, showAccount } from "./text.js";
 import { humanReason, PROJECT_TEST_CALLS } from "./refusals.js";
-import { fmtRate, fmtTime, plainPct, plainSigned, shortHash } from "./views.js";
+import { askedRate, fmtRate, fmtTime, plainPct, shortHash } from "./views.js";
 
 export const MAX_INPUT = 1_000_000;
 export const PRESETS = [500, -9999];
@@ -15,7 +15,7 @@ const LOST_AFTER = 4; // failed polls in a row before the page stops looking
 const STATUSES = new Set(["waiting", "sending", "refused", "accepted", "within_mandate", "not_chair", "too_late", "unreadable", "unconfirmed"]);
 
 export const DOWN = "The press desk is not reachable, so nothing can be sent from here right now. It runs on my workstation, not a hosted server, and is closed whenever that machine is off.";
-const LEDE = "Type a rate beyond the Chair's limit of 2% (200 bps). The press desk has the real chair account send it to the contract on NEAR testnet, and the contract answers. Only rates beyond that limit are sent, because the contract refuses them whatever the Chair is doing. Nothing here is a mock-up: the refusal is a transaction you can open.";
+const LEDE = "Type a rate beyond the Chair's limit of 2% a day (200 bps). The press desk has the real chair account send it to the contract on NEAR testnet, and the contract answers. Only rates beyond that limit are sent, because the contract refuses them whatever the Chair is doing. Nothing here is a mock-up: the refusal is a transaction you can open.";
 /** How long a wait is, for a person: seconds under a minute and a half, else whole minutes. */
 /** One refusal the project's README documents (a deliberate test: the launch chair asked for +201 bps), shown when the chain's own list cannot be read, so the stamp never goes missing. */
 const KNOWN_TX = "Efagw855yoDeJXjNyui9Bt9d4JXfhisMoTm9JCPkHWjf";
@@ -83,11 +83,11 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
 
   const input = h(doc, "input", { id: "overreach-rate", name: "rate", type: "text", inputmode: "numeric", autocomplete: "off", spellcheck: "false", maxlength: 8, placeholder: "500", value: "500", "aria-describedby": "overreach-hint" });
   const hint = h(doc, "p", { id: "overreach-hint", class: "note" });
-  const presets = PRESETS.map((n) => h(doc, "button", { type: "button", class: "preset", "data-rate": n, "aria-pressed": "false" }, h(doc, "span", { class: "p-big" }, plainSigned(n)), h(doc, "span", { class: "tag" }, fmtRate(n))));
+  const presets = PRESETS.map((n) => h(doc, "button", { type: "button", class: "preset", "data-rate": n, "aria-pressed": "false" }, h(doc, "span", { class: "p-big" }, askedRate(n)), h(doc, "span", { class: "tag" }, fmtRate(n))));
   const button = h(doc, "button", { type: "submit", class: "ask" }, "Make the Chair overreach");
   const note = h(doc, "p", { class: "form-note", role: "status" });
   const form = h(doc, "form", { class: "ask-form overreach-form", novalidate: true },
-    h(doc, "label", { for: "overreach-rate" }, "Pick a rate past the 2% limit"),
+    h(doc, "label", { for: "overreach-rate" }, "Pick a rate past the 2% a day limit"),
     h(doc, "div", { class: "or-presets" }, presets),
     h(doc, "div", { class: "or-row" }, h(doc, "span", { class: "or-or" }, "or your own, in hundredths of a percent:"), input),
     h(doc, "div", { class: "ask-row" }, h(doc, "span", { class: "or-who" }, "The real chair account sends it; the contract decides."), button),
@@ -129,7 +129,7 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
     return h(doc, "article", { class: "or-card earlier", "aria-label": "An earlier refusal from the chain" },
       h(doc, "p", { class: "or-lead" }, lead),
       h(doc, "p", { class: "or-stamp" }, "Refused by the contract"),
-      h(doc, "p", { class: "or-plain" }, h(doc, "strong", {}, r.rateBps === null ? "An unreadable rate. " : `Asked for ${plainSigned(r.rateBps)} (${fmtRate(r.rateBps)}). `), humanReason(r.reason) ?? safeText(r.reason, 160)),
+      h(doc, "p", { class: "or-plain" }, h(doc, "strong", {}, r.rateBps === null ? "An unreadable rate. " : `Asked for ${askedRate(r.rateBps)} (${fmtRate(r.rateBps)}). `), humanReason(r.reason) ?? safeText(r.reason, 160)),
       h(doc, "p", { class: "or-tx" }, txLink(r.tx), " ", fmtTime(r.tsMs)),
       h(doc, "p", { class: "note" }, "An earlier attempt, not yours. ", who));
   }
@@ -139,7 +139,7 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
     return h(doc, "article", { class: "or-card earlier", "aria-label": "An earlier recorded refusal" },
       h(doc, "p", { class: "or-lead" }, lead),
       h(doc, "p", { class: "or-stamp" }, "Refused by the contract"),
-      h(doc, "p", { class: "or-plain" }, h(doc, "strong", {}, `Asked for ${plainSigned(201)} (${fmtRate(201)}). `), "The limit is 2%, so the contract said no."),
+      h(doc, "p", { class: "or-plain" }, h(doc, "strong", {}, `Asked for ${askedRate(201)} (${fmtRate(201)}). `), "The limit is 2% a day, so the contract said no."),
       h(doc, "p", { class: "or-tx" }, txLink(KNOWN_TX)),
       h(doc, "p", { class: "note" }, "An earlier recorded attempt, not yours and not live: a deliberate test I made with the launch chair's account. The AI chair was not involved."));
   }
@@ -191,7 +191,7 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
       else if (unreadable()) result.append(recorded(`${wait} one recorded earlier, since the chain's list could not be read:`));
       return;
     }
-    const asking = asked === null ? null : h(doc, "p", { class: "asked" }, h(doc, "span", { class: "k" }, "You asked for"), " ", `${plainSigned(asked)} (${fmtRate(asked)})`);
+    const asking = asked === null ? null : h(doc, "p", { class: "asked" }, h(doc, "span", { class: "k" }, "You asked for"), " ", `${askedRate(asked)} (${fmtRate(asked)})`);
     if (a.status === "waiting" || a.status === "sending") {
       const s = secondsLeft(a);
       const sent = a.status === "sending" || s === 0;
@@ -202,7 +202,7 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
     const kids = [asking];
     if (a.status === "refused") {
       kids.push(h(doc, "p", { class: "or-stamp" }, a.hit === "already_set" ? "Refused: already set" : "Refused by the contract"));
-      if (a.bound !== null && asked !== null) kids.push(h(doc, "p", { class: "or-plain" }, h(doc, "strong", {}, `You asked for ${plainSigned(asked)}. The limit is ${plainPct(a.bound.hi)}. `), "The contract said no."));
+      if (a.bound !== null && asked !== null) kids.push(h(doc, "p", { class: "or-plain" }, h(doc, "strong", {}, `You asked for ${askedRate(asked)}. The limit is ${plainPct(a.bound.hi)} a day. `), "The contract said no."));
       kids.push(h(doc, "p", { class: "or-k" }, "The transaction"));
       kids.push(h(doc, "p", { class: "or-tx" }, a.tx === null ? "no transaction hash" : explorer ? h(doc, "a", { href: `${explorer}/txns/${a.tx}`, rel: "noopener noreferrer", target: "_blank" }, shortHash(a.tx)) : shortHash(a.tx), a.signer ? ` signed by ${showAccount(a.signer)}` : ""));
       kids.push(h(doc, "p", { class: "or-k" }, "The contract's own answer"), h(doc, "blockquote", { class: "answer or-panic", lang: "en" }, a.failure ?? "refused without a message"));

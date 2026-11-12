@@ -432,5 +432,10 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 .bound p { margin: 0 0 0.8rem; }
 .bound-lead { font: 1.2rem/1.45 var(--serif); }
 .bound-worst { padding-left: 0.9rem; border-left: 4px solid var(--burn); }
+.bound-pace { padding-left: 0.9rem; border-left: 4px solid var(--rule); }
+.bound-figures { display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); margin: 0 0 1.1rem; }
+.bound-figures > div { background: var(--panel); border: 1px solid var(--rule); border-top: 3px solid var(--brass); border-radius: 2px; padding: 0.6rem 0.8rem; }
+.bound-figures dt { color: var(--ink2); font-size: 0.85rem; }
+.bound-figures dd { margin: 0.1rem 0 0; font: 600 1.35rem/1.2 var(--serif); font-variant-numeric: lining-nums tabular-nums; }
 .bound-h { font-weight: 700; margin-top: 1.1rem; }
 .restraints { margin: 0; padding-left: 1.3rem; } .restraints li { margin: 0.5rem 0; }

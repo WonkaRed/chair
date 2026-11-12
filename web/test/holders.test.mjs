@@ -101,6 +101,10 @@ test("get_candidates is read strictly: a list of accounts with a U128 backing, a
   for (const bad of [null, {}, [null], [{ candidate: 1, backing: "5" }], [{ candidate: "a", backing: 5 }], [{ candidate: "a", backing: "-1" }]]) assert.throws(() => parseCandidates(bad), SourceError, JSON.stringify(bad));
   assert.equal(parseParams({ epoch_ms: 1, start_ms: 1, max_rate_bps: 200, max_step_bps: 50, impeach_threshold_bps: 3000, quorum_bps: 500 }).quorumBps, 500);
   assert.equal(parseParams({ epoch_ms: 1, start_ms: 1, max_rate_bps: 200, max_step_bps: 50, impeach_threshold_bps: 3000 }).quorumBps, null);
+  const base = { epoch_ms: 90_000, start_ms: 1, max_rate_bps: 200, max_step_bps: 50, impeach_threshold_bps: 3000 };
+  assert.equal(parseParams({ ...base, meetings_per_day: 960 }).meetingsPerDay, 960);
+  assert.equal(parseParams(base).meetingsPerDay, null, "an older token does not report it: the page treats the rate as per meeting");
+  for (const bad of [0, -1, 1.5, "960"]) assert.throws(() => parseParams({ ...base, meetings_per_day: bad }), SourceError, `meetings_per_day ${bad}`);
 });
 
 const views = { get_params: { epoch_ms: 90_000, start_ms: 1, max_rate_bps: 200, max_step_bps: 50, impeach_threshold_bps: 3000, quorum_bps: 500 }, get_policy: { epoch: 5, rate_bps: 25, chair: "c.testnet", streak: 2, last_set_epoch: 4, epoch_ends_ms: 9 }, get_supply: { epoch: 5, launch_supply: "1000000000000000000000000000000", minted: "0", burned: "0", total_supply: "1000000000000000000000000000000", total_staked: "0", reward_pool: "0" } };

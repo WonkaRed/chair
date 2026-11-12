@@ -3,7 +3,7 @@
 // the page shows that the bounds were tried. Chain strings reach the page through `safeText` and `textContent` only.
 import { clear, h } from "./dom.js";
 import { isTxHash, safeText, showAccount } from "./text.js";
-import { fmtRate, fmtTime, plainSigned, rawButton, shortHash } from "./views.js";
+import { askedRate, fmtRate, fmtTime, rawButton, shortHash } from "./views.js";
 
 /** Refusals shown as cards at first; the rest wait behind a button. */
 const HALL = 3;
@@ -24,7 +24,7 @@ export const PROJECT_TEST_CALLS = new Set([
 /** The contract's panic messages (contract/src/lib.rs, policy.rs) in plain words. The raw text stays on screen beside it. */
 const HUMAN = [
   [/^only the chair may set policy/, "The account that signed was not the chair."],
-  [/^rate_bps out of bounds/, "The rate asked for was beyond the contract's limit of 2% (200 bps) either way."],
+  [/^rate_bps out of bounds/, "The rate asked for was beyond the contract's limit of 200 bps either way: 2% of supply a day when printing, 2% of a transfer when burning."],
   [/^rate step too large/, "The rate asked for was more than 0.5% (50 bps) away from the rate in effect."],
   [/^policy already set this epoch/, "The chair had already decided in that epoch."],
   [/^reasoning_hash must be/, "The reasoning hash was not a SHA-256 digest."],
@@ -63,7 +63,7 @@ export function renderRefusals(doc, host, d, { explorer, indexerUrl = null }) {
     const raw = safeText(r.reason, 200);
     const human = humanReason(r.reason);
     return h(doc, "tr", { class: "refusal" },
-      h(doc, "td", { "data-label": "Asked for" }, r.rateBps === null ? "unreadable" : [h(doc, "span", { class: "asked-big" }, plainSigned(r.rateBps)), " ", h(doc, "span", { class: "tag" }, fmtRate(r.rateBps))], PROJECT_TEST_CALLS.has(r.tx) ? h(doc, "span", { class: "sub" }, "deliberate test") : null),
+      h(doc, "td", { "data-label": "Asked for" }, r.rateBps === null ? "unreadable" : [h(doc, "span", { class: "asked-big" }, askedRate(r.rateBps)), " ", h(doc, "span", { class: "tag" }, fmtRate(r.rateBps))], PROJECT_TEST_CALLS.has(r.tx) ? h(doc, "span", { class: "sub" }, "deliberate test") : null),
       h(doc, "td", { "data-label": "Why", title: `The contract's own words: ${raw}` }, human ?? raw, human === null ? null : h(doc, "span", { class: "sub" }, `The contract's own words: ${raw}`)),
       h(doc, "td", { "data-label": "Signed by", class: "acct" }, showAccount(r.signer), r.byVisitor ? h(doc, "span", { class: "sub visitor-tag" }, "Forced by a visitor through the press desk: the chair account signed it, the AI chair did not choose it") : null),
       h(doc, "td", { "data-label": "Transaction", class: "tx" }, link, " ", rawButton(doc, indexerUrl, r.tx), h(doc, "span", { class: "sub" }, fmtTime(r.tsMs))),

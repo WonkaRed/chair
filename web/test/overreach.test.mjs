@@ -102,7 +102,7 @@ test("a good rate is POSTed as JSON with nothing else, then polled by id until t
 test("the presets fill the input and send nothing", async () => {
   const p = await panel(() => res(500, null));
   const chips = find(p.el, (n) => n.tag === "button" && n.attrs["data-rate"] !== undefined);
-  assert.deepEqual(chips.map((c) => text(c)), ["+5%+500 bps", "−99.99%−9999 bps"], "the plain percent is the big label, the basis points the small tag");
+  assert.deepEqual(chips.map((c) => text(c)), ["5% a day+500 bps", "−99.99%−9999 bps"], "the plain percent is the big label, the basis points the small tag");
   assert.equal(chips[1].attrs["aria-pressed"], "false");
   chips[1].listeners.click[0]();
   assert.equal(p.api.input.value, "-9999");
@@ -303,7 +303,7 @@ test("a cap or per-address 429 never dead-ends: the latest real refusal is shown
     const out = text(p.el);
     assert.match(out, /Refused by the contract/, code);
     assert.match(out, /An earlier attempt, not yours\./, code);
-    assert.match(out, /Asked for \+5% \(\+500 bps\)/, code);
+    assert.match(out, /Asked for 5% a day \(\+500 bps\)/, code);
     assert.match(out, /forced by a visitor/, code);
     assert.match(out, /about 10 minutes/, code);
     assert.equal(find(p.el, (n) => n.tag === "a" && n.attrs.href === `${EXPLORER}/txns/${TX}`).length >= 1, true, "the tx link is on the page");
@@ -335,7 +335,7 @@ test("429 with nothing on chain to replay shows only the wait; composing shows n
   await blind.api.submit("500");
   assert.match(text(blind.el), /about 10 minutes before another attempt\. Meanwhile, here is one recorded earlier/);
   assert.match(text(blind.el), /An earlier recorded attempt, not yours and not live/);
-  assert.match(text(blind.el), /Asked for \+2\.01% \(\+201 bps\)/);
+  assert.match(text(blind.el), /Asked for 2\.01% a day \(\+201 bps\)/);
   assertInert(blind.el);
   const comp = await panel(() => res(429, { code: "composing", retry_after_s: 40 }), { refusals: chain() });
   await comp.api.submit("500");

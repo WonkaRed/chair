@@ -14,6 +14,8 @@ export const fmtSignedPct = (bps) => `${bps > 0 ? "+" : bps < 0 ? MINUS : ""}${f
 /** A rate as the plainest percent: 500 bps is "5%", 5 bps is "0.05%", with the sign only when asked for. */
 export const plainPct = (bps) => { const v = Math.abs(bps) / 100; return `${Number.isInteger(v) ? v : v.toFixed(2)}%`; };
 export const plainSigned = (bps) => `${bps > 0 ? "+" : bps < 0 ? MINUS : ""}${plainPct(bps)}`;
+/** A rate a visitor or an old call asked for: a printing rate is per day ("5% a day"), a burning rate is the sign and the percent. */
+export const askedRate = (bps) => (bps > 0 ? `${plainPct(bps)} a day` : plainSigned(bps));
 /** How often an epoch comes round, in words: 90000 is "every 90 seconds", 86400000 is "every day". */
 export function everyEpoch(ms) {
   const unit = [[86_400_000, "day"], [3_600_000, "hour"], [60_000, "minute"]].find(([u]) => ms >= u && ms % u === 0);
@@ -22,11 +24,16 @@ export function everyEpoch(ms) {
   return n === 1 ? `every ${unit[1]}` : `every ${n} ${unit[1]}s`;
 }
 const everyOr = (ms) => (Number.isFinite(ms) && ms > 0 ? everyEpoch(ms) : "each round");
+/**
+ * What a printing rate is measured over, as it follows a percent: "a day" when the chain reports `meetings_per_day` (the rate is per day, the meetings share it),
+ * and for a token that does not (the older rule, the whole rate every meeting) the epoch it applies to. Burning is always "of every transfer"; this is for printing.
+ */
+export const printUnit = (params) => (params.meetingsPerDay !== null && params.meetingsPerDay !== undefined ? "a day" : everyOr(params.epochMs));
 /** One plain sentence from a rate and the one before it: what moved, and what that does to the coins. Built from the numbers only, never from the Chair's text. */
-export function plainDecision(rateBps, previousRateBps, epochMs = null) {
+export function plainDecision(rateBps, previousRateBps, unit = "each round") {
   const delta = rateBps - previousRateBps;
   const did = delta === 0 ? `Kept the rate at ${plainSigned(rateBps)}.` : `${delta > 0 ? "Raised" : "Lowered"} the rate from ${plainSigned(previousRateBps)} to ${plainSigned(rateBps)}.`;
-  const effect = rateBps > 0 ? `That prints ${plainPct(rateBps)} more coins ${everyOr(epochMs)} for holders who staked.` : rateBps < 0 ? `That burns ${plainPct(rateBps)} of every transfer.` : "That prints and burns nothing.";
+  const effect = rateBps > 0 ? `That prints ${plainPct(rateBps)} more coins ${unit} for holders who staked.` : rateBps < 0 ? `That burns ${plainPct(rateBps)} of every transfer.` : "That prints and burns nothing.";
   return `${did} ${effect}`;
 }
 export const fmtTime = (ms) => `${new Date(Number(ms)).toISOString().replace("T", " ").slice(0, 16)} UTC`;
@@ -115,11 +122,12 @@ export function renderPlain(doc, host, d) {
   const r = policy.rateBps;
   const fig = (t) => h(doc, "strong", { class: "fig" }, t);
   const limit = fig(plainPct(params.maxRateBps));
+  const unit = printUnit(params);
   const vote = " Holders who staked can vote it out.";
   host.append(h(doc, "p", { class: "now-plain" },
-    r > 0 ? ["Right now the AI is printing ", fig(plainPct(r)), ` more coins ${everyOr(params.epochMs)} and giving them to holders who staked. The most the contract lets it print each time is `, limit, ".", vote]
+    r > 0 ? ["Right now the AI is printing ", fig(plainPct(r)), ` more coins ${unit} and giving them to holders who staked. The most the contract lets it print is `, limit, ` ${unit}.`, vote]
       : r < 0 ? ["Right now the AI is burning ", fig(plainPct(r)), " of every transfer. The most the contract lets it burn is ", limit, ".", vote]
-        : ["Right now the AI is holding the supply still: nothing is being printed or burned. The most the contract lets it print each time is ", limit, ".", vote]));
+        : ["Right now the AI is holding the supply still: nothing is being printed or burned. The most the contract lets it print is ", limit, ` ${unit}.`, vote]));
 }
 
 export function renderNow(doc, host, d) {
@@ -130,7 +138,7 @@ export function renderNow(doc, host, d) {
   const fact = (cls, k, v, vcls, ...rest) => h(doc, "div", { class: `fact ${cls}` }, h(doc, "span", { class: "k" }, k), h(doc, "span", { class: `v ${vcls}` }, v), ...rest);
   host.append(
     h(doc, "div", { class: "now-grid" },
-      fact("big", "The rate right now", [fmtSignedPct(policy.rateBps), " ", h(doc, "span", { class: "tag" }, fmtRate(policy.rateBps))], "rate", h(doc, "span", { class: "s" }, policy.rateBps > 0 ? `eases: mints ${fmtPct(policy.rateBps)} of supply to stakers at the end of each epoch` : policy.rateBps < 0 ? `tightens: every transfer burns ${fmtPct(policy.rateBps)}` : "neutral: nothing is minted or burned")),
+      fact("big", "The rate right now", [fmtSignedPct(policy.rateBps), " ", h(doc, "span", { class: "tag" }, fmtRate(policy.rateBps))], "rate", h(doc, "span", { class: "s" }, policy.rateBps > 0 ? `eases: mints ${fmtPct(policy.rateBps)} of supply ${printUnit(params)} to stakers` : policy.rateBps < 0 ? `tightens: every transfer burns ${fmtPct(policy.rateBps)}` : "neutral: nothing is minted or burned")),
       fact("", "Coins in existence", h(doc, "span", { title: formatExact(supply.totalSupply) }, formatTokens(supply.totalSupply)), "", h(doc, "span", { class: "s" }, `${formatTokens(supply.minted)} minted and ${formatTokens(supply.burned)} burned since launch`)),
       fact("", "The current round (epoch)", String(policy.epoch), "", h(doc, "span", { class: "s" }, `ends ${fmtTime(policy.epochEndsMs)}; epochs last ${formatDuration(params.epochMs)}`)),
       fact("", "The Chair", showAccount(policy.chair), "acct", h(doc, "span", { class: "s" }, `${policy.streak} complete epochs in office; ${acted ? "has set this epoch's rate" : "has not set this epoch's rate yet"}`)),

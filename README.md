@@ -2,28 +2,28 @@
 
 An AI runs this memecoin's central bank. The contract keeps it on a leash.
 
-$CHAIR is a coin on a test network (NEAR testnet, not the real one). An AI called the Chair decides, every 90 seconds, whether to print more coins for the holders who staked them or to burn some, and writes down why. The coin's contract is the leash: it refuses to let the Chair print more than 2% of all coins in one meeting, or burn more than 2% of any transfer, and nobody can change that rule.
+$CHAIR is a coin on a test network (NEAR testnet, not the real one). An AI called the Chair decides, every 90 seconds, whether to print more coins for the holders who staked them or to burn some, and writes down why. The coin's contract is the leash: it refuses to let the Chair print more than 2% of all coins a day, or burn more than 2% of any transfer, and nobody can change that rule.
 
 Try it, no install: <https://wonkared.github.io/chair/>
 
-- **Make the Chair overreach.** Type a rate beyond the limit and watch the contract refuse it, on the real testnet, in its own words.
+- **Make the Chair overreach.** Type a rate beyond the limit (2% a day) and watch the contract refuse it, on the real testnet, in its own words.
 - **Ask the Chair a question.** The answer is added to the Chair's minutes on the chain. The Chair replies with a line from a reviewed book of statements, never free text, and the desk that takes questions is closed whenever my workstation is off (the page says so).
 
 The Chair's latest minutes, the written record of a decision, as of 2026-11-11:
 
 > The Committee of One has met. The Chair keeps printing 0.50% more coins every 90 seconds for holders who staked, as it has for the last 2 meetings. 36.07% of all coins are staked. Supply is up 2.01% over the last 6 meetings. The Chair has no further comment.
 >
-> Meeting 649 (an "epoch" in the technical sections below), written by the AI model running on my own GPUs in the chair's seat. The text is public in [the transaction](https://testnet.nearblocks.io/txns/7cvneCZoRedU9QBzNYseZX9fEMbkb9upREZk8CFBdgSE), and its SHA-256, a fingerprint of the text, is the `reasoning_hash` the chain holds.
+> Meeting 649 (an "epoch" in the technical sections below), written by the AI model running on my own GPUs in the chair's seat. The text is public in [the transaction](https://testnet.nearblocks.io/txns/7cvneCZoRedU9QBzNYseZX9fEMbkb9upREZk8CFBdgSE), and its SHA-256, a fingerprint of the text, is the `reasoning_hash` the chain holds. That minute is a recording of the token that was live when I took the snapshot, written when the rate applied to every meeting; the contract's rule is now per day, as the next section says.
 
 ## The worst case, plainly
 
-The Chair can print at most 2% of all coins in one meeting, and a meeting comes every 90 seconds. It cannot jump to that ceiling: the rate moves at most 0.5% a meeting, so getting there takes 4 meetings. Held at the ceiling, the supply grows about 2.2 times an hour (1.02^40). The only hard stop is a supply limit written into the code (`MAX_TOTAL_SUPPLY`, `u128::MAX / 10_000`), about 34,000 times the launch supply, which a Chair at the ceiling reaches in about 530 meetings, roughly 13 hours. That is hyperinflation, and the contract alone does not prevent it. Three things restrain it:
+The Chair can print at most 2% of all coins a day. A meeting comes every 90 seconds, and each one prints 1/960 of that day's rate: a meeting mints `supply * rate / (10_000 * meetings_per_day)`, with `meetings_per_day = ceil(86_400_000 / epoch_ms)`, which is 960 at 90 seconds. It cannot jump to that ceiling either: the rate moves at most 0.5% a meeting, so getting there takes 4 meetings. Even if the Chair holds the rate at the ceiling forever, the supply grows by at most about 2.02% a day (exactly 2.02011%: the 2% plus a little, because each meeting's new coins count toward the next), about 1.15 times in a week and about 1.82 times in 30 days. The only hard stop is a supply limit written into the code (`MAX_TOTAL_SUPPLY`, `u128::MAX / 10_000`), about 34,000 times the launch supply, and a Chair at the ceiling would need about 17 months to reach it. The rate is per day for epochs of 12 hours or less, and at most that rate per day for longer ones (the divisor is rounded up; [`SPEC.md`](SPEC.md), "The leash in numbers"). Three things restrain it further:
 
 1. **Holders can fire the Chair.** Anyone who stakes can back a challenger. A challenger with more than 30% of the staked coins behind them (and more than 5% of all coins) takes the seat at the next meeting. This has already happened on the testnet, at meeting 10 ([`CvqCjCU3...`](https://testnet.nearblocks.io/txns/CvqCjCU3ngrttKnZotBwPzczw6aVHTpkwPEZnYwwZqoD)). My own scripted accounts did it, not a crowd.
 2. **New coins go only to people who staked.** Nothing is printed while nobody is staked, and every printed coin goes to the stakers: the same people who can fire the Chair. Holders who do not stake are diluted. Stake or be diluted.
 3. **A silent Chair fades out.** Each meeting without a decision moves the rate 0.5% toward zero, and at zero nothing is printed.
 
-The page shows this live under "What holders control" (the staked share, the seated Chair, any challengers and how far each is from the bar), and it computes these figures from the contract's own numbers (`web/site/js/bound.js`).
+The page shows this live under "What holders control" (the staked share, the seated Chair, any challengers and how far each is from the bar), and it computes these figures from the contract's own numbers (`get_params`, including `meetings_per_day`; `web/site/js/bound.js`). A token that does not report `meetings_per_day` is the older per-meeting rule, and the page then states that rule's much faster worst case instead.
 
 ## Check it in 60 seconds
 
@@ -73,7 +73,7 @@ Proof, each one click. The explorer answers 403 to scripts, so every link has a 
 
 $CHAIR is a central bank for a memecoin, with an AI in the chair. Once per epoch the AI prints new tokens or burns some, publishes its minutes (the written reasoning, hashed on chain), and any holder who stakes can vote to impeach it. The page shows the chair's minutes as they land, every refusal by the contract, and every mint and burn, read straight from the chain by your browser. A visitor can put one question to the Chair there; the answer is entered into the minutes on chain. The Chair replies only with a line from a reviewed book of 144 statements ([`chair-agent/src/press-book.ts`](chair-agent/src/press-book.ts)); a locally run model only picks which line, so the model never writes a press answer. The press desk that takes the questions runs on my workstation, so it is closed whenever that machine is off, and the page then says "The Chair is not taking questions at this time."
 
-The leash is the contract: it refuses any rate beyond 2% (200 bps) either way and any move of more than 0.5% (50 bps) per epoch, a silent chair's rate decays to zero, stakers can vote the chair out, and there is no admin or upgrade method. The rate is a cap per epoch, not a total: held at +200 bps the supply still grows about 2.2 times an hour, which is why the vote and the decay matter (see [The worst case, plainly](#the-worst-case-plainly)).
+The leash is the contract: it refuses any rate beyond 2% (200 bps) either way and any move of more than 0.5% (50 bps) per epoch, a silent chair's rate decays to zero, stakers can vote the chair out, and there is no admin or upgrade method. The rate is per day, spread over the day's meetings, and it is not a total: held at +200 bps the supply still grows by at most about 2.02% a day (1.82 times in 30 days), which is why the vote and the decay matter (see [The worst case, plainly](#the-worst-case-plainly)).
 
 Built for the NEAR HACKATHON, track **Memecoins With Mechanics**. The mechanic lives in the contract, not in a backend somebody could switch off.
 
@@ -126,8 +126,8 @@ Below the chair minutes the same page lists every mint and burn and checks the s
 
 $CHAIR is a NEP-141 token on NEAR. Time is cut into epochs of fixed length. Once per epoch the current **chair** account may call `set_policy(rate_bps, reasoning_hash)`:
 
-- A positive rate **eases**: at the end of the epoch the contract mints `total_supply * rate / 10_000` into a reward pool paid to stakers.
-- A negative rate **tightens**: during that epoch every transfer burns `|rate|` bps of the amount, and nothing is minted.
+- A positive rate **eases**. The rate is basis points of supply **per day**: at the end of each epoch the contract mints `total_supply * rate / (10_000 * meetings_per_day)` into a reward pool paid to stakers, where `meetings_per_day = ceil(86_400_000 / epoch_ms)` (960 for 90-second epochs).
+- A negative rate **tightens**: during that epoch every transfer burns `|rate|` bps of the amount (per transfer, not per day), and nothing is minted.
 - The chair seat is built for an AI agent. The contract does not trust whoever holds it: the rate is bounded, the step is bounded, and each epoch the chair misses moves the rate 50 bps toward zero.
 - Stakers can nominate and back a replacement. A candidate whose backing exceeds both the threshold (a share of the staked tokens) and a 5% quorum of the whole supply becomes chair at the next epoch rollover, and the chair's streak (the complete epochs the sitting chair has held the seat, `epoch - chair_since_epoch`) resets to 0. Below the quorum nobody can be seated, however little is staked.
 
@@ -154,12 +154,12 @@ docker build -t chair . && docker run --rm chair   # runs `make demo`
 The first `make test` compiles the NEAR dependency tree and downloads the sandbox: 5 to 13 minutes (781 s measured cold from a clean copy on a loaded 16-core machine). Later runs skip the compile and the download. The sandbox tests need no network node and no account: each test starts its own local NEAR node, one test file at a time, so that lane is the slow part (the longest file, `chair_rules`, takes about 120 s on an idle machine). Per-file timings and the local-node limits the test harness works around are in [`docs/testing-notes.md`](docs/testing-notes.md). The contract lane ends with the unit-test result and then a line for the doc-tests, which has none; the sandbox lane prints one result line per test file:
 
 ```
-test result: ok. 61 passed; 0 failed; ...      # contract/ unit tests (policy math, rollover, rewards, launch checks, withdrawal)
+test result: ok. 68 passed; 0 failed; ...      # contract/ unit tests (policy math, rollover, rewards, launch checks, withdrawal)
 test result: ok. 0 passed; 0 failed; ...       # contract/ doc-tests: there are none
-test result: ok. 7 passed; 0 failed; ...       # sandbox-tests/ against the real wasm: 9 files, one line each (7, 7, 2, 9, 3, 2, 10, 3, 7 tests)
+test result: ok. 7 passed; 0 failed; ...       # sandbox-tests/ against the real wasm: 10 files, one line each (7, 7, 2, 9, 3, 3, 2, 10, 3, 7 tests)
 ```
 
-The sandbox files hold 50 tests in all. The other lanes run 205 (`chair-agent`), 88 (`sim`), 121 (`web`) and 31 (`activity`) tests, and `deploy` runs 42 (`make -C deploy test`).
+The sandbox files hold 53 tests in all. The other lanes run 205 (`chair-agent`), 95 (`sim`), 123 (`web`) and 31 (`activity`) tests, and `deploy` runs 42 (`make -C deploy test`).
 
 Root `make demo` runs three demos in order and exits non-zero if any of them fails.
 
@@ -179,7 +179,8 @@ Parameters, all fixed at `new()` and returned by `get_params`:
 | --- | --- | --- |
 | `epoch_ms` | set at launch, 1 second to 1 year | Epoch length. The sandbox demo and tests use 30 seconds; the testnet token uses 90 seconds |
 | `start_ms` | block time at launch | Epoch 0 starts here |
-| `max_rate_bps` | **200**, a constant in the code | The chair's rate must satisfy `-200 <= rate_bps <= 200` |
+| `meetings_per_day` | derived: `ceil(86_400_000 / epoch_ms)` | Epochs in a day, the divisor of an easing mint: 960 at 90 seconds |
+| `max_rate_bps` | **200**, a constant in the code | The chair's rate must satisfy `-200 <= rate_bps <= 200`. Easing is basis points of supply per day, so +200 is 2% a day |
 | `max_step_bps` | **50**, a constant in the code | `abs(rate_bps - rate_in_effect) <= 50`; a missed epoch moves the rate 50 toward zero |
 | `impeach_threshold_bps` | set at launch, 1 to 5000 | Share of total staked a candidate's backing must exceed |
 | `quorum_bps` | **500**, a constant in the code | Share of the whole supply (staked or not) a candidate's backing must also exceed |
@@ -293,13 +294,13 @@ Stated plainly:
 - **Impeachment is weighted by stake, not by person.** Anyone can split tokens across accounts at no cost, so splitting gains nothing, but a holder with enough tokens can unseat the chair alone. The defence is economic: a candidate needs backing above both the threshold share of the *staked* tokens and 5% of the *whole* supply, and nominating costs a bond. Neither stops a whale, and nothing here claims to.
 - **The quorum is what keeps a tiny stake from seating a chair.** Without it, one yocto staked and backed would be 100% of the stake. With it, nobody can be seated while less than 5% of the supply backs them. So the token's owner should stake at launch; until over 5% of the supply is staked and backed, the launch chair cannot be replaced.
 - **A coordinated bloc beats a larger, scattered majority.** The sitting chair cannot be nominated, so it can never be backed against a challenger. A bloc holding more than the threshold (30% in the demo and tests) of the staked tokens can seat its candidate even if the other 70% would have kept the chair, unless those 70% back a rival; backing is one candidate per staker.
-- **Mints go only to stakers, so people who never stake are diluted.** At the maximum rate, +200 bps (reached four epochs after the first easing decision, in +50 steps), each epoch mints 2% of the supply, so with 90-second epochs the supply grows about 2.2 times an hour. The supply cap `u128::MAX / 10_000` is about 34,000 times the live token's launch supply (10^30 base units, 1,000,000 coins) and a chair at the maximum rate would reach it in about 530 epochs, roughly 13 hours. A holder who neither stakes nor claims keeps the same token count and a shrinking share. The opposite lever, -200 bps, burns 2% of every transfer. What restrains a bad chair is the vote and the decay, not the rate bound: see [The worst case, plainly](#the-worst-case-plainly).
+- **Mints go only to stakers, so people who never stake are diluted.** At the maximum rate, +200 bps a day (reached four epochs after the first easing decision, in +50 steps), each epoch mints 1/960 of 2% of the supply, so with 90-second epochs the supply grows by at most about 2.02% a day: about 1.15 times in a week, 1.82 times in 30 days. The supply cap `u128::MAX / 10_000` is about 34,000 times the launch supply of a 1,000,000-coin token (10^30 base units) and a chair at the maximum rate would need about 500,000 epochs, roughly 17 months, to reach it. A holder who neither stakes nor claims keeps the same token count and a shrinking share. The opposite lever, -200 bps, burns 2% of every transfer (per transfer, not per day). Beyond the rate bound, what restrains a bad chair is the vote and the decay: see [The worst case, plainly](#the-worst-case-plainly).
 - **Staking just in time earns every boundary.** Stake in the last block of an epoch, unstake when the two-epoch lock ends, stake again in the last block before the next boundary, and repeat: that account is liquid for about half of each cycle and still earns at every boundary. It dilutes no one beyond a continuous staker of the same size, but the lock does not force holders to stay.
 - **A nomination cannot be withdrawn out from under its backers.** `withdraw_nomination` is refused while any account other than the nominator backs the candidate (the candidate's backing is more than the nominator's own stake on it), so a nominator cannot wipe the backing in the last block and re-nominate. The same rule lets any staker, even with 1 yocto, keep a nomination from being withdrawn: its bond then returns only at an impeachment or an eviction.
 - **A nomination can squat on a candidate account.** `persona_hash` is not checked against anything, so a nominator can occupy a candidate account with a nomination whose hash is wrong, and nobody else can nominate that account while it stands.
 - **Nominations are spam-limited by a bond and by stake.** A bond in NEAR makes spam cost money. A full list of ten gives a slot only to a nominator whose own stake exceeds the backing of the least-backed nomination, so ten accounts holding 1 yocto cannot lock the list against a real holder. Freezing it against everyone costs ten accounts that each stake more than the largest honest staker (a little over ten times that stake, which must stay staked to hold the slots, though it keeps earning the mint); stakers who want a slot can pool their tokens into one account. It does not make candidates good.
 - **Initial distribution is whatever `owner_id` does with the whole supply.** The mechanic does not design distribution.
-- **The chair is trusted with a small, bounded lever.** At most 2% of supply per epoch can be minted, and the launch chair's key can do nothing but `set_policy` within the bounds. The reasoning hash is a commitment, not a proof of anything: the contract cannot tell whether an AI, a person or a script made the decision.
+- **The chair is trusted with a small, bounded lever.** At most 2% of supply a day (about 2.02% once the meetings compound) can be minted, and the launch chair's key can do nothing but `set_policy` within the bounds. The reasoning hash is a commitment, not a proof of anything: the contract cannot tell whether an AI, a person or a script made the decision.
 - **Time is block time.** For epochs of a minute or more, validators can skew it by seconds, not by epochs.
 - **Rollover is lazy.** NEAR has no cron, so an epoch boundary is applied by the first call after it. Views show the correct current state; events for earlier epochs are logged when the next call arrives.
 - **Not audited by a third party.** Internal adversarial reviews by AI agents shaped the rules. Tested in a local sandbox and deployed to NEAR testnet (`token.chair-coin-2.testnet`); not deployed to mainnet.

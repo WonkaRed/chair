@@ -3,7 +3,7 @@ import { h } from "./dom.js";
 
 export const GUARANTEES = [
   {
-    plain: "The rate can never pass 2% either way, or move more than 0.5% at a time.",
+    plain: "The rate can never pass 2% a day when printing or 2% of a transfer when burning, or move more than 0.5% at a time.",
     text: "The rate stays between −200 and +200 bps and moves at most 50 bps from one epoch to the next. Both numbers are constants in the code; no call changes them.",
     spec: ["Methods: set_policy", "methods"],
     tests: [["sandbox-tests/tests/policy.rs", "out_of_bounds_rate_is_rejected"], ["sandbox-tests/tests/policy.rs", "too_large_step_is_rejected"]],

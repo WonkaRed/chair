@@ -10,7 +10,7 @@ import { fakeDoc, host, walk } from "./fakedom.mjs";
 
 const root = join(fileURLToPath(import.meta.url), "..", "..");
 const site = (f) => import(join(root, "site", "js", f));
-const { plainPct, plainSigned, everyEpoch, plainDecision, renderPlain } = await site("views.js");
+const { plainPct, plainSigned, askedRate, printUnit, everyEpoch, plainDecision, renderPlain } = await site("views.js");
 const { setupReveal, openFoldsAround } = await site("reveal.js");
 const { renderHero, renderMinutes } = await site("minutes.js");
 const { renderRefusals } = await site("refusals.js");
@@ -20,7 +20,8 @@ const html = await readFile(join(root, "site", "index.html"), "utf8");
 const text = (n) => n.textContent;
 const find = (n, pred) => [...walk(n)].filter((x) => x.tag !== undefined && pred(x));
 const JARGON = /\bbps\b|basis points?|epoch|staked share/i;
-const params = { maxRateBps: 200, epochMs: 90_000 };
+const params = { maxRateBps: 200, epochMs: 90_000, meetingsPerDay: 960 };
+const oldParams = { maxRateBps: 200, epochMs: 90_000, meetingsPerDay: null };
 
 test("plain percent and cadence: 5 bps is 0.05%, 500 is 5%, and an epoch is said as how often it comes round", () => {
   assert.equal(plainPct(5), "0.05%");
@@ -31,6 +32,8 @@ test("plain percent and cadence: 5 bps is 0.05%, 500 is 5%, and an epoch is said
   assert.equal(plainSigned(5), "+0.05%");
   assert.equal(plainSigned(-5), "−0.05%");
   assert.equal(plainSigned(0), "0%");
+  assert.equal(askedRate(500), "5% a day", "a printing rate asked for is per day");
+  assert.equal(askedRate(-9999), "−99.99%", "a burning rate is a share of a transfer");
   assert.equal(everyEpoch(90_000), "every 90 seconds");
   assert.equal(everyEpoch(60_000), "every minute");
   assert.equal(everyEpoch(3_600_000), "every hour");
@@ -39,22 +42,28 @@ test("plain percent and cadence: 5 bps is 0.05%, 500 is 5%, and an epoch is said
 });
 
 test("plainDecision is built from the numbers alone and never uses the jargon", () => {
-  assert.equal(plainDecision(5, 5, 90_000), "Kept the rate at +0.05%. That prints 0.05% more coins every 90 seconds for holders who staked.");
-  assert.equal(plainDecision(10, 5, 90_000), "Raised the rate from +0.05% to +0.10%. That prints 0.10% more coins every 90 seconds for holders who staked.");
-  assert.match(plainDecision(-5, 0, 90_000), /^Lowered the rate from 0% to −0.05%\. That burns 0.05% of every transfer\.$/);
+  assert.equal(plainDecision(5, 5, "a day"), "Kept the rate at +0.05%. That prints 0.05% more coins a day for holders who staked.");
+  assert.equal(plainDecision(10, 5, "a day"), "Raised the rate from +0.05% to +0.10%. That prints 0.10% more coins a day for holders who staked.");
+  assert.match(plainDecision(-5, 0, "a day"), /^Lowered the rate from 0% to −0.05%\. That burns 0.05% of every transfer\.$/);
   assert.match(plainDecision(0, 5), /That prints and burns nothing\.$/);
-  assert.match(plainDecision(5, 0), /more coins each round/, "an unknown epoch length is not invented");
-  for (const [a, b] of [[5, 5], [10, 5], [-5, 0], [0, 5]]) assert.doesNotMatch(plainDecision(a, b, 90_000), JARGON);
+  assert.match(plainDecision(5, 0), /more coins each round/, "an unknown unit is not invented");
+  assert.match(plainDecision(5, 0, printUnit(oldParams)), /more coins every 90 seconds for/, "a token without meetings_per_day is per meeting");
+  assert.equal(printUnit({ meetingsPerDay: 960, epochMs: 90_000 }), "a day");
+  assert.equal(printUnit({ meetingsPerDay: null, epochMs: null }), "each round");
+  for (const [a, b] of [[5, 5], [10, 5], [-5, 0], [0, 5]]) assert.doesNotMatch(plainDecision(a, b, "a day"), JARGON);
 });
 
 test("the sentence at the top of the page says what the AI is doing right now, in all three cases, with the contract's limit", () => {
-  const draw = (rateBps) => {
+  const draw = (rateBps, p = params) => {
     const doc = fakeDoc();
     const el = host(doc);
-    renderPlain(doc, el, { policy: { rateBps }, params });
+    renderPlain(doc, el, { policy: { rateBps }, params: p });
     return text(el);
   };
-  assert.equal(draw(5), "Right now the AI is printing 0.05% more coins every 90 seconds and giving them to holders who staked. The most the contract lets it print each time is 2%. Holders who staked can vote it out.");
+  assert.equal(draw(35), "Right now the AI is printing 0.35% more coins a day and giving them to holders who staked. The most the contract lets it print is 2% a day. Holders who staked can vote it out.");
+  assert.equal(draw(5, oldParams), "Right now the AI is printing 0.05% more coins every 90 seconds and giving them to holders who staked. The most the contract lets it print is 2% every 90 seconds. Holders who staked can vote it out.", "a token without meetings_per_day is per meeting, and the page says so");
+  assert.match(draw(0), /The most the contract lets it print is 2% a day\./);
+  assert.doesNotMatch(draw(5), /each time|every 90 seconds/);
   assert.match(draw(-5), /^Right now the AI is burning 0\.05% of every transfer\. The most the contract lets it burn is 2%\. Holders who staked can vote it out\.$/);
   assert.match(draw(0), /^Right now the AI is holding the supply still: nothing is being printed or burned\./);
   for (const r of [5, -5, 0]) assert.doesNotMatch(draw(r), JARGON);
@@ -67,7 +76,7 @@ test("the sentence at the top of the page says what the AI is doing right now, i
 
 const sha = (c) => c.repeat(64);
 const dec = (over = {}) => ({ chair: "chair.test.near", epoch: 5, rateBps: 10, previousRateBps: 0, hash: sha("a"), chainText: null, tx: "7".repeat(44), tsMs: 1_700_000_000_000, height: 1, ...over });
-const ctx = { texts: new Map(), resolved: new Map(), explorer: "https://example.invalid", repoBase: "https://example.invalid/repo/blob/main", epochMs: 90_000 };
+const ctx = { texts: new Map(), resolved: new Map(), explorer: "https://example.invalid", repoBase: "https://example.invalid/repo/blob/main", unit: "a day" };
 const policy = { epoch: 9, rateBps: 10, lastSetEpoch: 5, streak: 1, epochEndsMs: 1, chair: "chair.test.near" };
 
 test("the hero and every minute lead with a plain translation, and the Chair's own words are labelled as such underneath", () => {
@@ -78,8 +87,8 @@ test("the hero and every minute lead with a plain translation, and the Chair's o
   renderHero(doc, hero, { decisions: ds, policy, status: "complete" }, ctx);
   renderMinutes(doc, list, { decisions: ds, policy, status: "complete" }, ctx);
   const lines = (n) => find(n, (x) => x.attrs?.class === "plain-line").map(text);
-  assert.deepEqual(lines(hero), ["Raised the rate from 0% to +0.10%. That prints 0.10% more coins every 90 seconds for holders who staked."]);
-  assert.deepEqual(lines(list), ["Lowered the rate from +0.10% to +0.05%. That prints 0.05% more coins every 90 seconds for holders who staked."]);
+  assert.deepEqual(lines(hero), ["Raised the rate from 0% to +0.10%. That prints 0.10% more coins a day for holders who staked."]);
+  assert.deepEqual(lines(list), ["Lowered the rate from +0.10% to +0.05%. That prints 0.05% more coins a day for holders who staked."]);
   assert.equal(find(hero, (x) => x.attrs?.class === "said-k").map(text)[0], "In the Chair's words");
   assert.ok(lines(hero).every((l) => !JARGON.test(l)));
 });

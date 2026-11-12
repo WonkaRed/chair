@@ -22,26 +22,36 @@ export const IMPEACHMENT = {
   newChair: "challenger.chair-coin-2.testnet",
 };
 
-const MAX_MEETINGS = 100_000;
+/** A ramp of this many meetings is not the contract's (it takes `ceil(MAX_RATE_BPS / MAX_STEP_BPS)`); it only keeps a malformed `max_step_bps` of 0 from looping. */
+const MAX_RAMP = 1_000;
+const DAY_MS = 86_400_000;
 
 /**
  * What a Chair that holds the rate at the ceiling does to the supply, with the contract's own ramp (the rate moves at most `maxStepBps` a meeting)
- * and the supply limit. Floating point: these are "about" figures and are only ever shown rounded.
+ * and the supply limit. `meetingsPerDay` is the chain's (`get_params`): under the per-day rule a meeting mints `rate / (10_000 * meetingsPerDay)` of the
+ * supply; a token that does not report it is the older per-meeting rule, `meetingsPerDay = 1`. A span of `ms` holds at most `ceil(ms / epochMs)` meetings
+ * (SPEC "The leash in numbers"). Floating point: these are "about" figures and are only ever shown rounded.
  */
-export function worstCase({ maxRateBps, maxStepBps, epochMs, launchSupply }) {
-  const meetingsPerHour = 3_600_000 / epochMs;
+export function worstCase({ maxRateBps, maxStepBps, epochMs, launchSupply, meetingsPerDay = null }) {
+  const divisor = 10_000 * (meetingsPerDay ?? 1);
+  const perMeeting = maxRateBps / divisor;
+  const over = (ms) => (1 + perMeeting) ** Math.ceil(ms / epochMs);
   const capMultiple = Number((MAX_TOTAL_SUPPLY * 1_000n) / launchSupply) / 1_000;
   let growth = 1;
   let rate = 0;
   let meetings = 0;
-  while (growth < capMultiple && meetings < MAX_MEETINGS) {
+  while (rate < maxRateBps && growth < capMultiple && meetings < MAX_RAMP) {
     rate = Math.min(maxRateBps, rate + maxStepBps);
-    growth *= 1 + rate / 10_000;
+    growth *= 1 + rate / divisor;
     meetings += 1;
   }
+  if (growth < capMultiple) meetings += Math.ceil(Math.log(capMultiple / growth) / Math.log1p(perMeeting));
   return {
-    perMeetingPct: maxRateBps / 100,
-    perHour: (1 + maxRateBps / 10_000) ** meetingsPerHour,
+    perMeetingPct: perMeeting * 100,
+    perHour: over(3_600_000),
+    perDay: over(DAY_MS),
+    perWeek: over(7 * DAY_MS),
+    perMonth: over(30 * DAY_MS),
     rampMeetings: Math.ceil(maxRateBps / maxStepBps),
     capMultiple,
     capMeetings: meetings,
@@ -55,6 +65,14 @@ const sig = (n, digits) => Number(n.toPrecision(digits));
 const grouped = (n) => n.toLocaleString("en-US");
 /** Round to the nearest `step` so a figure reads as the "about" it is: 529 meetings is "about 530". */
 const near = (n, step) => Math.round(n / step) * step;
+/** A long wait in the unit a reader thinks in: hours up to two days, days up to two months, then months, then years. */
+function longSpan(hours) {
+  const days = hours / 24;
+  if (hours < 48) return `${Math.round(hours)} hours`;
+  if (days < 60) return `${Math.round(days)} days`;
+  const months = days / 30.44;
+  return months < 24 ? `${Math.round(months)} months` : `${sig(months / 12, 2)} years`;
+}
 
 /** The restraints, each `{ head, body }` built from the params; `body` ends without its transaction link, which the renderer adds to the first. */
 export const RESTRAINTS = [
@@ -72,14 +90,35 @@ export const RESTRAINTS = [
   },
 ];
 
-/** The section's text for the given chain values (`LAUNCH` fills what the chain has not said yet). */
+/**
+ * The section's text for the given chain values (`LAUNCH` fills what the chain has not said yet). A token that reports `meetingsPerDay` runs the per-day
+ * rule; one that does not runs the older per-meeting rule, and gets the older, harsher text, because that is what its contract does.
+ */
 export function boundText(params) {
   const p = { ...LAUNCH, ...params };
   const w = worstCase(p);
+  const perDay = p.meetingsPerDay !== undefined && p.meetingsPerDay !== null;
+  const restraints = RESTRAINTS.map((r) => ({ head: r.head, body: r.body(p) }));
+  const ramp = `the rate moves at most ${plainPct(p.maxStepBps)} a meeting, so getting there takes ${w.rampMeetings} meetings.`;
+  if (!perDay) {
+    return {
+      lead: `The Chair can print at most ${plainPct(p.maxRateBps)} of all coins in one meeting, and a meeting comes ${everyEpoch(p.epochMs)}. It cannot jump to that ceiling: ${ramp}`,
+      worst: `Held at the ceiling, the supply grows about ${sig(w.perHour, 2)} times an hour. The only hard stop is a supply limit written into the code, about ${grouped(sig(w.capMultiple, 2))} times the launch supply, which a Chair at the ceiling reaches in about ${grouped(near(w.capMeetings, 10))} meetings, roughly ${Math.round(w.capHours)} hours. That is hyperinflation, and the contract alone does not prevent it.`,
+      figures: null,
+      restraints,
+    };
+  }
+  const times = (n) => `${sig(n, 3)} times`;
   return {
-    lead: `The Chair can print at most ${plainPct(p.maxRateBps)} of all coins in one meeting, and a meeting comes ${everyEpoch(p.epochMs)}. It cannot jump to that ceiling: the rate moves at most ${plainPct(p.maxStepBps)} a meeting, so getting there takes ${w.rampMeetings} meetings.`,
-    worst: `Held at the ceiling, the supply grows about ${sig(w.perHour, 2)} times an hour. The only hard stop is a supply limit written into the code, about ${grouped(sig(w.capMultiple, 2))} times the launch supply, which a Chair at the ceiling reaches in about ${grouped(near(w.capMeetings, 10))} meetings, roughly ${Math.round(w.capHours)} hours. That is hyperinflation, and the contract alone does not prevent it.`,
-    restraints: RESTRAINTS.map((r) => ({ head: r.head, body: r.body(p) })),
+    lead: `The Chair can print at most ${plainPct(p.maxRateBps)} of all coins a day. A meeting comes ${everyEpoch(p.epochMs)}, and each one prints only ${p.meetingsPerDay > 1 ? `1/${grouped(p.meetingsPerDay)} of ` : ""}that day's rate. It cannot jump to the ceiling either: ${ramp}`,
+    worst: `Even if it holds the rate at the ceiling forever, the supply grows by at most about ${sig((w.perDay - 1) * 100, 3)}% a day: the ${plainPct(p.maxRateBps)} plus a little, because each meeting's new coins count toward the next. The only hard stop is a supply limit written into the code, about ${grouped(sig(w.capMultiple, 2))} times the launch supply.`,
+    figures: [
+      { k: "In a day", v: `+${sig((w.perDay - 1) * 100, 3)}%` },
+      { k: "In a week", v: times(w.perWeek) },
+      { k: "In 30 days", v: times(w.perMonth) },
+      { k: "To the supply limit", v: `about ${longSpan(w.capHours)}` },
+    ],
+    restraints,
   };
 }
 
@@ -91,7 +130,8 @@ export function renderBound(doc, host, params = {}, { explorer = null } = {}) {
   const proof = explorer === null ? null : h(doc, "a", { href: `${explorer}/txns/${IMPEACHMENT.tx}`, rel: "noopener noreferrer", target: "_blank" }, "See the transaction");
   host.append(
     h(doc, "p", { class: "bound-lead" }, t.lead),
-    h(doc, "p", { class: "bound-worst" }, t.worst),
+    h(doc, "p", { class: t.figures === null ? "bound-worst" : "bound-pace" }, t.worst),
+    ...(t.figures === null ? [] : [h(doc, "dl", { class: "bound-figures" }, t.figures.map((f) => h(doc, "div", {}, h(doc, "dt", {}, f.k), h(doc, "dd", {}, f.v))))]),
     h(doc, "p", { class: "bound-h" }, "Three things restrain it:"),
     h(doc, "ol", { class: "restraints" }, t.restraints.map((r, i) => h(doc, "li", {}, h(doc, "strong", {}, r.head), " ", r.body, i === 0 && proof !== null ? [" ", proof, "."] : null))),
   );

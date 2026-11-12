@@ -2,6 +2,7 @@
 // byte for byte into `vendor/sim/` by the build). Nothing here re-implements the model: it picks scenarios, calls `run`,
 // and turns BigInt rows into the numbers a chart needs. `test/sim.test.mjs` checks them against the simulator's own export.
 import { EPOCHS, INITIAL_SUPPLY, TOKEN, run } from "../vendor/sim/sim.js";
+import { MEETINGS_PER_DAY } from "../vendor/sim/model.js";
 import { SCENARIOS } from "../vendor/sim/scenarios.js";
 
 /** The five chair behaviours the page compares, in the fixed order that fixes their colours. */
@@ -36,5 +37,5 @@ export function simulate(ids = BEHAVIOURS.map((b) => b.id)) {
       burned: r.totalBurned,
     };
   });
-  return { epochs: EPOCHS, initialSupply: INITIAL_SUPPLY, tokenBaseUnits: TOKEN, series };
+  return { epochs: EPOCHS, initialSupply: INITIAL_SUPPLY, tokenBaseUnits: TOKEN, meetingsPerDay: Number(MEETINGS_PER_DAY), series };
 }

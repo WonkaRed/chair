@@ -14,7 +14,7 @@ import { openFoldsAround, setupReveal } from "./reveal.js";
 import { BEHAVIOURS, simulate } from "./simview.js";
 import { fixtureTransport, rpcTransport } from "./sources.js";
 import { isTxHash, safeText } from "./text.js";
-import { fmtRate, LOG_PAGE, renderFailure, renderLedger, renderLog, renderNow, renderPlain, renderReconcile, renderSource } from "./views.js";
+import { fmtRate, LOG_PAGE, printUnit, renderFailure, renderLedger, renderLog, renderNow, renderPlain, renderReconcile, renderSource } from "./views.js";
 import { config } from "../config.js";
 
 const doc = document;
@@ -111,7 +111,7 @@ async function showChain() {
     const bundled = await texts;
     const explorer = made.fixture ? null : config.explorerUrl;
     const indexerUrl = made.fixture ? null : config.indexerUrl;
-    const ctx = { texts: bundled, resolved: await resolveTexts(data.decisions, bundled), explorer, indexerUrl, repoBase: `${config.repoUrl}/blob/${config.repoRef}`, network: made.fixture ? null : config.network, epochMs: data.params.epochMs };
+    const ctx = { texts: bundled, resolved: await resolveTexts(data.decisions, bundled), explorer, indexerUrl, repoBase: `${config.repoUrl}/blob/${config.repoRef}`, network: made.fixture ? null : config.network, unit: printUnit(data.params) };
     renderHero(doc, $("hero-minutes"), data, ctx);
     renderMinutes(doc, $("minutes-body"), data, ctx);
     renderRefusals(doc, $("refusals-body"), data, { explorer, indexerUrl });
@@ -144,7 +144,7 @@ function showSimulation() {
   const series = (key) => sim.series.map((s) => ({ id: s.id, label: s.label, slot: slots[s.id], values: s[key] }));
   const charts = [
     lineChart(doc, { title: "Total supply", caption: "As a share of the launch supply: 100% is where it started.", series: series("supplyPct"), fmt: (v, axis) => (axis ? `${v}%` : `${v.toFixed(2)}% of launch`), guides: [{ value: 100, label: "launch" }] }),
-    lineChart(doc, { title: "Rate in effect", caption: "Basis points. Above zero mints for stakers, below zero burns a share of each transfer.", series: series("rateBps"), domain: [-200, 200], fmt: (v, axis) => (axis ? fmtRate(Math.round(v)).replace(" bps", "") : fmtRate(Math.round(v))), guides: [] }),
+    lineChart(doc, { title: "Rate in effect", caption: "Basis points. Above zero mints for stakers, as basis points of supply a day, shared out over the day's meetings. Below zero burns a share of each transfer.", series: series("rateBps"), domain: [-200, 200], fmt: (v, axis) => (axis ? fmtRate(Math.round(v)).replace(" bps", "") : fmtRate(Math.round(v))), guides: [] }),
     lineChart(doc, { title: "Staking reward per epoch", caption: "New tokens an epoch's mint pays per staked token, as a percentage of the stake. Zero whenever the rate is not positive.", series: series("rewardPct"), fmt: (v, axis) => (axis ? `${v}%` : `${v.toFixed(3)}% of stake`) }),
   ];
   $("sim-charts").append(charts[0].element); // one chart up front; the other two sit in the fold-out
@@ -188,7 +188,7 @@ function showSimulation() {
     h(doc, "li", {}, `Each epoch ${p.velocityBps / 100}% of the liquid supply moves in ${p.transfersPerEpoch} equal transfers; each burns the rate while it is negative. Nothing else trades.`),
     h(doc, "li", {}, "The chair behaviours are scripts that ignore the market. The honest chair is the shipped rule chair (rule-v1) ported to the simulator; the others are the extremes the contract allows."),
     h(doc, "li", {}, "All arithmetic is in exact integers with the contract's rounding. The simulator was written from SPEC.md and read against the contract source; it does not run the contract. There is no price, no demand and no selling."),
-    h(doc, "li", {}, "A mint needs someone staked: at +200 bps each epoch mints 2% of the supply into the reward pool, shared by whoever is staked."),
+    h(doc, "li", {}, `A mint needs someone staked. The rate is per day: at +200 bps (2% a day) each epoch mints 1/${sim.meetingsPerDay} of that into the reward pool, shared by whoever is staked.`),
   ));
 }
 
