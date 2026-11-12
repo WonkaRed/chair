@@ -79,11 +79,10 @@ h3 { font: 600 1.25rem/1.3 var(--serif); margin: 1.5rem 0 0.5rem; }
 .fold > summary:hover { color: var(--accent); }
 .fold > :not(summary) { margin-inline: 0; }
 .fold[open] { padding-bottom: 1rem; }
-/* What the page reads is the newest transactions (js/loadlog.js); the list's own count line says "in all", so a windowed list shows the scope line under it instead (js/earlier.js). */
-#minutes-body.windowed .m-count { display: none; }
-.earlier:empty { display: none; }
-.earlier { margin-top: 0.8rem; }
-.earlier-note { max-width: 62ch; }
+/* What the page reads is the newest transactions (js/loadlog.js); under each list built from them, what it covers and the control that reads further back (js/earlier.js). */
+.older-read:empty { display: none; }
+.older-read { margin-top: 0.8rem; }
+.older-read .earlier-note { max-width: 62ch; }
 /* A phone fold (js/phonefold.js) is only a fold on a phone; wider, it is open and says nothing. */
 @media (min-width: 40.01rem) { .fold.phone-fold { border: 0; margin-top: 0; padding: 0; } .phone-fold > summary { display: none; } }
 @supports selector(::details-content) {
@@ -98,7 +97,7 @@ h3 { font: 600 1.25rem/1.3 var(--serif); margin: 1.5rem 0 0.5rem; }
 @media (prefers-reduced-motion: reduce) { .reveal-on .reveal:not(.in) { opacity: 1; transform: none; } }
 
 /* The hero: plain words first, the two things to do, then the Chair's latest minutes as flavour. */
-.hero { margin-top: 0; padding-block: 2.5rem 0.5rem; display: grid; gap: 2rem 3.5rem; grid-template-columns: minmax(0, 1fr); align-items: center; }
+.hero { margin-top: 0; padding-block: 2.5rem 0.5rem; display: grid; gap: 2rem 3.5rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
 @media (min-width: 62rem) { .hero { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); padding-block: 3.25rem 0.5rem; } }
 .hero-copy { min-width: 0; }
 h1 { font: 600 clamp(2rem, 4.3vw, 3.4rem)/1.07 var(--serif); letter-spacing: -0.02em; margin: 0; }
@@ -426,8 +425,8 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 @keyframes skel { 50% { opacity: 0.45; } }
 .now-slot { min-height: 8.5rem; margin-top: 1.5rem; }
 .now-slot .now-plain { margin-top: 0; }
-/* The room held for the minutes: the height of an AI chair's ordinary minutes with their choice row, at 1280 and at 375 (749 px at most, 48rem is 768); a text with a long silence or a press section is taller and grows past it. */
-.hero-slot { --hero-h: 48rem; min-height: var(--hero-h); min-width: 0; }
+/* The room held for the minutes: the height of an AI chair's minutes with their choice row, a clamp note and a silence line, at 1280 and at 375 (792 px at most, 50rem is 800); a text with a press section is taller and grows past it, as does an open proof. */
+.hero-slot { --hero-h: 50rem; min-height: var(--hero-h); min-width: 0; }
 .hero-slot .minutes-paper.skeleton { min-height: var(--hero-h); }
 .hero-empty { margin: 0; }
 .hero-slot .hero-empty { display: grid; align-content: center; min-height: var(--hero-h); } /* the sentence fills the box the placeholder held, so the page below does not move when the hero resolves */

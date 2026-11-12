@@ -51,11 +51,21 @@ function summary(refusals, partial) {
   return `${lead} deliberate test calls that I made to show the bounds hold, signed by ${signers}${visitors}.${clean}`;
 }
 
+/**
+ * What a windowed list says about the project's known test refusals, which are read by hash whatever the window: that they were read, or how many
+ * were not (a failed lookup is not an absence). Empty when the whole history is read.
+ */
+export function testCallsClause(d) {
+  if (!d.partial) return "";
+  const missing = d.unreadTestCalls?.length ?? 0;
+  return missing === 0 ? " and the test calls made on purpose" : ` and the test calls made on purpose that could be read (${missing} of ${PROJECT_TEST_CALLS.size} could not be read just now)`;
+}
+
 /** `d` is `loadLog`'s result. */
 export function renderRefusals(doc, host, d, { explorer, indexerUrl = null }) {
   clear(host);
   if (d.status === "incomplete") return host.append(h(doc, "p", { class: "empty" }, "The refusals come from the transaction index, which could not be read. See the status under the log."));
-  if (d.refusals.length === 0) return host.append(h(doc, "p", { class: "empty" }, d.partial ? "The contract has refused no set_policy call in the transactions read." : "The contract has refused no set_policy call yet."));
+  if (d.refusals.length === 0) return host.append(h(doc, "p", { class: "empty" }, d.partial ? `The contract has refused no set_policy call in the transactions read${(d.unreadTestCalls?.length ?? 0) > 0 ? ` (${d.unreadTestCalls.length} of the ${PROJECT_TEST_CALLS.size} test calls made on purpose could not be read just now)` : ""}.` : "The contract has refused no set_policy call yet."));
   const lead = summary(d.refusals, d.partial);
   if (lead !== null) host.append(h(doc, "p", { class: "m-status" }, lead));
   const rows = d.refusals.map((r) => {
@@ -70,7 +80,7 @@ export function renderRefusals(doc, host, d, { explorer, indexerUrl = null }) {
     );
   });
   rows.forEach((tr, i) => (tr.hidden = i >= HALL));
-  host.append(h(doc, "table", { class: "log hall" }, h(doc, "caption", {}, `${rows.length} refused set_policy ${rows.length === 1 ? "call" : "calls"}${d.partial ? ` read (the latest ${d.txCount} transactions, and the test calls made on purpose)` : ""}, newest first${d.refusals.some((r) => r.byVisitor) ? `; ${d.refusals.filter((r) => r.byVisitor).length} forced by visitors through the press desk` : ""}`), h(doc, "thead", {}, h(doc, "tr", {}, ["Asked for", "Why the contract said no", "Signed by", "Transaction"].map((t) => h(doc, "th", { scope: "col" }, t)))), h(doc, "tbody", {}, rows)));
+  host.append(h(doc, "table", { class: "log hall" }, h(doc, "caption", {}, `${rows.length} refused set_policy ${rows.length === 1 ? "call" : "calls"}${d.partial ? ` read (the latest ${d.txCount} transactions${testCallsClause(d)})` : ""}, newest first${d.refusals.some((r) => r.byVisitor) ? `; ${d.refusals.filter((r) => r.byVisitor).length} forced by visitors through the press desk` : ""}`), h(doc, "thead", {}, h(doc, "tr", {}, ["Asked for", "Why the contract said no", "Signed by", "Transaction"].map((t) => h(doc, "th", { scope: "col" }, t)))), h(doc, "tbody", {}, rows)));
   if (rows.length > HALL) {
     const more = h(doc, "button", { type: "button", class: "chip more" }, `Show all ${rows.length}${d.partial ? " read" : " refusals"}`);
     more.addEventListener("click", () => {

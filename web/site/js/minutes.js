@@ -223,9 +223,10 @@ function who(doc, d, rec) {
   const label = rec?.chair ? safeText(rec.chair, 80) : null;
   const kind = rec?.kind && KIND[rec.kind] ? `, ${KIND[rec.kind]}` : "";
   return h(doc, "p", { class: "m-who" },
-    label ? ["Decided by ", h(doc, "strong", {}, label), kind, ". Signed by "] : "Signed by ",
+    "The Chair's account ",
     h(doc, "span", { class: isAccountId(d.chair) ? "acct nowrap" : "acct" }, showAccount(d.chair)),
-    ` at ${fmtTime(d.tsMs)}.`,
+    ` signed this at ${fmtTime(d.tsMs)}.`,
+    label ? [" It was decided by ", h(doc, "strong", {}, label), kind, "."] : null,
   );
 }
 
@@ -244,8 +245,15 @@ function proof(doc, d, ctx) {
   );
 }
 
-/** The page's own plain line is only for a decision whose text is not already plain: no text, or a text still in basis points and epochs. */
-const needsPlain = (p) => !p.rec || /basis points|bps|epoch/i.test(p.prose);
+/** The Chair's statement: the prose without the lines the agent adds after it (a clamp, a rollover, the press), which speak in bps whatever the Chair wrote. */
+const statementOf = (prose) => {
+  const lines = prose.split("\n");
+  const cut = lines.findIndex((line) => AFTER_STATEMENT.test(line));
+  return (cut < 0 ? lines : lines.slice(0, cut)).join("\n");
+};
+
+/** The page's own plain line is only for a decision whose text is not already plain: no text, or a statement still in basis points and epochs. */
+const needsPlain = (p) => !p.rec || /basis points|bps|epoch/i.test(statementOf(p.prose));
 
 /**
  * The minutes as a quote. When the Chair wrote its closing sentence, that sentence is its own element with a plain label, inside the same quote, so the
@@ -349,7 +357,10 @@ function savedNote(policy, d) {
 /** The hero when no decision can be shown at all: only what the chain's own views say, in a sentence. The numbers are the chain's, never a guess. */
 function chainOnly(doc, d, ctx) {
   const { policy } = d;
-  return h(doc, "p", { class: "empty hero-empty" }, h(doc, "span", {}, "The Chair's minutes could not be read just now. The chain itself says the rate in force is ", rateLabel(policy.rateBps, ctx.unit), ` (meeting ${policy.epoch}) and that `, h(doc, "span", { class: "acct" }, showAccount(policy.chair)), " is the Chair. See the status under the log."));
+  const [why, see] = d.outOfReach
+    ? ["The Chair's latest decision is older than the transactions read here.", "\"Show earlier meetings\", under the minutes, reads further back."]
+    : ["The Chair's minutes could not be read just now.", "See the status under the log."];
+  return h(doc, "p", { class: "empty hero-empty" }, h(doc, "span", {}, `${why} The chain itself says the rate in force is `, rateLabel(policy.rateBps, ctx.unit), ` (meeting ${policy.epoch}) and that `, h(doc, "span", { class: "acct" }, showAccount(policy.chair)), ` is the Chair. ${see}`));
 }
 
 /**
@@ -363,6 +374,7 @@ export function renderHero(doc, host, d, ctx) {
     const s = silence(d.policy, latest);
     return host.append(heroCard(doc, latest, ctx, { note: s.cls === "warn" ? s.text : null }));
   }
+  if (d.outOfReach) return host.append(chainOnly(doc, d, ctx));
   if (d.status !== "incomplete") return host.append(h(doc, "p", { class: "empty hero-empty" }, "No decision has been recorded on chain yet."));
   const [saved] = d.remembered;
   host.append(saved === undefined ? chainOnly(doc, d, ctx) : heroCard(doc, saved, ctx, { note: savedNote(d.policy, saved), saved: true }));
@@ -387,31 +399,40 @@ function card(doc, d, ctx) {
   );
 }
 
-/** Persistent nodes, no re-render: the focus stays on the control that was pressed. The first batch is `FIRST` cards, then `PAGE` per press. */
-function cards(doc, list, ctx) {
+/**
+ * Persistent nodes, no re-render: the focus stays on the control that was pressed. The first batch is `FIRST` cards, then `PAGE` per press. `view` is
+ * the caller's `{ shown, total }`, kept between draws: a list drawn again opens as many cards as were showing, and one more page when all of them were
+ * (the visitor had reached the end and asked for what comes next). `scope` is what the list covers when it is not the whole history.
+ */
+function cards(doc, list, ctx, view, scope) {
   const rows = h(doc, "div", { class: "m-rows" });
   const count = h(doc, "p", { class: "note m-count" });
   const more = h(doc, "button", { type: "button", class: "chip more" });
   let shown = 0;
   const showNext = () => {
-    for (const d of list.slice(shown, shown + (shown === 0 ? FIRST : PAGE))) rows.append(card(doc, d, ctx));
-    shown = Math.min(list.length, shown + (shown === 0 ? FIRST : PAGE));
+    const step = shown === 0 ? Math.max(FIRST, view.shown > 0 && view.shown >= view.total ? view.shown + PAGE : view.shown) : PAGE;
+    for (const d of list.slice(shown, shown + step)) rows.append(card(doc, d, ctx));
+    shown = Math.min(list.length, shown + step);
+    view.shown = shown;
+    view.total = list.length;
     more.hidden = shown >= list.length;
     more.textContent = `Show ${Math.min(PAGE, list.length - shown)} more`;
-    count.textContent = `Showing the ${shown} newest of ${list.length} earlier decisions (${list.length + 1} in all, counting the latest at the top of the page).`;
+    count.textContent = scope === null
+      ? `Showing the ${shown} newest of ${list.length} earlier decisions (${list.length + 1} in all, counting the latest at the top of the page).`
+      : `Showing the ${shown} newest of the ${list.length} earlier decisions ${scope} (the latest one is at the top of the page).`;
   };
   more.addEventListener("click", showNext);
   showNext();
   return [count, rows, more];
 }
 
-/** The earlier decisions as cards, newest first (the latest is the hero). `ctx` is `{texts, resolved, explorer, indexerUrl, repoBase, network, unit}`: `indexerUrl` the transactions index, null on a recorded run; `texts` the bundled texts or null, `resolved` from `resolveTexts`. */
-export function renderMinutes(doc, host, d, ctx) {
+/** The earlier decisions as cards, newest first (the latest is the hero). `view` is `{ shown: 0, total: 0 }` kept by the caller between draws (see `cards`). `ctx` is `{texts, resolved, explorer, indexerUrl, repoBase, network, unit}`: `indexerUrl` the transactions index, null on a recorded run; `texts` the bundled texts or null, `resolved` from `resolveTexts`. */
+export function renderMinutes(doc, host, d, ctx, view = { shown: 0, total: 0 }) {
   while (host.firstChild) host.removeChild(host.firstChild);
   const [latest, ...older] = d.decisions;
   const s = silence(d.policy, latest);
   host.append(h(doc, "p", { class: `m-status ${s.cls}`, role: "status" }, s.text));
   if (d.status === "incomplete") host.append(h(doc, "p", { class: "empty" }, "The decisions come from the transaction index, which could not be read. See the status under the log."));
-  else if (latest === undefined) host.append(h(doc, "p", { class: "empty" }, "No decision has been recorded on chain yet."));
-  if (older.length > 0) host.append(...cards(doc, older, ctx));
+  else if (latest === undefined) host.append(h(doc, "p", { class: "empty" }, d.outOfReach ? "No decision is in the transactions read: the latest is older. \"Show earlier meetings\", below, reads further back." : "No decision has been recorded on chain yet."));
+  if (older.length > 0) host.append(...cards(doc, older, ctx, view, d.partial ? `in the latest ${d.txCount} transactions` : null));
 }

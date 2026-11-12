@@ -122,3 +122,52 @@ test("an index that cannot be read is reported, not hidden, and a missing docs f
   assert.equal(m.warnings.length, 1);
   assert.deepEqual(describeMinutes(m), ["NOTE: the decisions on chain could not be read (indexer: HTTP 503), so the reasoning-hash check was skipped and is not counted; the other checks read the RPC only."]);
 });
+
+/** A stand-in index that pages like the real one: newest first, `limit` rows, a `resume_token` that names the next offset. */
+function pagedIndexer(txs: ReturnType<typeof tx>[], loop = false): { fetch: typeof fetch; pages: () => number } {
+  let pages = 0;
+  const newestFirst = [...txs].reverse();
+  return {
+    pages: () => pages,
+    fetch: async (url, init) => {
+      const path = new URL(String(url)).pathname;
+      const body = JSON.parse(String(init?.body ?? "{}")) as { tx_hashes?: string[]; limit?: number; resume_token?: string };
+      if (path === "/v0/account") {
+        pages++;
+        const start = body.resume_token === undefined ? 0 : Number(body.resume_token);
+        const rows = newestFirst.slice(start, start + (body.limit ?? 0));
+        return Response.json({ account_txs: rows.map((t) => ({ transaction_hash: t.transaction.hash })), resume_token: loop ? "0" : String(start + rows.length) });
+      }
+      if (path === "/v0/transactions") return Response.json({ transactions: txs.filter((t) => body.tx_hashes?.includes(t.transaction.hash)) });
+      return new Response("unexpected", { status: 404 });
+    },
+  };
+}
+
+const B58 = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+const b58Hash = (n: number) => `${B58[Math.floor(n / 58) % 58]}${B58[n % 58]}`.repeat(22);
+
+test("the whole history is read, however many pages the index splits it into, oldest decision included", async () => {
+  const many = Array.from({ length: 450 }, (_, i) => {
+    const t = tx(i + 1, i + 1, 10, "b".repeat(64));
+    t.transaction.hash = b58Hash(i);
+    return t;
+  });
+  const index = pagedIndexer(many);
+  const m = await gatherMinutes(["https://rpc.invalid"], TOKEN, join(root, "does-not-exist"), index.fetch);
+  assert.equal(m.error, null);
+  assert.equal(index.pages(), 3);
+  assert.equal(m.decisions.length, 450);
+  assert.deepEqual([m.decisions[0]?.epoch, m.decisions.at(-1)?.epoch], [450, 1]);
+});
+
+test("an index that keeps handing back the same page token is a failure, not a quiet end of the history", async () => {
+  const many = Array.from({ length: 450 }, (_, i) => {
+    const t = tx(i + 1, i + 1, 10, "b".repeat(64));
+    t.transaction.hash = b58Hash(i);
+    return t;
+  });
+  const m = await gatherMinutes(["https://rpc.invalid"], TOKEN, join(root, "does-not-exist"), pagedIndexer(many, true).fetch);
+  assert.deepEqual(m.decisions, []);
+  assert.equal(m.error, "indexer: the index repeated a page token: history not read to the end");
+});

@@ -113,6 +113,7 @@ export function rpcTransport({ rpcUrls, indexerUrl, account, fetchImpl = globalT
   /**
    * One page of the hashes of the transactions that touched the token, newest first, with `next`: the token that asks for the page before it, or null
    * when this was the last one. A read of the page is one request however long the token has run; older pages come only when the caller asks.
+   * @param {{ resume?: string | null }} [options]
    */
   const hashPage = async ({ resume = null } = {}) => {
     const reply = await indexer.post("/v0/account", { account_id: account, is_receiver: true, desc: true, limit: pageLimit, ...(resume === null ? {} : { resume_token: resume }) });

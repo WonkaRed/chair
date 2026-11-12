@@ -71,13 +71,6 @@ function showViews({ params, policy, supply, candidates }, made) {
   renderBound(doc, $("bound-body"), { ...params, launchSupply: supply.launchSupply }, { explorer: made.fixture ? null : config.explorerUrl });
 }
 
-/** The minutes list shows a few cards and more on each press of its own button (js/minutes.js) and starts over when it is drawn again: this shows as many as were showing. */
-function reopenCards(host, count) {
-  const rows = host.querySelector(".m-rows");
-  const more = host.querySelector("button.more");
-  while (rows && more && !more.hidden && rows.children.length < count) more.click();
-}
-
 async function showChain() {
   const state = { filter: "all", newestFirst: true, shown: LOG_PAGE };
   let made;
@@ -97,6 +90,7 @@ async function showChain() {
   const showSource = () => renderSource(doc, $("source"), { mode: made.fixture ? "fixture" : "live", config, fixture: made.fixture, rpcUrl: made.transport.rpcInUse?.() });
   showSource();
   let shown = null; // the data on screen, if a read has succeeded
+  const minutesView = { shown: 0, total: 0 }; // how many minutes cards are open, kept between draws (js/minutes.js)
   const explorer = made.fixture ? null : config.explorerUrl;
   const indexerUrl = made.fixture ? null : config.indexerUrl;
   const contextFor = (bundled, resolved, params) => ({ texts: bundled, resolved, explorer, indexerUrl, repoBase: `${config.repoUrl}/blob/${config.repoRef}`, network: made.fixture ? null : config.network, unit: printUnit(params) });
@@ -139,21 +133,20 @@ async function showChain() {
   };
   /** Everything that is drawn from the transactions read. A read of older ones (`earlier`) draws only what they can change, so the rest of the page stays as the visitor left it. */
   const paint = async (data, { earlier, early = false }) => {
+    const before = shown;
     shown = data;
     showSource();
     const bundled = await texts;
     const ctx = contextFor(bundled, await resolveTexts([...data.decisions, ...data.remembered], bundled), data.params);
     chainData = data;
     resolvedTexts = ctx.resolved;
-    const more = async () => paint(await loadEarlier(made.transport, shown), { earlier: true });
-    const minutes = $("minutes-body");
-    minutes.classList.toggle("windowed", data.partial === true); // the list's own count says "in all": see style.css
-    const cardsBefore = minutes.querySelector(".m-rows")?.children.length ?? 0;
-    const atEnd = minutes.querySelector("button.more")?.hidden !== false; // every card read so far was showing: the visitor asked for what comes next
-    keepFoldsOpen(minutes, () => {
-      renderMinutes(doc, minutes, data, ctx);
-      reopenCards(minutes, earlier && atEnd ? cardsBefore + 1 : cardsBefore); // one press of the list's own button past the end
-    });
+    // A read of older transactions that a newer read has overtaken (a join-watch reload finished first) is dropped: it would paint the older window over it.
+    const more = async () => {
+      const base = shown;
+      const next = await loadEarlier(made.transport, base);
+      if (shown === base) await paint(next, { earlier: true });
+    };
+    keepFoldsOpen($("minutes-body"), () => renderMinutes(doc, $("minutes-body"), data, ctx, minutesView));
     renderEarlier(doc, $("minutes-earlier"), data, { what: "decisions", label: "Show earlier meetings", more });
     renderRefusals(doc, $("refusals-body"), data, { explorer, indexerUrl });
     renderEarlier(doc, $("refusals-earlier"), data, { what: "refusals", label: "Show earlier refusals", more });
@@ -161,7 +154,7 @@ async function showChain() {
     const draw = () => renderLog(doc, $("log-body"), data, state, { explorer, indexerUrl, rerender: draw });
     draw();
     renderEarlier(doc, $("log-earlier"), data, { what: "mints and burns", label: "Show earlier mints and burns", more });
-    if (earlier) return;
+    if (earlier && !before?.outOfReach) return; // an earlier read changes the hero only when it has just found the first decision
     // What the read-ahead drew stands when the index failed part-way and the whole read has no decision to say.
     if (data.decisions.length > 0 || !early) drawHero(data, ctx);
     overreach.refresh();

@@ -48,6 +48,24 @@ interface Resolved extends Bundled {
   readonly verdict: Verdict;
 }
 
+/**
+ * The hash of every transaction that touched the token, oldest first: this audit must read the whole history, so it asks for older pages until the
+ * index says there are none, with no page cap. A token the index hands back twice would loop for ever, so that is a failure, not a silent end.
+ */
+async function everyHash(transport: ReturnType<typeof rpcTransport>): Promise<string[]> {
+  const hashes = new Set<string>();
+  const asked = new Set<string>();
+  let resume: string | null = null;
+  do {
+    const page: { newest: string[]; next: string | null } = await transport.hashPage({ resume });
+    for (const hash of page.newest) hashes.add(hash);
+    resume = page.next;
+    if (resume !== null && asked.has(resume)) throw new SourceError("indexer", "the index repeated a page token: history not read to the end");
+    if (resume !== null) asked.add(resume);
+  } while (resume !== null);
+  return [...hashes].reverse();
+}
+
 /** `fetchImpl` is the network boundary (a stub in tests). `docsDir` holds the `testnet-run-agent-*` records. */
 export async function gatherMinutes(rpcUrls: readonly string[], token: string, docsDir: string, fetchImpl: typeof fetch = fetch): Promise<Minutes> {
   const { bundle, warnings } = await bundleMinutes(docsDir);
@@ -55,7 +73,7 @@ export async function gatherMinutes(rpcUrls: readonly string[], token: string, d
   let raw: RawDecision[];
   try {
     const transport = rpcTransport({ rpcUrls, indexerUrl: webConfig.indexerUrl, account: token, fetchImpl, sleep: undefined }); // undefined: the transport's own pause between rounds
-    raw = decisionsOfTxs(await transport.transactions(await transport.txHashes()), token).decisions;
+    raw = decisionsOfTxs(await transport.transactions(await everyHash(transport)), token).decisions;
   } catch (e) {
     if (!(e instanceof SourceError)) throw e;
     return { decisions: [], warnings, error: `${e.source}: ${e.message}` };

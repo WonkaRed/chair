@@ -741,3 +741,35 @@ test("the hero sets the formula's number beside the Chair's, near the rate, only
   const page = showing(`${head}\n${CHOSE}\n${body.replace("The Chair asks that this be recorded.", REMARK)}`);
   assert.deepEqual([...walk(page)].filter((n) => n.attrs?.class === "m-own-k").map(textOf), [OWN_LABEL, OWN_LABEL]);
 });
+
+test("the page's own plain line is for a statement still in bps, never for the notes the agent adds after the Chair's own words", async () => {
+  const header = "$CHAIR decision, epoch 408, chair local:qwen3.8-27b.\nRate in effect 20 bps; decision 25 bps.\nThe formula suggested printing 0.25% a day. The Chair agreed: the Chair prefers to hold the rate steady.";
+  const clamp = "\nThe contract is sure to accept 20..25 bps here, so 25 bps is set instead. The Chair defers.";
+  const press = "\nThe press asked 2 questions since the last meeting.";
+  const plainLines = async (text) => {
+    const hash = sha(text);
+    const d = { decisions: [decision({ hash, rateBps: 25, previousRateBps: 20, epoch: 408 }), decision({ epoch: 407, rateBps: 25, previousRateBps: 20, hash, tx: "Z".repeat(43) })], policy: { ...policy, epoch: 409, lastSetEpoch: 408 }, status: "complete" };
+    const resolved = await resolveTexts(d.decisions, new Map([[hash, { text, chair: "local:qwen3.8-27b", kind: "llm", source: null }]]));
+    const doc = fakeDoc();
+    return [renderHero, renderMinutes].map((render) => { const x = host(doc); render(doc, x, d, ctx(null, resolved)); return [...walk(x)].filter((n) => n.attrs?.class === "plain-line").length; });
+  };
+  const inCharacter = "The Committee of One has met. The Chair keeps the rate. The Chair has no further comment.";
+  assert.deepEqual(await plainLines(`${header}\n${inCharacter}`), [0, 0], "in character, no note: no plain line");
+  assert.deepEqual(await plainLines(`${header}\n${inCharacter}${clamp}`), [0, 0], "a clamp note says bps but is not the Chair's statement");
+  assert.deepEqual(await plainLines(`${header}\n${inCharacter}${clamp}${press}`), [0, 0]);
+  const old = (await plainLines(`${header}\nThe Chair raises the rate by 5 basis points. The Chair has no further comment.${clamp}`));
+  assert.deepEqual(old.map((n) => n > 0), [true, true], "a statement in basis points still gets the page's plain line, in the hero and in the list");
+});
+
+test("the account that signed leads the line about who decided", async () => {
+  const text = "$CHAIR decision, epoch 408, chair local:qwen3.8-27b.\nRate in effect 0 bps; decision 0 bps.\nThe Chair keeps the rate. The Chair has no further comment.";
+  const hash = sha(text);
+  const d = { decisions: [decision({ hash, rateBps: 0, previousRateBps: 0, epoch: 408 })], policy: { ...policy, epoch: 409, lastSetEpoch: 408 }, status: "complete" };
+  const resolved = await resolveTexts(d.decisions, new Map([[hash, { text, chair: "local:qwen3.8-27b", kind: "llm", source: null }]]));
+  const doc = fakeDoc();
+  const hero = host(doc);
+  renderHero(doc, hero, d, ctx(null, resolved));
+  const who = textOf([...walk(hero)].find((n) => n.attrs?.class === "m-who"));
+  assert.match(who, /^The Chair's account chair\.test\.near signed this at \d{4}-\d\d-\d\d \d\d:\d\d UTC\. It was decided by local:qwen3\.8-27b/);
+  assert.doesNotMatch(who, /Signed by/);
+});

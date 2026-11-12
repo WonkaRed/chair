@@ -11,10 +11,12 @@ import { fakeDoc, host } from "./fakedom.mjs";
 const root = join(fileURLToPath(import.meta.url), "..", "..");
 const js = (f) => import(join(root, "site", "js", f));
 const { rpcTransport, fixtureTransport } = await js("sources.js");
-const { loadEarlier, loadLog } = await js("loadlog.js");
+const { loadEarlier, loadLog, parseSupply } = await js("loadlog.js");
+const { buildEntries, reconcileWindow } = await js("ledger.js");
 const { decisionsOfTxs, refusalsOfTxs } = await js("decisions.js");
-const { buildEntries } = await js("ledger.js");
+
 const { renderHero, resolveTexts } = await js("minutes.js");
+const { PROJECT_TEST_CALLS } = await js("refusals.js");
 const { MAX_CHARS, complete, slim, txCache } = await js("txcache.js");
 const fixture = JSON.parse(await readFile(join(root, "fixtures", "sandbox-run.json"), "utf8"));
 
@@ -51,7 +53,7 @@ class MemStore {
  * A chain and an index that answer from the recorded run. `txs` is what the index holds; `up` false makes every index call a network error (a 429
  * without CORS headers looks like that); `script` is a list of replies (or null for "answer normally") for the next /v0/transactions calls.
  */
-function world({ txs = FULL, store = new MemStore(), peek = true, pageLimit, supplyAt = null } = {}) {
+function world({ txs = FULL, store = new MemStore(), peek = true, pageLimit, supplyAt = null, supplyNow = null, byHash = [], failFor = () => false } = {}) {
   const w = { up: true, script: [], batches: [], accountCalls: 0, slept: [], store };
   const fetchImpl = async (url, init) => {
     const body = JSON.parse(init.body);
@@ -67,12 +69,14 @@ function world({ txs = FULL, store = new MemStore(), peek = true, pageLimit, sup
         return ok({ account_txs: page, resume_token: page.length === body.limit ? `page:${from + page.length}` : undefined });
       }
       w.batches.push(body.tx_hashes);
+      if (failFor(body.tx_hashes)) return throttled();
       const scripted = w.script.shift();
-      return scripted ? scripted(body.tx_hashes) : ok({ transactions: body.tx_hashes.map((h) => txs.find((t) => hashOf(t) === h)) });
+      return scripted ? scripted(body.tx_hashes) : ok({ transactions: body.tx_hashes.map((h) => txs.find((t) => hashOf(t) === h) ?? byHash.find((t) => hashOf(t) === h)) });
     }
     const p = body.params;
     if (p.request_type === "view_access_key_list") return ok({ result: { keys: [] } });
-    const view = { get_params: fixture.params, get_policy: w.policy ?? fixture.policyNow, get_supply: p.block_id === undefined ? fixture.supplyNow : supplyAt === null ? fixture.supplyAtLastTx : supplyAt(p.block_id), get_candidates: [] }[p.method_name];
+    const view = { get_params: fixture.params, get_policy: w.policy ?? fixture.policyNow, get_supply: p.block_id === undefined ? supplyNow ?? fixture.supplyNow : supplyAt === null ? fixture.supplyAtLastTx : supplyAt(p.block_id), get_candidates: [] }[p.method_name];
+    if (view === null) return { ok: true, status: 200, json: async () => ({ jsonrpc: "2.0", error: { code: -32000, message: "block not found", data: "DB Not Found Error" } }) };
     return ok({ jsonrpc: "2.0", result: { result: bytes(view), logs: [] } });
   };
   w.transport = () => {
@@ -396,7 +400,7 @@ test("nothing the read-ahead or the caller's drawing does can surface as an unha
 
 /** A transaction the token ran that changes nothing: the long history behind the recorded run, for the tests of a token that has run for days. */
 const filler = (i) => whole({
-  transaction: { hash: `${[...String(i)].map((c) => "ABCDEFGHIJ"[c]).join("").padStart(43, "A")}K`, signer_id: "someone.test.near", receiver_id: TOKEN, actions: [{ FunctionCall: { method_name: "ft_transfer", args: "e30=", gas: 1, deposit: "1" } }] },
+  transaction: { hash: `${[...String(i)].map((c) => "ABCDEFGHJK"[c]).join("").padStart(43, "A")}K`, signer_id: "someone.test.near", receiver_id: TOKEN, actions: [{ FunctionCall: { method_name: "ft_transfer", args: "e30=", gas: 1, deposit: "1" } }] },
   receipts: [{ execution_outcome: { block_height: String(2 + (i % 9)), block_timestamp: "1794300000000000000", outcome: { executor_id: TOKEN, logs: [], status: { SuccessValue: "" } } } }],
 }, 5000 + i);
 const withHistory = (n) => [...Array.from({ length: n }, (_, i) => filler(i)), ...FULL];
@@ -444,7 +448,7 @@ test("Show earlier: each page of older transactions joins the log with no hash t
   assert.deepEqual(pages, [50, 100, 141]);
   assert.deepEqual(d.window.hashes, everyHash, "the whole history, oldest first");
   assert.equal(d.partial, false, "everything read: the log makes its whole-ledger claim again");
-  const asked = w.batches.flat();
+  const asked = w.batches.flat().filter((h) => !PROJECT_TEST_CALLS.has(h)); // the known test refusals are asked for again while they are missing, and this index has none
   assert.equal(new Set(asked).size, asked.length, "no transaction asked of the index twice");
   assert.equal(await loadEarlier(transport, d), d, "nothing earlier: the same data");
 });
@@ -460,28 +464,177 @@ test("a history that ends exactly on a page: the next press finds nothing and th
   assert.equal(all.partial, false);
 });
 
-test("the log of the newest transactions is checked against the change in the chain's ledger over its blocks, and a wrong change is a mismatch", async () => {
-  const entries = buildEntries(FULL.map((t) => slim(t, TOKEN)), TOKEN, fixture.params).entries;
-  const at = (height, skew = 0n) => {
-    const upTo = entries.filter((e) => e.height <= height);
-    const total = (kind) => upTo.filter((e) => e.kind === kind).reduce((a, e) => a + e.amount, 0n);
-    return { ...fixture.supplyAtLastTx, minted: String(total("mint") + skew), burned: String(total("burn")) };
-  };
-  const good = await world({ pageLimit: 10, supplyAt: (h) => at(h) }).load();
-  assert.equal(good.partial, true);
-  assert.equal(good.status, "complete");
-  assert.deepEqual(good.reconcile.lines.map((l) => l.name), ["minted", "burned"], "no launch line: a launch is not inside a stretch");
-  assert.ok(good.pinnedFrom > 0 && good.pinnedFrom < good.pinnedHeight);
-  const bad = await world({ pageLimit: 10, supplyAt: (h) => at(h, h === good.pinnedFrom ? 1n : 0n) }).load();
-  assert.equal(bad.status, "mismatch");
+// A chain with its own clock, as the oracle for the windowed ledger check. Epochs turn every EPOCH blocks and each turn is a MINT. `get_supply` is a
+// projection: it counts every turn that is due at the block asked, whether or not any transaction has written it down. A transaction that rolls
+// (a transfer) writes down every turn since the last roll and logs it; a storage deposit rolls nothing and logs nothing. So the chain's figure at a
+// block never depends on what was logged, and the logged sums are checked against it, not against themselves.
+const EPOCH = 10;
+const MINT = 1000n;
+const BASE = 5_000_000n;
+const epochOf = (b) => Math.floor(b / EPOCH);
+const modelSupply = (b, skew = 0n) => ({ ...fixture.supplyAtLastTx, minted: String(BASE + MINT * BigInt(epochOf(b)) + skew), burned: "0" });
+const logOf = (event) => `EVENT_JSON:${JSON.stringify(event)}`;
+const mintLogs = (epoch, amount) => [
+  logOf({ standard: "nep141", version: "1.0.0", event: "ft_mint", data: [{ owner_id: "pool.test.near", amount: String(amount), memo: "chair:easing" }] }),
+  logOf({ standard: "chair", version: "1.0.0", event: "epoch_minted", data: { epoch, rate_bps: 18, amount: String(amount), total_staked: "1000", reward_per_share: "1" } }),
+];
+
+/**
+ * `calls` is `[{ at, kind: "transfer" | "deposit", callback?: block, seen?: false }]`, ascending by `at`. A `callback` is a second receipt that rolls like a
+ * transfer; with `seen: false` the index has not got it yet (the transaction lists a receipt still to run).
+ */
+function history(calls) {
+  const receipts = calls.flatMap((c, i) => [{ i, block: c.at, kind: c.kind, first: true }, ...(c.callback === undefined ? [] : [{ i, block: c.callback, kind: "transfer", first: false }])]).sort((x, y) => x.block - y.block);
+  let stored = epochOf(receipts[0].block);
+  for (const r of receipts) {
+    r.logs = [];
+    if (r.kind === "deposit") continue;
+    if (epochOf(r.block) > stored) (r.logs.push(...mintLogs(epochOf(r.block), MINT * BigInt(epochOf(r.block) - stored))), (stored = epochOf(r.block)));
+    r.logs.push(logOf({ standard: "nep141", version: "1.0.0", event: "ft_transfer", data: [{ old_owner_id: "a.test.near", new_owner_id: "b.test.near", amount: "1" }] }));
+  }
+  const txs = calls.map((c, i) => {
+    const mine = receipts.filter((r) => r.i === i && (r.first || c.seen !== false));
+    const tx = whole({
+      transaction: { hash: `${[...String(i)].map((d) => "ABCDEFGHJK"[d]).join("").padStart(43, "A")}M`, signer_id: "someone.test.near", receiver_id: TOKEN, actions: [{ FunctionCall: { method_name: c.kind === "deposit" ? "storage_deposit" : "ft_transfer", args: "e30=", gas: 1, deposit: "1" } }] },
+      receipts: mine.map((r) => ({ execution_outcome: { block_height: String(r.block), block_timestamp: `${1_794_300_000 + r.block}000000000`, outcome: { executor_id: TOKEN, logs: r.logs, status: { SuccessValue: "" } } } })),
+    }, 9000 + i);
+    tx.execution_outcome.block_height = c.at - 1;
+    if (c.callback !== undefined && c.seen === false) tx.receipts[0].execution_outcome.outcome.receipt_ids = [`later${i}`];
+    return tx;
+  });
+  return { txs, receipts };
+}
+/** Two hundred calls over irregular blocks (a window with no decision in it is widened three pages, so the history is longer than that): every fourth a storage deposit, the last one too, with epochs due after the last transfer. */
+const longRun = () => history(Array.from({ length: 200 }, (_, i) => ({ at: 100 + i * 23 + (i % 3) * 5, kind: i % 4 === 3 ? "deposit" : "transfer" })));
+const windowed = (h, extra = {}) => world({ txs: h.txs, pageLimit: 30, supplyNow: modelSupply(h.receipts.at(-1).block + 500), ...extra });
+
+test("the windowed check pins both ends to blocks where the contract rolled, so a due mint nobody has logged yet is not a mismatch", async () => {
+  const h = longRun();
+  const rolled = h.receipts.filter((r) => r.kind === "transfer").map((r) => r.block);
+  const d = await windowed(h, { supplyAt: modelSupply }).load();
+  const windowBlocks = h.receipts.slice(-d.txCount).map((r) => r.block);
+  assert.equal(d.partial, true);
+  assert.equal(d.status, "complete");
+  assert.ok(rolled.includes(d.pinnedFrom) && rolled.includes(d.pinnedHeight), "both readings are at blocks where a transfer ran");
+  assert.equal(d.pinnedHeight, rolled.at(-1), "the top is the last roll, not the storage deposit after it");
+  assert.notEqual(d.pinnedHeight, h.receipts.at(-1).block);
+  assert.ok(d.pinnedFrom >= windowBlocks[0] + 20, "after the blocks at the window's edge that a receipt just older than it may still be running in");
+  assert.deepEqual(d.reconcile.lines.map((l) => [l.name, l.logged === l.chain]), [["minted", true], ["burned", true]]);
+  // The reading this replaces: a computed height, here 20 blocks on from the oldest block read, which no transaction touched. The chain's own figure
+  // there already holds mints that the next roll writes down, so the same sums disagree.
+  const computed = windowBlocks[0] + 20;
+  assert.equal(h.receipts.some((r) => r.block === computed), false, "the model has no receipt at the computed height");
+  const naive = reconcileWindow(d.entries.filter((e) => e.height > computed && e.height <= d.pinnedHeight), parseSupply(modelSupply(computed)), parseSupply(modelSupply(d.pinnedHeight)));
+  assert.equal(naive.ok, false, "the oracle does catch a computed height");
 });
 
-test("a window with no decision in it is widened, and when none is in reach the hero is told the newest decision is out of reach, never that there is none", async () => {
+test("the windowed check is a mismatch when the chain's figure at the start is one unit off, and unverified when that block cannot be read", async () => {
+  const h = longRun();
+  const good = await windowed(h, { supplyAt: modelSupply }).load();
+  const bad = await windowed(h, { supplyAt: (b) => modelSupply(b, b === good.pinnedFrom ? 1n : 0n) }).load();
+  assert.equal(bad.status, "mismatch");
+  assert.match(bad.reasons[0], /do not add up/);
+  const lost = await windowed(h, { supplyAt: (b) => (b === good.pinnedFrom ? null : modelSupply(b)) }).load();
+  assert.equal(lost.status, "unverified", "a block the node no longer has is not a pass");
+});
+
+test("a transaction with a receipt still to run keeps the top of the check below the block that receipt will add events to", async () => {
+  // Call 0 is a transfer at block 700 whose callback (a roll at 790) the index has not got; call 1 is a transfer at block 800. The chain wrote the 790
+  // mints down at block 790, so the log of block 800 alone lacks them: a check at 800 would say mismatch about a healthy chain.
+  const base = Array.from({ length: 200 }, (_, i) => ({ at: 100 + i * 3, kind: "transfer" }));
+  const h = history([...base, { at: 700, kind: "transfer", callback: 790, seen: false }, { at: 800, kind: "transfer" }]);
+  const d = await world({ txs: h.txs, pageLimit: 30, supplyNow: modelSupply(1500), supplyAt: modelSupply }).load();
+  assert.equal(d.partial, true);
+  assert.equal(d.pinnedHeight, 700, "pinned where everything read is whole");
+  assert.equal(d.status, "complete");
+  const whole2 = history([...base, { at: 700, kind: "transfer", callback: 790 }, { at: 800, kind: "transfer" }]);
+  const done = await world({ txs: whole2.txs, pageLimit: 30, supplyNow: modelSupply(1500), supplyAt: modelSupply }).load();
+  assert.equal(done.pinnedHeight, 800, "the same chain once the callback is in: pinned at the last roll");
+  assert.equal(done.status, "complete");
+});
+
+test("a transaction with no block for its receipts promises nothing, so nothing is claimed complete", async () => {
+  const h = longRun();
+  const blind = h.txs.map((t, i) => (i === h.txs.length - 2 ? { ...t, execution_outcome: { ...t.execution_outcome, block_height: undefined, outcome: { ...t.execution_outcome.outcome, receipt_ids: ["unseen"] } } } : t));
+  const d = await world({ txs: blind, pageLimit: 30, supplyNow: modelSupply(5000), supplyAt: modelSupply }).load();
+  assert.equal(d.status, "unverified");
+  assert.match(d.reasons[0], /still being processed/);
+});
+
+test("a window with no event in it says there is nothing to check, not that the chain could not be read", async () => {
+  const quiet = Array.from({ length: 400 }, (_, i) => filler(i));
+  const d = await world({ txs: quiet, pageLimit: 30 }).load();
+  assert.equal(d.partial, true);
+  assert.equal(d.status, "unverified");
+  assert.match(d.reasons[0], /No mint, burn or decision was logged in the transactions read/);
+});
+
+test("slim marks a transaction with a receipt still to run, and such a transaction is never kept for the next visit", async () => {
+  const h = history([{ at: 100, kind: "transfer", callback: 110, seen: false }, { at: 120, kind: "transfer" }]);
+  assert.equal(slim(h.txs[0], TOKEN).settledThrough, 100);
+  assert.equal("settledThrough" in slim(h.txs[1], TOKEN), false);
+  const store = new MemStore();
+  const w = world({ txs: h.txs, store, supplyNow: modelSupply(500), supplyAt: modelSupply });
+  await w.load();
+  assert.deepEqual(Object.keys(JSON.parse(store.getItem(KEY) ?? "{}")), [hashOf(h.txs[1])], "only the complete one");
+});
+
+test("a window with no decision in it is widened, and when none is in reach the page says the latest is older, with the log, its check and the test refusals all still shown", async () => {
   const quiet = Array.from({ length: 300 }, (_, i) => filler(i));
-  const widened = await world({ txs: [...FULL.slice(0, 1), ...quiet], pageLimit: 50 }).load().catch((e) => e);
-  assert.equal(widened instanceof Error, false);
-  assert.equal(widened.status, "incomplete", "no decision within the pages it is willing to read");
-  assert.match(widened.reasons[0], /latest decision is older than the transactions read/);
+  const d = await world({ txs: [...FULL.slice(0, 1), ...quiet], pageLimit: 50 }).load();
+  assert.equal(d.outOfReach, true, "the index was read; the newest decision is further back");
+  assert.notEqual(d.status, "incomplete", "never the sentence that says the index could not be read");
+  assert.equal(d.retryable, undefined);
+  assert.equal(d.window.hashes.length, 200, "the window and three older pages");
+  assert.equal(d.partial, true);
   const reachable = await world({ txs: [...FULL.slice(0, 1), ...quiet.slice(0, 120), ...FULL.slice(1)], pageLimit: 50 }).load();
+  assert.equal(reachable.outOfReach, false);
   assert.ok(reachable.decisions.length > 0, "a decision a page or two back is found");
+});
+
+test("an out-of-reach window does not make the page forget what it saved: the next load still draws on it", async () => {
+  const quiet = Array.from({ length: 300 }, (_, i) => filler(i));
+  const store = new MemStore();
+  const txs = [...FULL.slice(0, 1), ...quiet];
+  await world({ txs, pageLimit: 50, store }).load();
+  const kept = store.getItem(KEY);
+  assert.ok(kept !== null && kept.length > 2, "the cache of the window is written");
+  const again = world({ txs, pageLimit: 50, store });
+  await again.load();
+  assert.equal(JSON.stringify(JSON.parse(store.getItem(KEY))) === JSON.stringify(JSON.parse(kept)), true, "and is not cleared by the second visit");
+  assert.equal(again.batches.flat().filter((h) => !PROJECT_TEST_CALLS.has(h)).length, 0, "nothing but the known test refusals asked again");
+});
+
+// The project's recorded test refusals: old, refused, and read by hash whatever the window. Same shape as REFUSED, one per known hash.
+const testCalls = () => [...PROJECT_TEST_CALLS].map((hash, i) => whole({ ...REFUSED, transaction: { ...REFUSED.transaction, hash } }, 800 + i));
+
+test("the known test refusals that the index does not return are said to be missing, and are asked for again on the next press", async () => {
+  const byHash = [];
+  const w = world({ txs: Array.from({ length: 400 }, (_, i) => filler(i)), pageLimit: 50, byHash });
+  const transport = w.transport();
+  const d = await loadLog(transport);
+  assert.equal(d.partial, true);
+  assert.equal(d.unreadTestCalls.length, PROJECT_TEST_CALLS.size, "none could be read: all are named missing, none claimed");
+  assert.equal(d.refusals.filter((r) => PROJECT_TEST_CALLS.has(r.tx)).length, 0);
+  byHash.push(...testCalls());
+  const next = await loadEarlier(transport, d);
+  assert.deepEqual(next.unreadTestCalls, [], "found on the second ask");
+  assert.equal(next.refusals.filter((r) => PROJECT_TEST_CALLS.has(r.tx)).length, PROJECT_TEST_CALLS.size, "and listed, though older than anything in the window");
+});
+
+test("the known test refusals are read by hash on a cold load of a long history, in one extra request", async () => {
+  const w = world({ txs: Array.from({ length: 400 }, (_, i) => filler(i)), pageLimit: 50, byHash: testCalls() });
+  const d = await w.load();
+  assert.deepEqual(d.unreadTestCalls, []);
+  assert.equal(d.refusals.filter((r) => PROJECT_TEST_CALLS.has(r.tx)).length, PROJECT_TEST_CALLS.size);
+  const lookups = w.batches.filter((b) => b.every((h) => PROJECT_TEST_CALLS.has(h)));
+  assert.equal(lookups.length, 1);
+});
+
+test("a lookup of the known test refusals that fails does not fail the page, and says what is missing", async () => {
+  const w = world({ txs: Array.from({ length: 400 }, (_, i) => filler(i)), pageLimit: 50, byHash: testCalls(), failFor: (hs) => hs.every((h) => PROJECT_TEST_CALLS.has(h)) });
+  const d = await w.load();
+  assert.equal(d.partial, true);
+  assert.equal(d.status === "incomplete", false);
+  assert.equal(d.unreadTestCalls.length, PROJECT_TEST_CALLS.size);
 });

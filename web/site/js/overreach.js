@@ -160,7 +160,7 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
     closed.append(h(doc, "p", { class: "closed-line" }, "The Chair cannot be made to overreach just now."), h(doc, "p", { class: "note" }, DOWN));
     const again = h(doc, "button", { type: "button", class: "chip" }, "Check again");
     again.addEventListener("click", () => void check());
-    if (newest === undefined) return closed.append(unreadable() ? recorded("The chain's list of refusals could not be read just now. Here is one recorded earlier, so you can still watch the contract say no:") : h(doc, "p", { class: "note" }, "The contract has refused no set_policy call yet."), again);
+    if (newest === undefined) return closed.append(unreadable() ? recorded("The chain's list of refusals could not be read just now. Here is one recorded earlier, so you can still watch the contract say no:") : h(doc, "p", { class: "note" }, current()?.partial ? "The contract has refused no set_policy call in the transactions read." : "The contract has refused no set_policy call yet."), again);
     closed.append(earlier(newest, "The most recent refusal on chain, so you can still watch the contract say no:"));
     if (list.length === 0) return closed.append(again);
     closed.append(h(doc, "p", { class: "note" }, "Before that:"), h(doc, "ul", { class: "or-recorded" }, list.map((r) => h(doc, "li", {},

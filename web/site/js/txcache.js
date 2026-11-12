@@ -13,14 +13,16 @@ const isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
  * The part of a transaction every reader on this page uses, in the same positions, and nothing else (a full result is ~4 KB, this is a
  * fraction). Receipts the token did not execute become `null` so the positions of the others are unchanged: events are ordered by them.
  * Everything the page reads goes through this one shape whether it came from the index or from storage, so a cold and a warm load
- * cannot differ. Null when `tx` is not a transaction at all.
+ * cannot differ. A transaction with a receipt still to run carries `settledThrough` (see below). Null when `tx` is not a transaction at all.
  */
 export function slim(tx, token) {
   const t = tx?.transaction;
   if (!isObj(t) || typeof t.hash !== "string") return null;
+  const settled = settledThrough(tx);
   const calls = Array.isArray(t.actions) ? t.actions.filter((a) => isObj(a?.FunctionCall)) : [];
   return {
     transaction: { hash: t.hash, signer_id: t.signer_id, receiver_id: t.receiver_id, actions: calls.map(({ FunctionCall: c }) => ({ FunctionCall: { method_name: c.method_name, args: c.args } })) },
+    ...(settled === Infinity ? {} : { settledThrough: settled }), // never kept: only a complete transaction is
     receipts: (Array.isArray(tx.receipts) ? tx.receipts : []).map((r) => {
       const eo = r?.execution_outcome;
       const o = eo?.outcome;
@@ -39,6 +41,25 @@ export function complete(tx) {
   const outcomes = [tx.execution_outcome, ...tx.receipts.map((r) => r?.execution_outcome)];
   const ran = new Set(outcomes.map((eo) => eo?.id));
   return outcomes.every((eo) => Array.isArray(eo?.outcome?.receipt_ids) && eo.outcome.receipt_ids.every((id) => ran.has(id)));
+}
+
+/**
+ * The highest block up to which an incomplete transaction is known whole: a receipt that has not run yet runs after the one that spawned it, so
+ * everything at or before the block of a receipt that spawned one still to run is settled, and nothing after it is promised. Infinity for a
+ * complete transaction; -1 when the block is not given (nothing is promised).
+ */
+export function settledThrough(tx) {
+  if (!isObj(tx?.execution_outcome) || !Array.isArray(tx.receipts)) return -1;
+  const outcomes = [tx.execution_outcome, ...tx.receipts.map((r) => r?.execution_outcome)];
+  const ran = new Set(outcomes.map((eo) => eo?.id));
+  let bound = Infinity;
+  for (const eo of outcomes) {
+    const spawned = eo?.outcome?.receipt_ids;
+    if (Array.isArray(spawned) && spawned.every((id) => ran.has(id))) continue;
+    const h = Number(eo?.block_height);
+    bound = Math.min(bound, Number.isSafeInteger(h) ? h : -1);
+  }
+  return bound;
 }
 
 /** `store` is a `Storage` or null; `key` names this token's entry (versioned by the caller, so a changed shape reads as empty). */

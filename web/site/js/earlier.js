@@ -3,12 +3,14 @@
 // every figure is a count or a time the page computed.
 import { clear, h } from "./dom.js";
 import { fmtTime } from "./views.js";
+import { testCallsClause } from "./refusals.js";
 
 /** The sentence that says what a list covers, and what it leaves out. `what` is the kind of list ("decisions", "refusals", "mints and burns"). */
 export function scopeLine(d, what) {
   const since = d.sinceMs === null || d.sinceMs === undefined ? "" : `, back to ${fmtTime(d.sinceMs)}`;
   const meetings = what === "decisions" && d.decisions.length > 0 ? ` (meetings ${d.decisions.at(-1).epoch} to ${d.decisions[0].epoch})` : "";
-  const always = what === "refusals" ? " and the test calls made on purpose, which are always read" : "";
+  const tests = what === "refusals" ? testCallsClause(d) : "";
+  const always = tests !== "" && (d.unreadTestCalls?.length ?? 0) === 0 ? `${tests}, which are read by their hashes whatever the window` : tests;
   return `This shows the ${what} in the latest ${d.txCount} transactions${since}${meetings}${always}. Earlier ones are on chain and are read when you ask.`;
 }
 

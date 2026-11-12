@@ -60,10 +60,9 @@ export function eventsOfTx(tx, token) {
   return out;
 }
 
-/** The first and last block in which the token executed anything in these transactions, and the time of the first (null throughout when it executed nothing). */
+/** The time of the first block in which the token executed anything in these transactions, and that block (null for both when it executed nothing). */
 export function tokenSpan(txs, token) {
   let first = null;
-  let last = null;
   let firstMs = null;
   for (const tx of txs) {
     if (!isObj(tx) || !Array.isArray(tx.receipts)) continue;
@@ -71,10 +70,27 @@ export function tokenSpan(txs, token) {
       const h = Number(r?.execution_outcome?.block_height);
       if (r?.execution_outcome?.outcome?.executor_id !== token || !Number.isSafeInteger(h)) continue;
       if (first === null || h < first) (first = h, firstMs = nsToMs(r.execution_outcome.block_timestamp));
-      if (last === null || h > last) last = h;
     }
   }
-  return { first, last, firstMs };
+  return { first, firstMs };
+}
+
+/**
+ * The blocks in which the token logged an event, ascending. Only in such a block is the contract's own state known to be rolled up to the
+ * block's time: every method that logs an event rolls the epochs first, while one that logs nothing (a storage deposit) may not have, and
+ * `get_supply` projects the epochs that are due whether or not anything has applied them. So these are the only blocks at which the chain's
+ * ledger and the logged events can be compared.
+ */
+export function eventBlocks(txs, token) {
+  return [...new Set(txs.flatMap((tx) => eventsOfTx(tx, token)).map((ev) => ev.height))].sort((a, b) => a - b);
+}
+
+/**
+ * The highest block up to which these transactions are known whole (Infinity when every one is), from the mark `slim` puts on a transaction
+ * that still has a receipt to run (`txcache.js` `settledThrough`). Past it, events may be missing here that the chain already has.
+ */
+export function settledThrough(txs) {
+  return txs.reduce((bound, tx) => Math.min(bound, Number.isFinite(tx?.settledThrough) ? tx.settledThrough : Infinity), Infinity);
 }
 
 /** `ft_mint` / `ft_burn` items of a NEP-141 event: `{owner_id, amount, memo}` with a valid amount, else null per item. */
