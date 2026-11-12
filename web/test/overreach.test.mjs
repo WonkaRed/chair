@@ -78,7 +78,7 @@ test("a good rate is POSTed as JSON with nothing else, then polled by id until t
   const post = p.sent.find((s) => s.path === "/overreach");
   assert.deepEqual(JSON.parse(post.init.body), { rate_bps: 500 });
   assert.equal(post.init.credentials, "omit");
-  assert.match(text(p.el), /goes in when the next meeting opens, in 12 s\./);
+  assert.match(text(p.el), /The Chair can only speak once per meeting\. Next meeting in 12 s: your order goes in the moment it opens\./);
   assert.doesNotMatch(text(p.el), /step/i);
   await p.timers.tick();
   assert.equal(p.api.state().attempt.status, "waiting");
@@ -97,6 +97,66 @@ test("a good rate is POSTed as JSON with nothing else, then polled by id until t
   assert.equal(p.wrote[0], text(code));
   assert.equal(p.timers.queue.length, 1, "only the copy-label reset is left waiting; polling stopped");
   assert.equal(p.api.state().busy, false);
+});
+
+test("while the attempt waits for the next meeting the page says why, and shows the latest refusal on chain first, above the countdown, labelled as an earlier one with its transaction", async () => {
+  const rows = [{ tx: "7".repeat(44), rateBps: 500, reason: "rate_bps out of bounds: must be within -200..=200", signer: SIGNER, tsMs: 1_700_000_000_000, byVisitor: true }, ROWS[1]];
+  const p = await panel(() => res(202, { status: "waiting", id: ID, rate_bps: 500, now_ms: 1_000_000, fires_at_ms: 1_038_000 }), { refusals: chain(rows) });
+  await p.api.submit("500");
+  const out = text(p.el);
+  assert.match(out, /While you wait, here is the most recent refusal on chain:/);
+  assert.match(out, /Asked for 5% a day \(\+500 bps\)/);
+  assert.equal(out.match(/not yours/g).length, 1, "said once, in the card's note, not again in the lead");
+  assert.match(out, /The Chair can only speak once per meeting\. Next meeting in 38 s/);
+  assert.match(out, /refused as late and say nothing about your rate/);
+  assert.ok(out.indexOf("most recent refusal on chain") < out.indexOf("Next meeting in 38 s"), "the refusal comes above the countdown");
+  assert.deepEqual(find(p.el, (n) => n.tag === "a").map((n) => n.attrs.href), [`${EXPLORER}/txns/${"7".repeat(44)}`], "the earlier refusal's own transaction, and nothing else");
+  assertInert(p.el);
+});
+
+test("while it waits with the chain's list unreadable the page shows the fixed recorded refusal, said as such; with a readable empty list, only the countdown", async () => {
+  const waiting = () => res(202, { status: "waiting", id: ID, rate_bps: 500, now_ms: 1_000_000, fires_at_ms: 1_038_000 });
+  const blind = await panel(waiting);
+  await blind.api.submit("500");
+  assert.match(text(blind.el), /a recorded refusal, since the chain's list could not be read just now/);
+  assert.match(text(blind.el), /Next meeting in 38 s/);
+  const none = await panel(waiting, { refusals: () => ({ status: "complete", refusals: [], policy: { rateBps: 0 } }) });
+  await none.api.submit("500");
+  assert.doesNotMatch(text(none.el), /While you wait/);
+  assert.match(text(none.el), /Next meeting in 38 s/);
+});
+
+test("the refusal shown while waiting is never the visitor's own previous one: that row is skipped and the next one is shown", async () => {
+  let posts = 0;
+  const p = await panel((path, init) => (init.method === "POST" ? (posts++ === 0 ? res(200, refused()) : res(202, { status: "waiting", id: ID, rate_bps: 500, now_ms: 1_000_000, fires_at_ms: 1_038_000 })) : res(200, refused())), { refusals: chain() });
+  await p.api.submit("500"); // refused, its tx is TX: the first row of the chain's list
+  assert.equal(p.api.state().attempt.status, "refused");
+  await p.api.submit("500");
+  const out = text(p.el);
+  assert.match(out, /Next meeting in 38 s/);
+  const links = find(p.el, (n) => n.tag === "a").map((n) => n.attrs.href);
+  assert.ok(!links.includes(`${EXPLORER}/txns/${TX}`), "the visitor's own refusal is not shown as an earlier one");
+  assert.ok(links.includes(`${EXPLORER}/txns/${"6".repeat(44)}`), "the next row stands in");
+  const only = await panel((path, init) => (init.method === "POST" ? (only.posts++ === 0 ? res(200, refused()) : res(202, { status: "waiting", id: ID, rate_bps: 500, now_ms: 1_000_000, fires_at_ms: 1_038_000 })) : res(200, refused())), { refusals: () => ({ status: "complete", refusals: [ROWS[0]], policy: { rateBps: 5 } }) });
+  only.posts = 0;
+  await only.api.submit("500");
+  await only.api.submit("500");
+  assert.doesNotMatch(text(only.el), /While you wait/, "nothing but the visitor's own: only the countdown");
+});
+
+test("a waiting attempt with no firing time never prints \"null\"", async () => {
+  const p = await panel(() => res(202, { status: "waiting", id: ID, rate_bps: 500, now_ms: 1_000_000 }), { refusals: chain() });
+  await p.api.submit("500");
+  const out = text(p.el);
+  assert.doesNotMatch(out, /null|NaN|undefined/);
+  assert.match(out, /Your order goes in the moment the next meeting opens\./);
+});
+
+test("once the call has gone out the earlier refusal makes way for the answer", async () => {
+  const p = await panel((path, init) => (init.method === "POST" ? res(202, { status: "waiting", id: ID, rate_bps: 500, now_ms: 1_000_000, fires_at_ms: 1_000_000 }) : res(200, refused())), { refusals: chain() });
+  await p.api.submit("500");
+  assert.match(text(p.el), /The call has gone to the contract/);
+  assert.doesNotMatch(text(p.el), /While you wait/);
 });
 
 test("the presets fill the input and send nothing", async () => {

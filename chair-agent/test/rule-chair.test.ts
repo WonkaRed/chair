@@ -54,12 +54,12 @@ test("the voice: the minutes say what the rate does, in percent and plain words,
   assert.equal(mint.rateBps, 5);
   assert.equal(
     mint.reasoning,
-    "The Committee of One has met. The Chair moves the rate from zero to a printing rate of 0.05% a day: 0.05% more coins are printed a day, a little at every 60-second meeting, for holders who staked. " +
+    "The Committee of One has met. The Chair moves the rate from neither printing nor burning to printing 0.05% a day, a little at every 60-second meeting, for holders who staked. " +
       "48.00% of all coins are staked, and the Chair would like 50.00%. The more holders stake, the less the Chair prints. The Chair thanks itself for its service.",
   );
   const burn = rule(snapshot({ rate: 0, supply: 1_000_000n, staked: 520_000n }));
   assert.equal(burn.rateBps, -5);
-  assert.match(burn.reasoning, /^The Committee of One has met\. The Chair moves the rate from zero to a burn rate of 0\.05%: 0\.05% of every transfer is burned\./);
+  assert.match(burn.reasoning, /^The Committee of One has met\. The Chair moves the rate from neither printing nor burning to burning 0\.05% of every transfer\. 52\.00%/);
   assert.match(burn.reasoning, /The motion carries unanimously\.$/);
   const zero = rule(snapshot({ rate: 0, supply: 1_000_000n, staked: 500_000n }));
   assert.equal(zero.rateBps, 0);
@@ -70,21 +70,41 @@ test("the voice: the minutes say what the rate does, in percent and plain words,
   const keepsBurning = rule(snapshot({ rate: -3, supply: 1_000_000n, staked: 510_000n }));
   assert.match(keepsBurning.reasoning, /^The Committee of One has met\. The Chair holds the rate: 0\.03% of every transfer is burned\./);
   const cut = rule(snapshot({ rate: 20, supply: 1_000_000n, staked: 520_000n }));
-  assert.match(cut.reasoning, /The Chair moves the rate from a printing rate of 0\.20% a day to a burn rate of 0\.05%: 0\.05% of every transfer is burned\./);
+  assert.match(cut.reasoning, /The Chair moves the rate from printing 0\.20% a day to burning 0\.05% of every transfer\. 52\.00%/);
   const stepped = rule(snapshot({ rate: 0, supply: 1_000_000n, staked: 100_000n }));
   assert.equal(stepped.rateBps, 50);
-  assert.match(stepped.reasoning, /The Chair would go further, to a printing rate of 1\.00% a day, but the contract lets it move the rate by at most 0\.50% per meeting\./);
+  assert.match(stepped.reasoning, /The Chair would go further, to printing 1\.00% a day, but the contract lets it move the rate by at most 0\.50% per meeting\./);
   assert.match(stepped.reasoning, /The Chair files no objection\.$/);
+  const toZero = rule(snapshot({ rate: 100, supply: 1_000_000n, staked: 500_000n }));
+  assert.equal(toZero.rateBps, 50);
+  assert.match(toZero.reasoning, /The Chair would go further, all the way to a rate of zero, but the contract lets it move the rate by at most 0\.50% per meeting\./);
+  assert.doesNotMatch(toZero.reasoning, /to neither printing nor burning, but/);
   const empty = rule(snapshot({ rate: 20, supply: 1_000_000n, staked: 0n }));
-  assert.match(empty.reasoning, /: no coins are printed while nobody has staked\./, "a mint needs someone staked, and the minutes do not claim one");
+  assert.match(empty.reasoning, /to printing 0\.70% a day, though no coins are printed while nobody has staked\./, "a mint needs someone staked, and the minutes do not claim one");
   const none = rule(snapshot({ rate: 40, staked: null }));
   assert.equal(none.rateBps, 0);
   assert.equal(
     none.reasoning,
-    "The Committee of One has met. The Chair moves the rate from a printing rate of 0.40% a day to zero: no coins are printed and none are burned. " +
+    "The Committee of One has met. The Chair moves the rate from printing 0.40% a day to neither printing nor burning. " +
       "The Chair cannot see how many coins are staked, so it steers toward a rate of zero. The motion carries unanimously.",
   );
   assert.doesNotMatch(rule(snapshot({ rate: 40, staked: null, supply: 0n })).reasoning, /nobody has staked/);
+});
+
+test("the voice: a change of rate names each rate once, for printing and burning, a sign change, to zero and from zero, and never says the new rate a second time", () => {
+  const says = (rate: number, staked: bigint): string => rule(snapshot({ rate, supply: 1_000_000n, staked })).reasoning.replace(/ \d+\.\d\d% of all coins are staked.*$/, "");
+  assert.equal(says(15, 480_000n), "The Committee of One has met. The Chair moves the rate from printing 0.15% a day to printing 0.05% a day, a little at every 60-second meeting, for holders who staked.");
+  assert.equal(says(-10, 480_000n), "The Committee of One has met. The Chair moves the rate from burning 0.10% of every transfer to printing 0.05% a day, a little at every 60-second meeting, for holders who staked.");
+  assert.equal(says(10, 520_000n), "The Committee of One has met. The Chair moves the rate from printing 0.10% a day to burning 0.05% of every transfer.");
+  assert.equal(says(-15, 520_000n), "The Committee of One has met. The Chair moves the rate from burning 0.15% of every transfer to burning 0.05% of every transfer.");
+  assert.equal(says(40, 500_000n), "The Committee of One has met. The Chair moves the rate from printing 0.40% a day to neither printing nor burning.");
+  assert.equal(says(0, 480_000n), "The Committee of One has met. The Chair moves the rate from neither printing nor burning to printing 0.05% a day, a little at every 60-second meeting, for holders who staked.");
+  assert.equal(says(-40, 500_000n), "The Committee of One has met. The Chair moves the rate from burning 0.40% of every transfer to neither printing nor burning.");
+  for (const [rate, staked] of [[15, 480_000n], [-10, 480_000n], [10, 520_000n], [0, 480_000n], [40, 500_000n]] as const) {
+    assert.doesNotMatch(rule(snapshot({ rate, supply: 1_000_000n, staked })).reasoning, /more coins are printed|is burned/, "no second description of the new rate");
+  }
+  const empty = rule(snapshot({ rate: 20, supply: 1_000_000n, staked: 0n })).reasoning;
+  assert.match(empty, /The Chair moves the rate from printing 0\.20% a day to printing 0\.70% a day, though no coins are printed while nobody has staked\./, "a mint needs someone staked, and the minutes do not claim one");
 });
 
 test("the voice: the meeting length is the epoch length of the chain, in seconds or minutes", () => {

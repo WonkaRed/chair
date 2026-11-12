@@ -5,7 +5,7 @@ import { test } from "node:test";
 import type { PoolReader } from "../src/chain.js";
 import { FakeChain } from "../src/fake-chain.js";
 import { BOOK } from "../src/press-book.js";
-import { DEFAULT_JOIN_LIMITS, Join, plan, type JoinLimits, type Move } from "../src/press-join.js";
+import { DEFAULT_JOIN_LIMITS, Join, plan, planReset, type JoinLimits, type Move } from "../src/press-join.js";
 import type { Reply } from "../src/press-overreach.js";
 import { createPressServer, listen } from "../src/press-server.js";
 import { PressStore } from "../src/press-store.js";
@@ -36,6 +36,11 @@ class FakePool implements PoolReader, PoolSender {
     if (this.readsFail) throw new Error("rpc down");
     const snapshot = await this.chain.snapshot();
     return { snapshot, staked: this.staked, liquid: this.liquid, unlockEpoch: this.unlockEpoch, backing: this.backing };
+  }
+
+  /** The supply moves (printing, burning) and a step is a share of it, so the step changes while the stake does not: the stake stops being a whole number of steps. */
+  supplyMoves(bps: bigint): void {
+    this.chain.totalSupply += (this.chain.totalSupply * bps) / 10_000n;
   }
 
   private call(text: string, onBroadcast: () => void, apply: () => string | null): Promise<SubmitResult> {
@@ -98,6 +103,7 @@ function rig(o: { limits?: Partial<JoinLimits>; staked?: bigint } = {}): Rig {
   return { chain, pool, join, logs };
 }
 
+const nextOf = (r: Rig): string => (r.join.state().body as { next: string }).next;
 const tick = (chain: FakeChain, epochs = 1): void => chain.advanceEpochs(epochs, 10_000);
 
 // ---- plan: the cap and the direction come from the chain's numbers alone ----
@@ -115,41 +121,53 @@ test("plan: a step is 2% of the supply, floored, and a stake is planned only whi
   assert.equal(STEP, SUPPLY / 50n);
   assert.ok(CAP < SUPPLY / 20n, "the cap stays below the 5% quorum an impeachment needs");
   for (let k = 0n; k < BigInt(STEPS); k++) {
-    const m = plan(view(k * STEP), false, L);
-    assert.deepEqual(m, { kind: "go", direction: "join", amount: STEP, descending: false }, `${k}`);
+    const m = plan(view(k * STEP), L);
+    assert.deepEqual(m, { kind: "go", direction: "join", amount: STEP }, `${k}`);
   }
-  const odd = plan(view(0n, { supply: 1_000_099n }), false, L);
+  const odd = plan(view(0n, { supply: 1_000_099n }), L);
   assert.deepEqual(odd.kind === "go" ? odd.amount : null, 20_001n, "floored");
-  assert.deepEqual(plan(view(CAP), false, L), { kind: "go", direction: "step_down", amount: STEP, descending: true }, "at the cap: step down, never over it");
-  // One coin short of room for a whole step is already "full": the cap is never exceeded by a part-step.
-  assert.equal(what(plan(view(CAP - STEP + 1n), false, L)), "step_down");
+  assert.deepEqual(plan(view(CAP), L), { kind: "go", direction: "step_down", amount: STEP }, "at the cap: step down, never over it");
 });
 
-test("plan: stepping down continues until the pool is empty, takes only what is left, and then flips to joining", () => {
-  const down = (staked: bigint) => plan(view(staked), true, L);
-  assert.deepEqual(down(CAP), { kind: "go", direction: "step_down", amount: STEP, descending: true });
-  assert.deepEqual(down(STEP / 3n), { kind: "go", direction: "step_down", amount: STEP / 3n, descending: true }, "the remainder, not a whole step");
-  assert.deepEqual(down(0n), { kind: "go", direction: "join", amount: STEP, descending: false }, "empty: flips");
+test("plan: a stake that is not a whole number of steps (the supply moved) still joins, and the join stakes only the room left, so the cap stays exact", () => {
+  const dust = STEP / 100n;
+  assert.deepEqual(plan(view(dust), L), { kind: "go", direction: "join", amount: STEP }, "a fresh pool with dust: a whole step fits");
+  assert.deepEqual(plan(view(STEP + dust), L), { kind: "go", direction: "join", amount: STEP - dust }, "one step and dust: join with what fits");
+  assert.deepEqual(plan(view(CAP - STEP / 2n), L), { kind: "go", direction: "join", amount: STEP / 2n }, "half a step of room still joins");
+  assert.equal(what(plan(view(CAP - STEP / 4n), L)), "join", "a quarter step of room is still room");
+  for (const staked of [CAP - STEP / 4n + 1n, CAP - dust, CAP, CAP + dust]) {
+    assert.equal(what(plan(view(staked), L)), "step_down", `${staked}: at its cap within the dust tolerance`);
+  }
+  assert.deepEqual(plan(view(CAP + dust), L), { kind: "go", direction: "step_down", amount: STEP }, "at the cap with dust above it: one step out");
 });
 
 test("plan: a pool above its cap (the supply shrank) steps down; a pool without coins or with a locked stake is told so, with when it unlocks", () => {
-  assert.equal(what(plan(view(CAP + STEP), false, L)), "step_down");
-  assert.deepEqual(plan(view(STEP, { liquid: STEP - 1n }), false, L), { kind: "dry", descending: false });
-  const locked = plan(view(CAP, { epoch: 5, unlockEpoch: 7 }), false, L);
+  assert.equal(what(plan(view(CAP + STEP), L)), "step_down");
+  assert.deepEqual(plan(view(STEP / 3n), L), { kind: "go", direction: "join", amount: STEP }, "a partial pool does not go down on its own");
+  assert.deepEqual(plan(view(STEP, { liquid: STEP - 1n }), L), { kind: "dry" });
+  assert.deepEqual(plan(view(STEP + STEP / 2n, { liquid: STEP / 2n - 1n }), L), { kind: "dry" }, "dry is judged against the amount that would be staked");
+  const locked = plan(view(CAP, { epoch: 5, unlockEpoch: 7 }), L);
   const v = view(CAP, { epoch: 5, unlockEpoch: 7 });
-  assert.deepEqual(locked, { kind: "locked", unlockAtMs: v.snapshot.policy.epochEndsMs + v.snapshot.params.epochMs, descending: true }, "epoch 7 opens one epoch after this one ends");
-  assert.equal(what(plan(view(CAP, { epoch: 7, unlockEpoch: 7 }), false, L)), "step_down", "unlocked in epoch 7");
+  assert.deepEqual(locked, { kind: "locked", unlockAtMs: v.snapshot.policy.epochEndsMs + v.snapshot.params.epochMs }, "epoch 7 opens one epoch after this one ends");
+  assert.equal(what(plan(view(CAP, { epoch: 7, unlockEpoch: 7 }), L)), "step_down", "unlocked in epoch 7");
+});
+
+test("planReset takes everything staked in one call, dust included, and waits out the lock", () => {
+  assert.deepEqual(planReset(view(CAP + STEP / 100n), L), { kind: "go", direction: "step_down", amount: CAP + STEP / 100n });
+  assert.deepEqual(planReset(view(STEP / 100n), L), { kind: "go", direction: "step_down", amount: STEP / 100n });
+  assert.equal(planReset(view(CAP, { epoch: 5, unlockEpoch: 7 }), L).kind, "locked");
+  assert.throws(() => planReset(view(CAP, { backing: "challenger.test" }), L), /backs a candidate/);
 });
 
 test("plan refuses to plan from figures it cannot trust: no staking views, a zero step, a pool that backs a candidate", () => {
-  assert.throws(() => plan(view(0n, { staking: false }), false, L), /no staking views/);
-  assert.throws(() => plan(view(0n, { supply: 49n }), false, L), /zero coins/);
-  assert.throws(() => plan(view(STEP, { backing: "challenger.test" }), false, L), /backs a candidate/);
+  assert.throws(() => plan(view(0n, { staking: false }), L), /no staking views/);
+  assert.throws(() => plan(view(0n, { supply: 49n }), L), /zero coins/);
+  assert.throws(() => plan(view(STEP, { backing: "challenger.test" }), L), /backs a candidate/);
 });
 
 // ---- the service ----
 
-test("clicks join up to the cap, then step down to nothing, then join again; the cap holds on the chain after every click", async () => {
+test("clicks join up to the cap, then one step out and one back in, alternating at the cap; the cap holds on the chain after every click", async () => {
   const r = rig();
   const seen: string[] = [];
   for (let i = 0; i < 20; i++) {
@@ -159,8 +177,8 @@ test("clicks join up to the cap, then step down to nothing, then join again; the
     assert.ok(r.pool.staked <= CAP, `after click ${i} the pool holds ${r.pool.staked}`);
     tick(r.chain, 2); // past the stake lock
   }
-  assert.deepEqual(seen.slice(0, 2 * STEPS + 1), [...Array(STEPS).fill("joined"), ...Array(STEPS).fill("stepped_down"), "joined"]);
-  assert.deepEqual(r.pool.calls.slice(0, STEPS + 1), [...Array(STEPS).fill(`stake ${STEP}`), `unstake ${STEP}`]);
+  assert.deepEqual(seen.slice(0, STEPS + 4), [...Array(STEPS).fill("joined"), "stepped_down", "joined", "stepped_down", "joined"], "a full pool gives one seat back, the next visitor takes it");
+  assert.deepEqual(r.pool.calls.slice(0, STEPS + 2), [...Array(STEPS).fill(`stake ${STEP}`), `unstake ${STEP}`, `stake ${STEP}`]);
 });
 
 test("a move reports the shares read from the chain before and after and the meeting that follows", async () => {
@@ -348,34 +366,85 @@ test("the state is memory only: what the next click does and the latest move, wi
   assert.equal((r.join.state().body as { next: string }).next, "step_down", "the pool is full: the next click takes a step out");
 });
 
+test("a visitor who finds part of a step staked still joins: a stake below a step is not a pool on its way down", async () => {
+  const r = rig({ staked: STEP / 100n });
+  assert.equal(nextOf(r), "join", "before the first look");
+  await r.join.idleTick();
+  assert.equal(nextOf(r), "join", "after it");
+  const state = r.join.state().body as { pool_steps: number; pool_empty: boolean };
+  assert.deepEqual([state.pool_steps, state.pool_empty], [0, false], "no whole step, but not empty either");
+  const res = await r.join.start("1.1.1.1");
+  assert.equal(res.body["status"], "joined");
+  assert.deepEqual(r.pool.calls, [`stake ${STEP}`]);
+  assert.equal(r.pool.staked, STEP + STEP / 100n);
+  assert.equal(nextOf(r), "join", "one step and dust: there is room for more");
+  tick(r.chain, 2);
+  const second = await r.join.start("2.2.2.2");
+  assert.equal(second.body["status"], "joined");
+  assert.deepEqual(r.pool.calls.slice(-1), [`stake ${STEP - STEP / 100n}`], "only the room left");
+  assert.equal(r.pool.staked, CAP, "the cap is exact");
+  assert.equal(nextOf(r), "step_down");
+  tick(r.chain, 2);
+  assert.equal((await r.join.start("3.3.3.3")).body["status"], "stepped_down");
+  assert.equal(nextOf(r), "join", "and a step back out leaves a Join button, not a descent");
+  tick(r.chain, 2);
+  assert.equal((await r.join.start("4.4.4.4")).body["status"], "joined", "the next visitor goes in again");
+});
+
+test("a pool holding its two steps still reads as full after the supply grew and the step grew with it", async () => {
+  const r = rig({ staked: CAP });
+  r.pool.supplyMoves(100n); // printing: a step is 1% bigger, the stake is not
+  await r.join.idleTick();
+  assert.equal(nextOf(r), "step_down", "a hair under the new cap is full, not a reason to join");
+  tick(r.chain, 2);
+  assert.equal((await r.join.start("1.1.1.1")).body["status"], "stepped_down");
+});
+
+test("state: pool_steps counts whole steps, pool_empty says whether anything is staked, both null before the first read", async () => {
+  const r = rig({ staked: CAP + STEP / 100n });
+  const read = (): { pool_steps: number | null; pool_empty: boolean | null; next: string } => r.join.state().body as never;
+  assert.deepEqual([read().pool_steps, read().pool_empty, read().next], [null, null, "join"]);
+  await r.join.idleTick();
+  assert.deepEqual([read().pool_steps, read().pool_empty, read().next], [STEPS, false, "step_down"]);
+  const empty = rig();
+  await empty.join.idleTick();
+  assert.deepEqual([(empty.join.state().body as { pool_steps: number }).pool_steps, (empty.join.state().body as { pool_empty: boolean }).pool_empty], [0, true]);
+});
+
 // ---- the idle reset: nobody pressed, so the pool steps back out and the next visitor finds "Join" ----
 
 const IDLE = DEFAULT_JOIN_LIMITS.idleResetMs;
-const nextOf = (r: Rig): string => (r.join.state().body as { next: string }).next;
 const resets = (r: Rig): string[] => r.logs.filter((l) => l.startsWith("join idle-reset tx "));
 
-test("idle reset: a full pool that nobody presses for the idle time steps out one step per meeting, logging each transaction, until empty; each step leaves the next button on Join", async () => {
+test("idle reset: a full pool whose stake is no whole number of steps (the supply shrank) that nobody presses for the idle time is taken all the way to exactly zero in one call, and the button then says Join", async () => {
   const r = rig();
   for (let i = 0; i < STEPS; i++) await r.join.start(`1.0.0.${i}`);
-  assert.equal(r.pool.staked, CAP);
-  assert.equal(nextOf(r), "step_down", "a full pool: the next press would step out");
+  r.pool.supplyMoves(-100n); // a step is now 1% smaller: two old steps are a little over the cap
+  tick(r.chain, 2); // past the stake lock
   await r.join.idleTick();
+  assert.equal(nextOf(r), "step_down", "a full pool: the next press would step out");
   assert.equal(r.pool.staked, CAP, "not idle yet: nothing moves");
   r.chain.advanceTo(r.chain.nowMs + IDLE);
   await r.join.idleTick();
-  assert.equal(r.pool.staked, CAP - STEP, "one step out");
-  assert.equal(nextOf(r), "join", "below the cap: a visitor now sees Join");
+  assert.equal(r.pool.staked, 0n, "everything, whatever the supply did to the step");
+  assert.equal(r.chain.totalStaked, 10n ** 29n, "and only the pool's coins left the staked total");
+  assert.deepEqual(r.pool.calls.slice(-1), [`unstake ${CAP}`]);
+  assert.equal(nextOf(r), "join");
   assert.deepEqual(resets(r), [`join idle-reset tx tx-${r.pool.calls.length}`]);
-  await r.join.idleTick();
-  assert.equal(r.pool.staked, CAP - STEP, "the same meeting: no second step");
-  tick(r.chain);
-  await r.join.idleTick();
-  assert.equal(r.pool.staked, 0n, "the next meeting: the last step");
+  const body = r.join.state().body as { pool_steps: number; pool_empty: boolean };
+  assert.deepEqual([body.pool_steps, body.pool_empty], [0, true]);
   tick(r.chain, 3);
   await r.join.idleTick();
-  assert.equal(r.pool.calls.length, STEPS * 2, "an empty pool is left alone");
-  assert.equal(resets(r).length, STEPS);
+  assert.equal(r.pool.calls.length, STEPS + 1, "an empty pool is left alone");
   assert.equal((r.join.state().body as { last: unknown }).last !== null, true, "the latest visitor press is still the latest press on record: a reset is not one");
+});
+
+test("idle reset: a part of a step, all that is left, is taken out too", async () => {
+  const r = rig({ staked: STEP / 100n });
+  r.chain.advanceTo(r.chain.nowMs + IDLE);
+  await r.join.idleTick();
+  assert.equal(r.pool.staked, 0n);
+  assert.deepEqual(r.pool.calls, [`unstake ${STEP / 100n}`]);
 });
 
 test("idle reset: a press restarts the idle time, and a desk that has only just started is not idle either", async () => {
@@ -421,7 +490,7 @@ test("idle reset: the stake is read from the chain, so a desk that restarts with
   assert.equal(next(), "step_down", "after one look the state is what the chain holds");
   r.chain.advanceTo(r.chain.nowMs + IDLE);
   await fresh.idleTick();
-  assert.equal(r.pool.staked, CAP - STEP);
+  assert.equal(r.pool.staked, 0n);
   assert.equal(next(), "join");
   assert.equal(resets(r).length, 1);
 });
@@ -435,13 +504,33 @@ test("idle reset: a failed chain read sends nothing, a refusing contract is logg
   assert.equal(r.pool.calls.length, 0);
   r.pool.refuse = "boom";
   await r.join.idleTick();
-  assert.deepEqual(r.pool.calls, [`unstake ${STEP}`]);
+  assert.deepEqual(r.pool.calls, [`unstake ${CAP}`]);
   assert.match(r.logs.join("\n"), /join idle-reset refused by the contract: tx tx-1/);
   assert.equal(r.pool.staked, CAP, "nothing changed");
   r.pool.refuse = null;
   r.pool.unlockEpoch = r.chain.epoch + 3;
   await r.join.idleTick();
   assert.equal(r.pool.calls.length, 1, "a stake still inside the contract's lock is not touched");
+});
+
+test("idle reset: a refusal that persists is retried only every few meetings, and every send counts against the desk's hourly total", async () => {
+  const r = rig({ staked: CAP });
+  r.chain.advanceTo(r.chain.nowMs + IDLE);
+  r.pool.refuse = "boom";
+  for (let i = 0; i < 60; i++) {
+    await r.join.idleTick();
+    tick(r.chain);
+  }
+  assert.ok(r.pool.calls.length >= 2 && r.pool.calls.length <= 10, `60 meetings (an hour) of refusals sent ${r.pool.calls.length} calls: a few, not one per look`);
+  const capped = rig({ staked: CAP, limits: { hourlyCap: 2 } });
+  capped.chain.advanceTo(capped.chain.nowMs + IDLE);
+  capped.pool.refuse = "boom";
+  for (let i = 0; i < 30; i++) {
+    await capped.join.idleTick();
+    tick(capped.chain);
+  }
+  assert.equal(capped.pool.calls.length, 2, "the hourly total ends it");
+  assert.equal((await capped.join.start("1.1.1.1")).status, 429, "and a visitor is told the desk has had enough, the reset having used its share");
 });
 
 // ---- the routes ----

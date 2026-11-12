@@ -69,7 +69,7 @@ const CHAIN_LINE = /^A member of the press asked a question \(([0-9a-f]{12})\)\.
 /**
  * The press answers the chain holds, newest first, in the shape of the desk's record: each rides in the minutes of a decision (SPEC "set_policy",
  * chair-agent press-section.ts), one line apiece. `decisions` and `resolved` are the minutes' (decisions.js, minutes.js `resolveTexts`); only a text
- * whose SHA-256 equals the hash on chain is read, so what shows here is what the Chair committed to, not what an index says.
+ * whose SHA-256 equals the hash on chain is read, so what shows here is text the chain's hash fixes, not what an index says.
  */
 export function pressFromChain(decisions, resolved) {
   const out = [];

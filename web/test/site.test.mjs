@@ -41,6 +41,14 @@ test("the recorded run loads, reconciles to the chain's ledger and says what it 
   assert.ok([...walk(h)].every((n) => n.tag !== "a"), "no transaction links without an explorer");
 });
 
+test("what the hash proves is said as it is: the text sits in the same transaction so it cannot be quietly rewritten, and nothing says the AI wrote it", async () => {
+  const html = await readFile(join(dist, "index.html"), "utf8");
+  assert.match(html, /sits in the same transaction as the hash, so it cannot be quietly rewritten afterwards/);
+  assert.match(html, /or that an AI wrote it: the contract stores only a hash the chair supplies/);
+  assert.doesNotMatch(html, /text the chair committed to/);
+  assert.match(await readFile(join(dist, "js", "minutes.js"), "utf8"), /or that an AI wrote the text: the contract stores only the hash the chair sends/);
+});
+
 test("FastNEAR sends block_timestamp as a JSON number, not a string: the log must read the same", async () => {
   const f = clone();
   let converted = 0;

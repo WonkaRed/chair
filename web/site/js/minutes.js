@@ -185,7 +185,7 @@ function parts(doc, d, ctx) {
   };
 }
 
-const HOW = "Your browser computed the SHA-256 of the exact text above and compared it with the reasoning_hash the contract logged for this decision. A match shows the text was not edited after the decision. It does not show the Chair was right.";
+const HOW = "Your browser computed the SHA-256 of the exact text above and compared it with the reasoning_hash the contract logged for this decision. A match shows the text was not edited after the decision. It does not show the Chair was right, or that an AI wrote the text: the contract stores only the hash the chair sends.";
 
 /** The mark's words: what was checked, and where. A recorded sandbox run is never called testnet. */
 const verdictLabel = (state, ctx) => (state === "verified" ? (ctx.network ? `Verified on NEAR ${safeText(ctx.network, 12)}` : "Verified against the recorded sandbox run") : MARKS[state].short);

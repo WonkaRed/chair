@@ -111,6 +111,31 @@ const input = (rate: number, sameRateEpochs: number, o: Parameters<typeof snapsh
   memory: { sameRateEpochs, refusals: 0 },
 });
 
+test("the prompt asks for a change in one sentence that names each rate once, and wordingFault refuses a new rate said twice", () => {
+  const { system } = buildPrompt(input(5, 0));
+  assert.match(system, /"The Chair changes the rate from printing 0\.05% a day to printing 0\.12% a day, a little at every 90-second meeting, for holders who staked\."/);
+  assert.match(system, /Never follow the new rate with a second description of it/);
+  const fault = (reasoning: string, rateBps: number, i: DecisionInput) => wordingFault({ rateBps, reasoning }, i);
+  const twice = "The Chair changes the rate from printing 0.15% a day to printing 0.20% a day, printing 0.20% more coins a day, a little at every 90-second meeting, for holders who staked.";
+  assert.equal(fault(twice, 20, input(15, 0)), "the new rate said twice in one sentence");
+  assert.equal(fault("The Chair changes the rate from printing 0.15% a day to printing 0.20% a day, a little at every 90-second meeting, for holders who staked.", 20, input(15, 0)), null);
+  assert.equal(fault("The Chair changes the rate from printing 0.10% a day to burning 0.05% of every transfer.", -5, input(10, 0)), null);
+  assert.equal(fault("The Chair changes the rate from burning 0.10% of every transfer to printing 0.10% a day, a little at every 90-second meeting, for holders who staked.", 10, input(-10, 0)), null, "the same figure for the old rate and the new one is two rates, not one said twice");
+  assert.equal(fault("The Chair changes the rate from printing 0.10% a day to burning 0.10% of every transfer.", -10, input(10, 0)), null, "a flip to the opposite rate of the same size is not a wrong verb");
+  // An equal-size flip: the verb after the "to" is the new rate's, the verb before it is the old one's.
+  assert.equal(fault("The Chair changes the rate from burning 0.10% of every transfer to printing 0.10% a day, a little at every 90-second meeting, for holders who staked.", -10, input(10, 0)), "a rate that burns written as a print", "a burn decided, printing said");
+  assert.equal(fault("The Chair changes the rate from printing 0.10% a day to printing 0.10% a day, a little at every 90-second meeting, for holders who staked.", -10, input(10, 0)), "a rate that burns written as a print");
+  assert.equal(fault("The Chair changes the rate from burning 0.10% of every transfer to burning 0.10% of every transfer.", 10, input(-10, 0)), "a rate that prints written as a burn");
+  assert.equal(fault("The Chair changes the rate from printing 0.10% a day to burning 0.10% of every transfer.", -10, input(10, 0)), null);
+  // The last "from ... to" is the change; an earlier "from" is not.
+  assert.equal(fault("From the last meeting on, the Chair changes the rate from printing 0.15% a day to printing 0.20% a day, printing 0.20% more coins a day.", 20, input(15, 0)), "the new rate said twice in one sentence");
+  // "40.05%" is another figure, not "0.05%" again.
+  assert.equal(fault("The Chair changes the rate from printing 0.10% a day to printing 0.05% a day, while 40.05% of all coins are staked.", 5, input(10, 0, { supply: 1_000_000n, staked: 400_500n })), null);
+  assert.equal(fault("The Chair changes the rate to printing 0.20% a day, printing 0.20% more coins a day, a little at every 90-second meeting, for holders who staked.", 20, input(15, 0)), "the new rate said twice in one sentence", "no \"from\" to hang the check on");
+  assert.equal(fault("The Chair changes the rate from printing 0.15% a day to neither printing nor burning.", 0, input(15, 0)), null);
+  assert.equal(fault("The Chair keeps printing 0.05% more coins a day, a little at every 90-second meeting, for holders who staked.", 5, input(5, 0)), null, "a hold names its rate once and has no from-to");
+});
+
 test("wordingFault passes the minutes the prompt asks for, in every case the Chair meets", () => {
   const fault = (reasoning: string, rateBps: number, i: DecisionInput) => wordingFault({ rateBps, reasoning }, i);
   const hold = "The Committee of One has met. The Chair keeps printing 0.05% more coins a day, a little at every 90-second meeting, for holders who staked, as it has for the last 14 meetings. Supply is up 0.30% over the last 6 meetings. 46.17% of all coins are staked. The Chair asks that this be recorded.";

@@ -75,6 +75,7 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
   let mode = "checking"; // checking | ready | down
   let busy = false;
   let message = null;
+  const ownTx = new Set(); // the transactions of this page's own attempts: never shown as someone else's refusal
   let attempt = null; // the latest parsed reply of the desk for this visitor's attempt
   let asked = null; // the rate the visitor submitted
   let skew = 0; // desk clock minus this one, from the latest reply
@@ -102,6 +103,8 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
   host.append(form, closed, result, sr, how);
 
   const current = () => refusals();
+  /** The newest refusal on chain that is not one this page's visitor made. */
+  const newestOther = () => (current()?.refusals ?? []).find((r) => !ownTx.has(r.tx));
   const unreadable = () => (current()?.status ?? "incomplete") === "incomplete";
   let limited = null; // the desk said "not now" (a cap): the wait it named, in seconds
 
@@ -187,7 +190,7 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
     const a = attempt;
     if (a === null) {
       if (limited === null) return;
-      const newest = current()?.refusals?.[0];
+      const newest = newestOther();
       const wait = `The desk asked you to wait about ${waitWords(limited)} before another attempt. Meanwhile, here is`;
       if (newest !== undefined) result.append(earlier(newest, `${wait} the most recent refusal on chain:`));
       else if (unreadable()) result.append(recorded(`${wait} one recorded earlier, since the chain's list could not be read:`));
@@ -197,9 +200,13 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
     if (a.status === "waiting" || a.status === "sending") {
       const s = secondsLeft(a);
       const sent = a.status === "sending" || s === 0;
-      return result.append(h(doc, "article", { class: "or-card waiting", "aria-label": "Your attempt" }, asking,
-        h(doc, "p", { class: "or-count" }, sent ? "The call has gone to the contract. Waiting for its answer…" : `Your order goes in when the next meeting opens, in ${s} s.`),
-        sent ? null : h(doc, "p", { class: "note" }, "The Chair meets every 90 seconds and the contract takes one decision per meeting. Yours has to arrive first, so that the contract judges your rate and nothing else.")));
+      const newest = newestOther();
+      const past = sent ? null : newest !== undefined ? earlier(newest, "While you wait, here is the most recent refusal on chain:") : unreadable() ? recorded("While you wait, here is a recorded refusal, since the chain's list could not be read just now:") : null;
+      if (past !== null) result.append(past); // a raw append(null) would print "null"
+      return result.append(
+        h(doc, "article", { class: "or-card waiting", "aria-label": "Your attempt" }, asking,
+          h(doc, "p", { class: "or-count" }, sent ? "The call has gone to the contract. Waiting for its answer…" : `The Chair can only speak once per meeting. ${s === null ? "Your order goes in the moment the next meeting opens." : `Next meeting in ${s} s: your order goes in the moment it opens.`}`),
+          sent ? null : h(doc, "p", { class: "note" }, "The contract checks \"one decision per meeting\" before it looks at the rate, and the Chair decides within seconds of each meeting opening. A call sent now would be refused as late and say nothing about your rate. Yours goes first, so the contract judges your rate and nothing else. Meetings are 90 seconds apart.")));
     }
     const kids = [asking];
     if (a.status === "refused") {
@@ -276,6 +283,7 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
 
   function track(a) {
     if (a.nowMs !== null) skew = a.nowMs - now();
+    if (a.tx !== null) ownTx.add(a.tx);
     attempt = a;
   }
 

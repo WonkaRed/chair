@@ -57,10 +57,11 @@ const SYSTEM = [
   "such as \"The Chair asks that this be recorded.\" \"The Chair thanks itself for its service.\" \"The motion carries unanimously.\" \"The Chair has no further comment.\" \"The Chair will not be taking questions.\" Invent others in the same spirit.",
   "Figures are percent with two decimals, and nothing else: never \"basis points\", \"bps\", \"epoch\", a field name or a ratio.",
   "The percent of a rate is rate_bps without its sign divided by 100, with two decimals: 5 is 0.05%, 12 is 0.12%, -10 is 0.10%, 200 is 2.00%, 0 is 0.00%. rate_in_effect_percent is that figure for rate_in_effect_bps and mandate_rate_percent for mandate_rate_bps.",
-  "Say what the rate does, in the same plain words every time: when rate_bps is above 0, \"printing 0.05% more coins a day, a little at every 90-second meeting, for holders who staked\" (use meeting_length for the 90 seconds, hyphenated: 2 minutes gives 2-minute). The percent is per day, never per meeting: the day is the only span you give it;",
+  "Say what the rate does, in the same plain words every time (for a change of rate, as in Change below): when rate_bps is above 0, \"printing 0.05% more coins a day, a little at every 90-second meeting, for holders who staked\" (use meeting_length for the 90 seconds, hyphenated: 2 minutes gives 2-minute). The percent is per day, never per meeting: the day is the only span you give it;",
   "below 0, \"burning 0.10% of every transfer\"; at 0, \"neither printing nor burning\". Never call a rate positive, negative, higher, lower, a raise or a cut: say what it does.",
-  "Hold (rate_bps equals rate_in_effect_bps): \"The Chair keeps printing 0.05% more coins a day, a little at every 90-second meeting, for holders who staked.\" Change: \"The Chair changes the rate from printing 0.05% a day to printing 0.12% a day.\"",
-  "followed by what the new rate does. When the rate in effect did the other thing or nothing, say so in the same words: \"from burning 0.10% of every transfer to printing 0.05% a day\", \"from neither printing nor burning to printing 0.05% a day\".",
+  "Hold (rate_bps equals rate_in_effect_bps): \"The Chair keeps printing 0.05% more coins a day, a little at every 90-second meeting, for holders who staked.\"",
+  "Change: one sentence that names each of the two rates once, and nothing after it that says the new rate again: \"The Chair changes the rate from printing 0.05% a day to printing 0.12% a day, a little at every 90-second meeting, for holders who staked.\" The words about the meetings carry no figure and come only when the new rate prints.",
+  "Never follow the new rate with a second description of it (\"to printing 0.12% a day, printing 0.12% more coins a day\" says it twice). When the rate in effect did the other thing or nothing, say so in the same words: \"from burning 0.10% of every transfer to printing 0.05% a day, a little at every 90-second meeting, for holders who staked\", \"from neither printing nor burning to printing 0.05% a day, a little at every 90-second meeting, for holders who staked\", \"from printing 0.05% a day to burning 0.10% of every transfer\", \"from printing 0.05% a day to neither printing nor burning\".",
   "rate_in_effect_does is a clause to read, never to paste into a \"from ... to ...\". When staked_share_in_words gives 0.00%, nothing is printed whatever the rate: write \"no coins are printed while nobody has staked\" in place of the printing words. Never say how many coins were or will be printed or burned in total and never say what the next rate will be.",
   "staked_share_in_words and supply_change_in_words are finished sentences: copy them, or reword them without changing a figure, a direction or the span. Never write a percent the JSON does not give or that you did not compute as above.",
   "Claim only what the numbers show. The figures say what happened, not why: never say that a rate caused, stopped, tempered or explains a change, never give the purpose of your move,",
@@ -167,7 +168,7 @@ export function parseAnswer(res: LlmResponse): Proposal {
 /**
  * The phrasings that read as the Chair contradicting itself or leaving the reader a number they cannot trust, which the prompt forbids and this
  * refuses: jargon (basis points, epochs), a percent the numbers do not give, a rate that prints written as a burn or the
- * reverse, a run of meetings claimed for a rate the Chair is not holding (or no run at all), a rate with no unit ("to 17."). Null when the text is clean.
+ * reverse, the new rate said twice in a sentence, a run of meetings claimed for a rate the Chair is not holding (or no run at all), a rate with no unit ("to 17."). Null when the text is clean.
  */
 export function wordingFault(proposal: Proposal, input: DecisionInput): string | null {
   const text = proposal.reasoning;
@@ -198,14 +199,23 @@ export function wordingFault(proposal: Proposal, input: DecisionInput): string |
     if (PRINTING_FIGURE.test(text) && !/\b(?:a|per|each|every) day\b|\bdaily\b/i.test(text)) return "a printing rate without its day";
     if (PRINT_PER_MEETING.test(text)) return "a printing rate given per meeting instead of per day";
   }
+  const figure = percent(rateBps).replace(".", "\\.");
+  const sentences = text.split(/\.(?=\s|$)/);
+  // A flip to the opposite rate of the same size writes the same figure for the old rate and the new, so only what follows the "to" can be checked.
+  const scopes = rateBps === -current ? sentences.flatMap((sentence) => afterTo(sentence) ?? []) : [text];
   if (rateBps !== 0) {
-    const figure = percent(rateBps).replace(".", "\\.");
     // The verb nearest before the figure: "from neither printing nor burning to printing 0.05%" prints, and is not a burn.
     const wrongVerb = new RegExp(`\\b${rateBps > 0 ? "burn" : "(?:print|mint)"}\\w*(?:(?!\\b(?:print|mint|burn|to)\\w*\\b)[^.]){0,40}?${figure}`, "i");
-    if (wrongVerb.test(text)) return rateBps > 0 ? "a rate that prints written as a burn" : "a rate that burns written as a print";
+    if (scopes.some((scope) => wrongVerb.test(scope))) return rateBps > 0 ? "a rate that prints written as a burn" : "a rate that burns written as a print";
   }
+  // A change names the new rate once: "from printing 0.15% a day to printing 0.20% a day, printing 0.20% more coins a day" says it twice. No digit or dot may precede the figure ("40.05%" is not "0.05%").
+  const named = new RegExp(`(?<![\\d.])${figure}`, "g");
+  if (!held && sentences.some((sentence) => (afterTo(sentence)?.match(named)?.length ?? 0) > 1)) return "the new rate said twice in one sentence";
   return null;
 }
+
+/** What a sentence says after its "to": the one after its last "from", else its first. Null when it has no "to". */
+const afterTo = (sentence: string): string | null => /^.*\bfrom\b.*?\bto\b(.*)$/is.exec(sentence)?.[1] ?? /\bto\b(.*)$/is.exec(sentence)?.[1] ?? null;
 
 /** A percent said of printing, "printing 0.05%" or "0.05% more coins": the figure that needs its day. */
 const PRINTING_FIGURE = /\b(?:print|mint)\w*(?:\d\.\d|[^.]){0,60}?\d%|\d%\s+more coins/i;

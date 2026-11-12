@@ -67,7 +67,7 @@ Chain strings are text only (`textContent`, never markup). Control, bidi and inv
 
 A decision with neither a text in its transaction nor a bundled one shows "reasoning text not published for this decision". When both exist, the one that verifies is used.
 
-A match shows the text is the one the chair committed to in that transaction. It does not show the chair was right or that the text caused the rate.
+A match shows the text matches the hash the chair sent, and a text read from the transaction sits in the same transaction as that hash, so it cannot be quietly rewritten afterwards. It does not show the chair was right, that the text caused the rate, or that an AI wrote it: the contract stores only a hash the chair supplies.
 
 ## Times the contract told the Chair no
 

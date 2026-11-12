@@ -9,7 +9,7 @@ import { join } from "node:path";
 import { fakeDoc, host, walk } from "./fakedom.mjs";
 
 const root = join(fileURLToPath(import.meta.url), "..", "..");
-const { createJoin, explainJoin, findMinutes, minutesShare, parseLimits, parseRecord, STORE_KEY, WATCH_TRIES, DOWN } = await import(join(root, "site", "js", "join.js"));
+const { createJoin, explainJoin, findMinutes, minutesShare, parseLimits, parseRecord, STORE_KEY, STATE_POLL_MS, WATCH_TRIES, DOWN } = await import(join(root, "site", "js", "join.js"));
 
 const EXPLORER = "https://example.invalid";
 const TX = "5".repeat(44);
@@ -174,9 +174,18 @@ test("the minutes sought are the first decision at or after the meeting after th
   assert.deepEqual([f.text, f.unverified], [null, true]);
 });
 
+/** Timers driven by the test: the page's looks at the desk's state (STATE_POLL_MS) wait in `polls`, every other timer in `queue`, so a test of one does not trip over the other. */
 const manual = () => {
   const queue = [];
-  return { queue, set: (f, ms) => (queue.push({ f, ms }), queue.length), clear: () => queue.splice(0), tick: async () => { const t = queue.shift(); await t.f(); } };
+  const polls = [];
+  return {
+    queue,
+    polls,
+    set: (f, ms) => { const t = { f, ms }; (ms === STATE_POLL_MS ? polls : queue).push(t); return t; },
+    clear: (t) => { for (const l of [queue, polls]) if (l.includes(t)) l.splice(l.indexOf(t), 1); },
+    tick: async () => { const t = queue.shift(); await t.f(); },
+    poll: async () => { const t = polls.shift(); await t.f(); },
+  };
 };
 const res = (status, body, headers = {}) => ({ ok: status >= 200 && status < 300, status, headers: { get: (k) => headers[k] ?? null }, json: async () => body });
 const memory = (initial = null) => {
@@ -186,7 +195,7 @@ const memory = (initial = null) => {
 const flush = () => new Promise((r) => setImmediate(r));
 
 /** A panel whose desk answers `route(path, init)`; `health` is what /health says (a function throws it as down). */
-async function panel(route, { health = { ok: true, overreach: false, join: true }, state = { next: "join", last: null, pool: POOL }, stored = null, data = null, pressed = false } = {}) {
+async function panel(route, { health = { ok: true, overreach: false, join: true }, state = { next: "join", last: null, pool: POOL }, stored = null, data = null, pressed = false, hidden = false } = {}) {
   const sent = [];
   const timers = manual();
   const clock = { t: 1_000_000 };
@@ -196,16 +205,18 @@ async function panel(route, { health = { ok: true, overreach: false, join: true 
     const i = init();
     sent.push({ path, init: i });
     if (path === "/health") return typeof health === "function" ? health() : res(200, health);
-    if (path === "/join/state") return res(200, state);
+    if (path === "/join/state") return res(200, typeof state === "function" ? state() : state);
     return route(path, i);
   };
   const el = host();
   const section = { hidden: true };
   const store = memory(stored);
   if (pressed) store.map.set("chair-join-pressed", "1");
-  const api = createJoin(fakeDoc(), el, { section, request, explorer: EXPLORER, chain: () => chain, reload: async () => { reads++; }, store, timers, now: () => clock.t });
+  const doc = fakeDoc();
+  doc.hidden = hidden;
+  const api = createJoin(doc, el, { section, request, explorer: EXPLORER, chain: () => chain, reload: async () => { reads++; }, store, timers, now: () => clock.t });
   await flush();
-  return { el, api, sent, timers, clock, chain, store, section, reads: () => reads };
+  return { el, api, doc, sent, timers, clock, chain, store, section, reads: () => reads };
 }
 
 const joined = (over = {}) => res(200, { status: "joined", ...wire(), pool: POOL, now_ms: 1_000_000, ...over });
@@ -408,19 +419,80 @@ test("the panel says in plain words why a press matters, glossing \"staked\" whe
   assert.ok(t.indexOf("locked up to vote") < t.indexOf("staked share") || !t.includes("staked share"), "the gloss comes before any later use");
 });
 
-test("a full pool greets a visitor who never pressed here with what is true: other visitors filled the seats, and a press takes one back out, which moves the Chair's aim up", async () => {
+test("a full pool greets a visitor who never pressed here with what is true: earlier presses filled the seats, a press takes one back out, and the minutes will react", async () => {
   const limits = { step_bps: 200, cap_steps: 2 };
-  const p = await panel(() => assert.fail("nothing is sent"), { state: { next: "step_down", pool_steps: 2, last: null, pool: POOL, ...limits } });
+  const p = await panel(() => assert.fail("nothing is sent"), { state: { next: "step_down", pool_steps: 2, pool_empty: false, last: null, pool: POOL, ...limits } });
   const t = text(p.el);
-  assert.match(t, /Other visitors have already filled the Committee's seats\. A press now takes one seat back out, so the rate the Chair is aiming for moves up a little/);
+  assert.match(t, /Earlier presses have filled the Committee's seats, so a press now takes one seat back out, and the Chair's next minutes will react: the rate the Chair is aiming for moves up a little, because fewer coins staked \(locked up to vote\) means it prints more\./);
   assert.match(t, /Step back out of the Committee/);
   assert.doesNotMatch(t, /Nothing of yours is spent\.[^]*prints less new money the more/, "the join sentence is replaced, not stacked");
-  const back = await panel(() => assert.fail("nothing is sent"), { pressed: true, state: { next: "step_down", pool_steps: 2, last: null, pool: POOL, ...limits } });
-  assert.match(text(back.el), /^[^]*The Committee's seats are full\. A press now takes one seat back out/);
-  assert.doesNotMatch(text(back.el), /Other visitors/, "someone who pressed before is not told that others did");
-  const part = await panel(() => assert.fail("nothing is sent"), { state: { next: "step_down", pool_steps: 1, last: null, pool: POOL, ...limits } });
-  assert.match(text(part.el), /on its way back out\. A press now takes one more seat out/);
-  assert.doesNotMatch(text(part.el), /filled/, "a pool part-way down is not called full");
+  const back = await panel(() => assert.fail("nothing is sent"), { pressed: true, state: { next: "step_down", pool_steps: 2, pool_empty: false, last: null, pool: POOL, ...limits } });
+  assert.match(text(back.el), /^[^]*The Committee's seats are full\. A press now takes one seat back out, and the Chair's next minutes will react/);
+  assert.doesNotMatch(text(back.el), /Earlier presses/, "someone who pressed before is not told that earlier presses did it");
+});
+
+test("a pool holding part of a step or of its cap shows Join, whatever pool_steps says: the page trusts the desk's `next`, not its own count of steps", async () => {
+  const limits = { step_bps: 200, cap_steps: 2 };
+  for (const pool_steps of [0, 1]) {
+    const p = await panel(() => assert.fail("nothing is sent"), { state: { next: "join", pool_steps, last: null, pool: POOL, ...limits } });
+    assert.equal(p.api.button.textContent, "Join the Committee", `${pool_steps}`);
+    const t = text(p.el);
+    assert.match(t, /The Chair prints less new money the more coins are staked/);
+    assert.doesNotMatch(t, /seats are full|filled|back out/);
+  }
+});
+
+test("the button is re-read from the desk every 10 s while it is up: a pool emptied by the idle reset or moved by another visitor changes the label, and a hidden tab or a press in flight does not look", async () => {
+  let next = "step_down";
+  const p = await panel(() => assert.fail("nothing is sent"), { state: () => ({ next, last: null, pool: POOL }) });
+  assert.equal(p.api.button.textContent, "Step back out of the Committee");
+  assert.equal(p.timers.polls.length, 1);
+  assert.equal(p.timers.polls[0].ms, STATE_POLL_MS);
+  next = "join"; // the idle reset emptied the pool
+  await p.timers.poll();
+  assert.equal(p.api.button.textContent, "Join the Committee", "the label follows the pool");
+  assert.doesNotMatch(text(p.el), /seats are full/);
+  assert.equal(p.timers.polls.length, 1, "and it looks again");
+  const looks = () => p.sent.filter((s) => s.path === "/join/state").length;
+  const before = looks();
+  await p.timers.poll();
+  assert.equal(looks(), before + 1);
+  p.api.stop();
+  assert.equal(p.timers.polls.length, 0, "stop ends the looking");
+});
+
+test("a press that does not go through (locked, dry, refused, 429, not accepted, unreadable) re-reads the desk's state, so the button is not left stale", async () => {
+  const cases = [
+    res(200, { status: "locked", retry_at_ms: 1_060_000, now_ms: 1_000_000 }),
+    res(200, { status: "dry" }),
+    res(200, { status: "failed", failure: "boom" }),
+    res(200, { status: "unconfirmed" }),
+    res(200, { status: "whatever" }),
+    res(429, { error: "x", code: "cap", retry_after_s: 60, last: null }, { "retry-after": "60" }),
+    res(400, { error: "no" }),
+    res(200, { status: "joined" }),
+  ];
+  for (const reply of cases) {
+    let next = "step_down";
+    const p = await panel(() => reply, { state: () => ({ next, last: null, pool: POOL }) });
+    next = "join"; // the pool moved under the page
+    await p.api.press();
+    await flush();
+    assert.equal(p.sent.filter((s) => s.path === "/join/state").length, 2, `${reply.status} ${reply.json && "re-read"}`);
+    assert.equal(p.api.button.textContent, "Join the Committee", "the label now says what a press does");
+  }
+});
+
+test("a hidden tab does not look at the desk's state, and looks again when it is shown", async () => {
+  const p = await panel(() => assert.fail("nothing is sent"), { hidden: true });
+  const looks = () => p.sent.filter((s) => s.path === "/join/state").length;
+  assert.equal(looks(), 1);
+  await p.timers.poll();
+  assert.equal(looks(), 1, "hidden: no look");
+  assert.equal(p.timers.polls.length, 1, "but the clock keeps going");
+  p.doc.hidden = false;
+  await p.timers.poll();
+  assert.equal(looks(), 2);
 });
 
 test("while the desk is out of reach the panel looks again every 20 s without changing the screen, and opens by itself when the desk is back", async () => {

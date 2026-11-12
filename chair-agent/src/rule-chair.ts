@@ -78,9 +78,16 @@ export function rateEffect(rate: number, epochMs: number, nobodyStaked: boolean)
   return "no coins are printed and none are burned";
 }
 
-/** A rate as a noun phrase, for "from X to Y". */
-function rateName(rate: number): string {
-  return rate > 0 ? `a printing rate of ${percent(rate)} a day` : rate < 0 ? `a burn rate of ${percent(rate)}` : "zero";
+/** What a rate does, as the clause after "from" or "to": "printing 0.20% a day", "burning 0.10% of every transfer", "neither printing nor burning". */
+function rateDoes(rate: number): string {
+  return rate > 0 ? `printing ${percent(rate)} a day` : rate < 0 ? `burning ${percent(rate)} of every transfer` : "neither printing nor burning";
+}
+
+/** A change of rate in one sentence that names each rate once; the words about the meetings come only after a printing rate and carry no figure. */
+function moveSentence(current: number, rate: number, epochMs: number, nobodyStaked: boolean): string {
+  const change = `The Chair moves the rate from ${rateDoes(current)} to ${rateDoes(rate)}`;
+  if (rate <= 0) return `${change}.`;
+  return nobodyStaked ? `${change}, though no coins are printed while nobody has staked.` : `${change}, a little at every ${meetingAdjective(epochMs)} meeting, for holders who staked.`;
 }
 
 /** Supply change over the lookback window as the sentence the minutes carry, or null with too little history. The span (`meetings`) is the one the history really covers. */
@@ -114,10 +121,10 @@ export function ruleDecision(input: DecisionInput): Proposal {
   lines.push(
     rate === current
       ? `The Chair holds the rate: ${rateEffect(rate, epochMs, nobodyStaked)}.`
-      : `The Chair moves the rate from ${rateName(current)} to ${rateName(rate)}: ${rateEffect(rate, epochMs, nobodyStaked)}.`,
+      : moveSentence(current, rate, epochMs, nobodyStaked),
   );
   if (rate !== wanted && rate !== current) {
-    lines.push(`The Chair would go further, to ${rateName(wanted)}, but the contract lets it move the rate by at most ${percent(maxStepBps)} per meeting.`);
+    lines.push(`The Chair would go further, ${wanted === 0 ? "all the way to a rate of zero" : `to ${rateDoes(wanted)}`}, but the contract lets it move the rate by at most ${percent(maxStepBps)} per meeting.`);
   }
 
   if (silent > 0) {

@@ -95,8 +95,8 @@
       <ul class="plain">
         <li>The contract stores the hash and logs it in a <code>policy_set</code> event with the epoch and the rate. The chair also sends the reasoning text as an extra argument of the same <code>set_policy</code> call. The contract ignores it, but it stays in the transaction, so it is public.</li>
         <li>This page reads that text from the transaction's arguments. Decisions made before the chair sent it have no text there: for those, the chair's own saved text is used, copied into this page's files when the page is built, from the <code>docs/</code> folder of the repo. Nothing is fetched from a model or a server of mine.</li>
-        <li>Your browser computes the SHA-256 of the exact text shown and compares it with the hash read from the chain. Verified means this is the text the chair committed to in that transaction. A decision with neither text shows its hash only.</li>
-        <li>A match does not show the chair was right, or that the text is the real reason for the rate. It shows the text was not edited after the decision.</li>
+        <li>Your browser computes the SHA-256 of the exact text shown and compares it with the hash read from the chain. Verified means the text matches that hash. A text read from the transaction sits in the same transaction as the hash, so it cannot be quietly rewritten afterwards. A decision with neither text shows its hash only.</li>
+        <li>A match does not show the chair was right, that the text is the real reason for the rate, or that an AI wrote it: the contract stores only a hash the chair supplies. It shows the text was not edited after the decision.</li>
       </ul>
     </details>
   </section>

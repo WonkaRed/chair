@@ -242,7 +242,7 @@ async function overreachFrom(env: NodeJS.ProcessEnv, io: Io): Promise<Overreach 
 
 /**
  * "Join the Committee" needs the visitor pool account (CHAIR_VISITOR_ACCOUNT), its key file (CHAIR_VISITOR_KEY_FILE) and the chain (CHAIR_RPC_URL, CHAIR_TOKEN).
- * CHAIR_JOIN_IDLE_RESET_S (default 600) is how long the desk waits with no press before it steps a staked pool back out (press-join.ts).
+ * CHAIR_JOIN_IDLE_RESET_S (default 600) is how long the desk waits with no press before it takes a staked pool's whole stake back out (press-join.ts).
  * Missing or unusable, the feature is off and says so in the log, like the overreach.
  */
 async function joinFrom(env: NodeJS.ProcessEnv, io: Io): Promise<Join | null> {
@@ -258,7 +258,7 @@ async function joinFrom(env: NodeJS.ProcessEnv, io: Io): Promise<Join | null> {
     if ((await rpc.chainId()) === "mainnet") throw new Error("refusing to run against mainnet: this is a test-network experiment");
     const sender = new PoolSigner(loadKeyFile(keyFile, "CHAIR_VISITOR_KEY_FILE", (m) => io.err(`WARNING: ${m}`)), pool, token, rpc);
     assertFullAccess(await rpc.accessKey(pool, await sender.publicKey()));
-    io.out(`join on: ${pool} stakes and unstakes at the contract at ${token}; steps a staked pool back out after ${idleResetMs / 1000} s with no press`);
+    io.out(`join on: ${pool} stakes and unstakes at the contract at ${token}; takes a staked pool back out after ${idleResetMs / 1000} s with no press`);
     return new Join({ reader: new ChainReader(rpc, token, pool), sender, poolAccount: pool, limits: { idleResetMs }, log: (line) => io.out(line) });
   } catch (err) {
     io.err(`join off: ${err instanceof Error ? sanitize(err.message, 200) : "unknown error"}`);
