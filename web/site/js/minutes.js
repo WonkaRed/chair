@@ -136,6 +136,13 @@ export function parseChoice(line) {
   return { kind: g.rule === "applied" ? "rule" : "rule-asked", formula, chosen: formula, why: "" };
 }
 
+/** The choice line when the rate the chain set agrees with it: a Chair that chose, agreed or applied the formula set that rate; one that was clamped asked for another. Else null: the text and the chain disagree, so the row is not shown. */
+export function choiceMatching(choice, setBps) {
+  if (choice === null) return null;
+  const asked = choice.kind === "asked" || choice.kind === "rule-asked";
+  return (choice.chosen === setBps) === !asked ? choice : null;
+}
+
 const OLD_WHY = { timeout: "did not answer in time", refusal: "declined to answer", malformed: "gave an answer the Chair could not use", error: "ran into an error" };
 
 /** The plain sentence for a fallback line, or null when the line is not one. */
@@ -179,7 +186,7 @@ export const BOOK_CLOSINGS = [
 /** The AI chair's name in the header line: its label from the agent (`llm:<model>` or `local:<model>`); the rule chair's is `rule-v1`. */
 const AI_HEADER = /^\$CHAIR decision, epoch \d+, chair (?:llm|local):/;
 /** The lines the agent adds after the Chair's statement: the epoch rolled over, the rate was clamped, the press section (decide.ts, press-section.ts). */
-const AFTER_STATEMENT = /^(?:The epoch rolled over while the Chair was deliberating\.|The Chair asked for -?\d+ bps; the contract accepts |The contract accepts -?\d+\.\.-?\d+ bps here, so |The press asked \d+ questions? since the last meeting\.)/;
+const AFTER_STATEMENT = /^(?:The epoch rolled over while the Chair was deliberating\.|The Chair asked for -?\d+ bps; the contract accepts |The contract accepts -?\d+\.\.-?\d+ bps here, so |The press (?:asked \d+ questions? since the last meeting|has \d+ questions? waiting)\.)/;
 
 /**
  * `{head, own, tail}` with `head + own + tail` equal to the minutes' prose, when an AI chair's statement ends in a sentence that is not a line of the
@@ -280,7 +287,7 @@ function parts(doc, d, ctx, saved = false) {
     rec,
     prose,
     fallback: fallback === null ? null : h(doc, "p", { class: "plain-line m-fallback" }, fallback),
-    choice: trusted ? parseChoice(meta.at(-1) ?? "") : null,
+    choice: trusted ? choiceMatching(parseChoice(meta.at(-1) ?? ""), d.rateBps) : null,
     lead: lead(doc, prose, trusted ? splitClosing(shown) : null),
     meta: meta.length === 0 && !d.byVisitor ? null : h(doc, "p", { class: "m-meta" }, d.byVisitor ? h(doc, "strong", { class: "visitor-tag" }, "Forced by a visitor through the press desk, not decided by the AI chair: the chair account signed it. ") : null, meta.map((line) => h(doc, "span", {}, line))),
     notes: [

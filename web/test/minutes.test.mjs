@@ -15,7 +15,7 @@ const root = join(fileURLToPath(import.meta.url), "..", "..");
 const docs = join(root, "..", "docs");
 const site = (f) => import(join(root, "site", "js", f));
 const { decisionsOfTxs, refusalsOfTxs } = await site("decisions.js");
-const { BOOK_CLOSINGS, checkReasoning, loadTexts, ownClosing, parseChoice, renderHero, renderMinutes, resolveTexts, sha256Hex, silence, splitClosing, splitMinutes } = await site("minutes.js");
+const { BOOK_CLOSINGS, checkReasoning, choiceMatching, loadTexts, ownClosing, parseChoice, renderHero, renderMinutes, resolveTexts, sha256Hex, silence, splitClosing, splitMinutes } = await site("minutes.js");
 const { renderRefusals, humanReason, PROJECT_TEST_CALLS } = await site("refusals.js");
 const { rawTxCommand } = await site("views.js");
 const { lineChart } = await site("charts.js");
@@ -383,8 +383,10 @@ test("a fallback decision, in the old wording on chain or the new one, gets a pl
   const old = "Chair local:qwen3.8-27b failed (timeout). The rule chair decided instead. The Chair has no comment.";
   const fresh = "The AI chair (local:qwen3.8-27b) did not answer in time, so the rule chair, the Chair's built-in fallback, decided this meeting.";
   const plain = "The AI chair did not answer in time, so the Chair's built-in fallback rule decided this meeting.";
-  const notAsked = "The AI chair (local:qwen3.8-27b) was not asked: no rate near the formula was sure to be taken, so the rule chair, the Chair's built-in fallback, decided this meeting.";
-  assert.equal(splitMinutes([head, notAsked, rate, body].join("\n")).fallback, "The AI chair was not asked: no rate near the formula was sure to be taken, so the Chair's built-in fallback rule decided this meeting.");
+  const notAsked = "The AI chair (local:qwen3.8-27b) was not asked: too little of the meeting was left to choose, so the rule chair, the Chair's built-in fallback, decided this meeting.";
+  assert.equal(splitMinutes([head, notAsked, rate, body].join("\n")).fallback, "The AI chair was not asked: too little of the meeting was left to choose, so the Chair's built-in fallback rule decided this meeting.");
+  const stale = "The AI chair (local:qwen3.8-27b) gave an answer that no longer fit the chain when it arrived, so the rule chair, the Chair's built-in fallback, decided this meeting.";
+  assert.equal(splitMinutes([head, stale, rate, body].join("\n")).fallback, "The AI chair gave an answer that no longer fit the chain when it arrived, so the Chair's built-in fallback rule decided this meeting.");
   for (const line of [old, fresh]) {
     const text = [head, line, rate, body].join("\n");
     assert.deepEqual(splitMinutes(text), { meta: [head, line, rate], prose: body, fallback: plain });
@@ -602,13 +604,16 @@ test("ownClosing: the last sentence of an AI chair's statement when it is not a 
     "The epoch rolled over while the Chair was deliberating. Time does not wait for the Committee of One.",
     "The Chair asked for 30 bps; the contract accepts 0..20 bps here, so 20 bps is set. The Chair defers.", // the older form, still on chain
     "The contract accepts 0..20 bps here, so 20 bps is set instead. The Chair defers.",
-    "The press asked 3 questions since the last meeting. The Chair enters 2 here and the rest at the next meeting.\nQuestion 0123456789ab: The Chair replied: Noted.",
+    "The press asked 3 questions since the last meeting. The Chair enters 2 here and the rest at the next meeting.\nQuestion 0123456789ab: The Chair replied: Noted.", // the older form
+    "The press has 3 questions waiting. The Chair enters 2 here and the rest at the next meeting.\nQuestion 0123456789ab: The Chair replied: Noted.",
+    "The press has 1 question waiting.\nQuestion 0123456789ab: The Chair replied: Noted.",
   ];
   for (const note of after) {
     assert.equal(ownClosing(text(`${OWN_BODY} ${REMARK}`, note)), REMARK, note);
     assert.equal(ownClosing(text(`${OWN_BODY} ${CLOSING_BOOK}`, note)), null, note);
   }
   assert.equal(ownClosing(text(`${OWN_BODY} ${REMARK}`, after[0], after[1], after[3])), REMARK);
+  assert.equal(ownClosing(text(`${OWN_BODY} ${REMARK}`, after[0], after[2], after[4])), REMARK);
   // Not an AI chair's statement: the rule chair, a fallback, a text with no header, a cut text.
   assert.equal(ownClosing(`$CHAIR decision, epoch 5, chair rule-v1.\nRate in effect 1 bps; decision 1 bps.\n${OWN_BODY} ${REMARK}`), null);
   assert.equal(ownClosing(`${OWN_BODY} ${REMARK}`), null);
@@ -618,7 +623,7 @@ test("ownClosing: the last sentence of an AI chair's statement when it is not a 
 const CLOSING_BOOK = "The Chair has no further comment.";
 
 test("splitClosing: head, the Chair's sentence and the notes after it add back up to the prose, byte for byte", () => {
-  const notes = "The epoch rolled over while the Chair was deliberating. Time does not wait.\nThe press asked 2 questions since the last meeting.";
+  const notes = "The epoch rolled over while the Chair was deliberating. Time does not wait.\nThe press has 2 questions waiting.";
   for (const body of [`${OWN_BODY} ${REMARK}`, `${OWN_BODY}\n${REMARK}`, `${OWN_BODY}  ${REMARK}`]) {
     for (const tail of ["", `\n${notes}`, `\n\n${notes}`]) {
       const text = `${OWN_HEAD}\n${body}${tail}`;
@@ -709,15 +714,19 @@ test("the hero sets the formula's number beside the Chair's, near the rate, only
     return render(d, ctx(new Map(), resolved));
   };
   assert.deepEqual(rows(showing(`${head}\n${CHOSE}\n${body}`)), ["Formula suggested +0.12% a day · Chair chose +0.15% a dayFewer than half of all coins are staked."]);
-  assert.deepEqual(rows(showing(`${head}\n${AGREED}\n${body}`)), ["Formula suggested +0.12% a day · Chair agreedMore than half of all coins are staked."]);
-  assert.deepEqual(rows(showing(`${head}\n${RULE}\n${body}`)), ["Formula suggested +0.12% a day · Rule chair applied it"]);
-  assert.deepEqual(rows(showing(`${head}\n${CHOSE.replace("printing 0.15% a day", "neither printing nor burning")}\n${body}`)), ["Formula suggested +0.12% a day · Chair chose no printing or burningFewer than half of all coins are staked."]);
+  assert.deepEqual(rows(showing(`${head}\n${AGREED}\n${body}`, { rateBps: 12 })), ["Formula suggested +0.12% a day · Chair agreedMore than half of all coins are staked."]);
+  assert.deepEqual(rows(showing(`${head}\n${RULE}\n${body}`, { rateBps: 12 })), ["Formula suggested +0.12% a day · Rule chair applied it"]);
+  assert.deepEqual(rows(showing(`${head}\n${CHOSE.replace("printing 0.15% a day", "neither printing nor burning")}\n${body}`, { rateBps: 0 })), ["Formula suggested +0.12% a day · Chair chose no printing or burningFewer than half of all coins are staked."]);
   // The window moved the rate after the choice: the row says what was asked for, never "chose" beside a different big rate.
-  assert.deepEqual(rows(showing(`${head}\n${ASKED}\n${body}`)), ["Formula suggested +0.12% a day · Chair asked for +0.15% a dayFewer than half of all coins are staked."]);
+  assert.deepEqual(rows(showing(`${head}\n${ASKED}\n${body}`, { rateBps: 12 })), ["Formula suggested +0.12% a day · Chair asked for +0.15% a dayFewer than half of all coins are staked."]);
   assert.deepEqual(rows(showing(`${head}\n${RULE_ASKED}\n${body}`)), ["Formula suggested +0.12% a day · Rule chair asked for +0.12% a day"]);
   const shown = showing(`${head}\n${CHOSE}\n${body}`);
   const [rate] = [...walk(shown)].filter((n) => n.attrs?.class === "paper-rate");
   assert.ok([...walk(rate)].some((n) => n.attrs?.class === "rate-choice") && [...walk(rate)].some((n) => n.attrs?.class === "rate-big"), "the row sits in the rate's own caption, beside the big figure");
+  // The row is shown only when the chain agrees with it: a Chair that chose, agreed or applied the formula set that rate, one that was clamped was set another.
+  const crafted = [[CHOSE, 12], [CHOSE, 16], [AGREED, 15], [RULE, 15], [ASKED, 15], [RULE_ASKED, 12]];
+  for (const [line, set] of crafted) assert.deepEqual(rows(showing(`${head}\n${line}\n${body}`, { rateBps: set })), [], `${line} against a set rate of ${set}`);
+  assert.equal(choiceMatching(null, 15), null);
   // The row is read only from a text that hashed to the chain's and that the chair itself sent: a visitor can force any text through the press desk.
   assert.deepEqual(rows(showing(`${head}\n${CHOSE}\n${body}`, {}, "mismatch")), []);
   assert.deepEqual(rows(showing(`${head}\n${CHOSE}\n${body}`, { byVisitor: true })), []);

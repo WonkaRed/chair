@@ -17,7 +17,7 @@ import { PATIENT_MS, snapshot, tempDir } from "./helpers.js";
 
 const REMARK = "The Chair has appointed a subcommittee of the Chair to look into the Chair.";
 const opts = (chair: Chair, timeoutMs = PATIENT_MS) => ({ chair, marginMs: 15_000, timeoutMs });
-const snap = snapshot({ rate: 24, staked: 1000n });
+const snap = snapshot({ rate: 24, staked: 404_000n }); // 40.4% staked: the formula holds the rate at 24
 /** What the agent writes for a meeting that holds the rate at 24: the statement, up to the closing. */
 const BODY = statement({ snapshot: snap, history: [], window: { lo: -50, hi: 50 } }, 24);
 
@@ -183,23 +183,44 @@ function stakeMovesAfterFirstRead(chain: FakeChain, to: bigint): { snapshot: Fak
   };
 }
 
-test("a stake that moves while the model thinks cannot split the minutes from the log: the AI chair's text, logged stake and mandate are all of the read the model saw", async () => {
+test("a stake that moves while the model thinks: the minutes, the logged stake and the mandate are all of the read taken after the answer, and the answer is checked against it", async () => {
   const w = world();
   try {
-    const before = await w.chain.snapshot();
     const reader = stakeMovesAfterFirstRead(w.chain, 422_600n * 10n ** 24n);
     const choosing: LlmClient = {
       complete: (req) => {
         if (req.schema !== undefined) return Promise.resolve({ text: JSON.stringify({ remark: "" }), stopReason: "end_turn" });
-        return Promise.resolve({ text: JSON.stringify({ rate_bps: 30, reason: "stake_low" }), stopReason: "end_turn" }); // the formula for the 38% the model sees
+        return Promise.resolve({ text: JSON.stringify({ rate_bps: 30, reason: "stake_low" }), stopReason: "end_turn" }); // the formula for the 38% the model sees; still a fair choice for 42.26%
       },
     };
     assert.equal((await tick(agentDeps(w, new LlmChair(choosing), reader))).status, "executed");
     const rec = w.log.epochState(w.chain.epoch).decision!;
-    assert.ok(rec.reasoning.includes("38.00% of all coins are staked"), rec.reasoning);
-    assert.equal(rec.total_staked, before.staking!.totalStaked.toString(), "so the log holds that stake, not the later one");
-    assert.equal(rec.mandate_rate_bps, mandateRate(before), "and the mandate is that of the same read");
-    assert.notEqual(rec.mandate_rate_bps, mandateRate(await w.chain.snapshot()), "(the later read would have said something else)");
+    const after = await w.chain.snapshot();
+    assert.equal(rec.chair_kind, "llm");
+    assert.ok(rec.reasoning.includes("42.26% of all coins are staked"), rec.reasoning);
+    assert.ok(!rec.reasoning.includes("38.00%"), "nothing cites the read the model saw");
+    assert.ok(rec.reasoning.includes("The formula suggested printing 0.19% a day. The Chair chose printing 0.30% a day: fewer than half of all coins are staked."), rec.reasoning);
+    assert.equal(rec.total_staked, after.staking!.totalStaked.toString());
+    assert.equal(rec.mandate_rate_bps, mandateRate(after));
+    assert.equal(rec.formula_bps, 19);
+  } finally {
+    w.done();
+  }
+});
+
+test("a stake that moves so that the reason no longer holds: the answer is not used, the rule chair decides on the fresh read and the minutes say so", async () => {
+  const w = world();
+  try {
+    const reader = stakeMovesAfterFirstRead(w.chain, 600_000n * 10n ** 24n);
+    const choosing: LlmClient = {
+      complete: (req) => Promise.resolve({ text: JSON.stringify(req.schema !== undefined ? { remark: "" } : { rate_bps: 30, reason: "stake_low" }), stopReason: "end_turn" }),
+    };
+    assert.equal((await tick(agentDeps(w, new LlmChair(choosing), reader))).status, "executed");
+    const rec = w.log.epochState(w.chain.epoch).decision!;
+    assert.equal(rec.chair_kind, "rule-fallback");
+    assert.ok(rec.reasoning.includes("gave an answer that no longer fit the chain when it arrived, so the rule chair, the Chair's built-in fallback, decided this meeting."), rec.reasoning);
+    assert.ok(rec.reasoning.includes("60.00% of all coins are staked"), rec.reasoning);
+    assert.equal(rec.reason, "fallback");
   } finally {
     w.done();
   }
@@ -227,7 +248,7 @@ test("the decision prompt has no free text for the model to write and names no c
   assert.doesNotMatch(system, /asks that this be recorded|thanks itself|carries unanimously|no further comment|taking questions/);
 });
 
-test("a decision that crosses an epoch rollover files its supply under the epoch it was read in, not the epoch it is for", async () => {
+test("a decision that crosses an epoch rollover is filed, with its supply, under the epoch it is for", async () => {
   const w = world();
   try {
     const first = w.chain.epoch;
@@ -243,8 +264,8 @@ test("a decision that crosses an epoch rollover files its supply under the epoch
     assert.equal(res.status, "executed");
     const rec = w.log.epochState(first + 1).decision!;
     assert.equal(rec.epoch, first + 1, "the decision is for the new epoch");
-    assert.equal(rec.supply_epoch, first, "its figures are of the read the model saw, which was the old epoch's");
-    assert.deepEqual(w.log.history(first + 2).map((p) => p.epoch), [first], "so the history has the supply once, at the epoch it belongs to");
+    assert.equal(rec.supply_epoch, first + 1, "its figures are of the read taken after the answer, in the new epoch");
+    assert.deepEqual(w.log.history(first + 2).map((p) => p.epoch), [first + 1], "so the history has the supply once, at the epoch it belongs to");
   } finally {
     w.done();
   }

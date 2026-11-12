@@ -92,9 +92,10 @@ export function offeredReasons(input: DecisionInput): { id: ModelReason; because
 }
 
 /** Why `rate` with `reason` may not be the AI chair's choice, or null when it may: inside the band and the window, and a reason that fits it. */
-export function choiceFault(input: DecisionInput, rate: number, reason: ModelReason): AnswerFault | null {
+export function choiceFault(input: DecisionInput, rate: number, reason: ReasonId): AnswerFault | null {
+  if (!MODEL_REASONS.some((id) => id === reason)) return "wrong_shape";
   const { lo, hi } = bandFor(formulaRate(input.snapshot), input.window);
-  return !Number.isSafeInteger(rate) || rate < lo || rate > hi ? "rate_outside_band" : reasonFault(input, rate, reason);
+  return !Number.isSafeInteger(rate) || rate < lo || rate > hi ? "rate_outside_band" : reasonFault(input, rate, reason as ModelReason);
 }
 
 /**

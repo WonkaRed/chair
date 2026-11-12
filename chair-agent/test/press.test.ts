@@ -115,10 +115,10 @@ test("two identical entries with room for one in the minutes: exactly one is mar
 test("pressSection: the count, then up to two entries oldest first, hash prefix and answer, never the question", () => {
   assert.equal(pressSection([]), "");
   const one = pressSection([entry("what is the plan", "The plan is the Chair.")]);
-  assert.match(one, /^\nThe press asked 1 question since the last meeting\.\nA member of the press asked a question \([0-9a-f]{12}\)\. The Chair replied: The plan is the Chair\.$/);
+  assert.match(one, /^\nThe press has 1 question waiting\.\nA member of the press asked a question \([0-9a-f]{12}\)\. The Chair replied: The plan is the Chair\.$/);
   assert.ok(!one.includes("what is the plan"));
   const three = pressSection([entry("q1", "A1.", 1), entry("q2", "A2.", 2), entry("q3", "A3.", 3)]);
-  assert.match(three, /^\nThe press asked 3 questions since the last meeting\. The Chair enters 2 here and the rest at the next meeting\./);
+  assert.match(three, /^\nThe press has 3 questions waiting\. The Chair enters 2 here and the rest at the next meeting\./);
   assert.ok(three.includes("A1.") && three.includes("A2.") && !three.includes("A3."));
   assert.ok(three.includes(`(${reasoningHash("q1").slice(0, 12)})`));
 });
@@ -139,7 +139,7 @@ test("the decision text with a press section stays inside 2000 characters, is cl
   const pend = [entry("q1", "y".repeat(240), 1), entry("q2", "z".repeat(240), 2), entry("q3", "v", 3)];
   const sections: string[] = [];
   // The agent writes all of the text but the Chair's remark; a long remark is what leaves the press section little room.
-  const withRemark = (chars: number): Chair => ({ name: "llm:big", propose: () => Promise.resolve({ rateBps: 20, reason: "smaller_move" }), remark: () => Promise.resolve("w".repeat(chars)) });
+  const withRemark = (chars: number): Chair => ({ name: "llm:big", propose: () => Promise.resolve({ rateBps: 40, reason: "smaller_move" }), remark: () => Promise.resolve("w".repeat(chars)) });
   const base = (await decide(snap, [], { chair: withRemark(1), marginMs: 15_000, timeoutMs: PATIENT_MS })).reasoning.length - 1;
   for (const bodyChars of [1700, 1500, 1200, 800, 400].map((total) => total - base)) {
     const chair = withRemark(bodyChars);
@@ -155,7 +155,7 @@ test("the decision text with a press section stays inside 2000 characters, is cl
     sections.push(withPress.reasoning.slice(plain.reasoning.length));
   }
   assert.equal(sections[0], "", "a body that leaves no room carries no press section; the questions wait for the next meeting");
-  assert.ok(sections[1]!.includes("The press asked 3 questions") && sections[1]!.includes("enters 1 here"), "one entry fits");
+  assert.ok(sections[1]!.includes("The press has 3 questions") && sections[1]!.includes("enters 1 here"), "one entry fits");
   assert.ok(sections[4]!.includes(entryLine(pend[0]!)) && sections[4]!.includes(entryLine(pend[1]!)) && !sections[4]!.includes(entryLine(pend[2]!)), "two entries fit in full, oldest first");
 });
 
@@ -182,7 +182,7 @@ test("an epoch's decision enters two pending questions on chain and marks them w
     const res = await tick(deps(w));
     assert.equal(res.status, "executed");
     if (res.status !== "executed") return;
-    assert.ok(res.decision.reasoning.includes("The press asked 3 questions since the last meeting."));
+    assert.ok(res.decision.reasoning.includes("The press has 3 questions waiting."));
     assert.ok(res.decision.reasoning.includes(`(${reasoningHash("one").slice(0, 12)}). The Chair replied: ${BOOK[0]}`));
     assert.ok(!res.decision.reasoning.includes("one\n") && !/ask(ed)? .*\bone\b.*\?/.test(res.decision.reasoning), "no question text");
     const byId = new Map(w.press.recent(10).map((e) => [e.id, e]));
@@ -192,7 +192,7 @@ test("an epoch's decision enters two pending questions on chain and marks them w
     // The next epoch carries the third.
     w.chain.advanceEpochs(1, 1000);
     const next = await tick(deps(w));
-    assert.ok(next.status === "executed" && next.decision.reasoning.includes(BOOK[2]!) && next.decision.reasoning.includes("The press asked 1 question since"));
+    assert.ok(next.status === "executed" && next.decision.reasoning.includes(BOOK[2]!) && next.decision.reasoning.includes("The press has 1 question waiting"));
     assert.equal(w.press.pending().length, 0);
     // An epoch with no question has no press section at all.
     w.chain.advanceEpochs(1, 1000);
@@ -243,22 +243,23 @@ test("a press record that cannot be read never costs the chair its decision", as
 test("memory counts epochs in a row the chair itself set the rate now in effect, and the refusals in its log", async () => {
   const w = world();
   try {
+    w.chain.totalStaked = w.chain.totalSupply / 2n; // the mandate is met: the formula holds the rate at 0, and the Chair agrees
     const set = async (rate: number): Promise<void> => {
-      const chair: Chair = { name: "llm:c", propose: () => Promise.resolve({ rateBps: rate, reason: "smaller_move" }) };
+      const chair: Chair = { name: "llm:c", propose: () => Promise.resolve({ rateBps: rate, reason: "steady" }) };
       const res = await tick({ ...deps(w), decideOptions: { chair, marginMs: 15_000, timeoutMs: PATIENT_MS } });
       assert.equal(res.status, "executed");
       w.chain.advanceEpochs(1, 1000);
     };
-    await set(10);
-    await set(10);
-    await set(10);
-    assert.deepEqual(w.log.memory(w.chain.epoch, 10), { sameRateEpochs: 3, refusals: 0, remarks: [] });
+    await set(0);
+    await set(0);
+    await set(0);
+    assert.deepEqual(w.log.memory(w.chain.epoch, 0), { sameRateEpochs: 3, refusals: 0, remarks: [] });
     assert.equal(w.log.memory(w.chain.epoch, 20).sameRateEpochs, 0, "a different rate in effect: nothing in a row");
     w.chain.advanceEpochs(1, 1000);
-    assert.equal(w.log.memory(w.chain.epoch, 10).sameRateEpochs, 0, "a silent epoch breaks the run");
+    assert.equal(w.log.memory(w.chain.epoch, 0).sameRateEpochs, 0, "a silent epoch breaks the run");
     const refusing = { submit: () => Promise.resolve({ txHash: "t", failure: "rate step too large" }) };
     assert.equal((await tick({ ...deps(w), submitter: refusing })).status, "rejected");
-    assert.equal(w.log.memory(w.chain.epoch, 10).refusals, 1);
+    assert.equal(w.log.memory(w.chain.epoch, 0).refusals, 1);
   } finally {
     w.done();
   }

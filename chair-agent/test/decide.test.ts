@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { RateWindow, DEFAULT_BOUNDS } from "../src/bounds.js";
-import { ChairFailure, decide } from "../src/decide.js";
+import { ChairFailure, decide, finalize, propose } from "../src/decide.js";
 import { LlmChair, type LlmClient, type LlmResponse } from "../src/llm-chair.js";
 import { reasoningHash } from "../src/reasoning.js";
-import { ruleChair } from "../src/rule-chair.js";
+import { choiceFault, MODEL_REASONS } from "../src/choice.js";
+import { formulaRate, rateDoes, ruleChair } from "../src/rule-chair.js";
 import { policyArgs } from "../src/signer.js";
 import type { Chair, Proposal } from "../src/types.js";
 import { IMPATIENT_MS, PATIENT_MS, contractAccepts, randInt, rng, snapshot, specDecay } from "./helpers.js";
@@ -49,14 +50,15 @@ test("randomized: no chair, however wrong, yields a rate the contract would reje
 });
 
 test("a rate the window no longer holds is clamped, and the text says so (the window is read again after the model answered)", async () => {
-  const stale: Chair = { name: "llm:stand-in", propose: () => Promise.resolve({ rateBps: 500, reason: "larger_move" }) };
-  const d = await decide(snapshot({ rate: 10 }), [], opts(stale));
+  const chair: Chair = { name: "llm:stand-in", propose: () => Promise.resolve({ rateBps: 100, reason: "smaller_move" }) };
+  const asked = await propose(snapshot({ rate: 60, timeLeftMs: 60_000 }), [], opts(chair)); // formula 110, band 85..110: a fair choice then
+  const d = finalize(snapshot({ rate: 60, timeLeftMs: 5_000 }), [], asked, { marginMs: 15_000 }); // the call may now land after the rollover: the contract takes 10..60
   assert.equal(d.rate, 60);
   assert.equal(d.kind, "llm");
-  assert.match(d.reasoning, /\nThe contract accepts -40\.\.60 bps here, so 60 bps is set instead\. The Chair defers\./);
-  assert.match(d.reasoning, /The Chair asked for printing 5\.00% a day: the Chair prefers to move the rate by more than the formula does\./, "the choice line says what the Chair asked for, the note what the contract set");
+  assert.match(d.reasoning, /\nThe contract accepts 10\.\.60 bps here, so 60 bps is set instead\. The Chair defers\./);
+  assert.match(d.reasoning, /The Chair asked for printing 1\.00% a day: the Chair prefers to move the rate by less than the formula does\./, "the choice line says what the Chair asked for, the note what the contract set");
   assert.doesNotMatch(d.reasoning, /The Chair chose|The Chair agreed/, "nothing says a rate was chosen that was not set");
-  assert.deepEqual(d.choice, { formulaBps: 60, chosenBps: 500, reason: "larger_move" });
+  assert.deepEqual(d.choice, { formulaBps: 110, chosenBps: 100, reason: "smaller_move" });
 });
 
 test("a choice outside the band, or with a reason that does not fit, is a malformed answer: the rule chair decides", async () => {
@@ -119,7 +121,7 @@ const scripted = (...replies: (() => Promise<Proposal>)[]) => {
   return chair;
 };
 const malformed = () => Promise.reject(new ChairFailure("malformed", "d"));
-const good = (): Promise<Proposal> => Promise.resolve({ rateBps: 20, reason: "smaller_move" });
+const good = (): Promise<Proposal> => Promise.resolve({ rateBps: 30, reason: "smaller_move" });
 
 test("a malformed answer is asked for once more, and the second answer is the model's decision", async () => {
   const chair = scripted(malformed, good);
@@ -127,8 +129,8 @@ test("a malformed answer is asked for once more, and the second answer is the mo
   assert.equal(chair.calls, 2);
   assert.equal(d.kind, "llm");
   assert.equal(d.chair, "llm:scripted-retry");
-  assert.equal(d.rate, 20);
-  assert.match(d.reasoning, /The formula suggested printing 0\.50% a day\. The Chair chose printing 0\.20% a day: the Chair prefers to move the rate by less/);
+  assert.equal(d.rate, 30);
+  assert.match(d.reasoning, /The formula suggested printing 0\.50% a day\. The Chair chose printing 0\.30% a day: the Chair prefers to move the rate by less/);
   assert.doesNotMatch(d.reasoning, /built-in fallback/);
 });
 
@@ -161,7 +163,7 @@ test("with no rate near the formula that the call is sure to be taken, the model
   assert.equal(asked, 0);
   assert.equal(d.kind, "rule-fallback");
   assert.equal(d.rate, 110);
-  assert.match(d.reasoning, /\nThe AI chair \(llm:stand-in\) was not asked: no rate near the formula was sure to be taken, so the rule chair, the Chair's built-in fallback, decided this meeting\.\n/);
+  assert.match(d.reasoning, /\nThe AI chair \(llm:stand-in\) was not asked: too little of the meeting was left to choose, so the rule chair, the Chair's built-in fallback, decided this meeting\.\n/);
   assert.doesNotMatch(d.reasoning, /could not use|ran into/, "the AI did not fail");
   assert.deepEqual(d.choice, { formulaBps: 110, chosenBps: 110, reason: "fallback" });
 });
@@ -242,12 +244,12 @@ test("model text is inert: it cannot reach the minutes, whatever it holds", asyn
 });
 
 test("near the epoch end the window survives a rollover; earlier it is the plain step window", async () => {
-  const standIn = (rateBps: number): Chair => ({ name: "llm:stand-in", propose: () => Promise.resolve({ rateBps, reason: "larger_move" }) });
-  const early = await decide(snapshot({ rate: 120, timeLeftMs: 40_000 }), [], opts(standIn(170)));
-  assert.equal(early.rate, 170);
-  const late = await decide(snapshot({ rate: 120, timeLeftMs: 5_000 }), [], opts(standIn(170)));
-  assert.equal(late.rate, RateWindow.acrossRollover(120, DEFAULT_BOUNDS).pick(170));
-  assert.equal(late.rate, 120);
+  const standIn = (rateBps: number): Chair => ({ name: "llm:stand-in", propose: () => Promise.resolve({ rateBps, reason: "stake_low" }) });
+  const early = await decide(snapshot({ rate: 80, timeLeftMs: 40_000 }), [], opts(standIn(125))); // formula 125
+  assert.equal(early.rate, 125);
+  const late = await decide(snapshot({ rate: 80, timeLeftMs: 5_000 }), [], opts(standIn(125)));
+  assert.equal(late.rate, RateWindow.acrossRollover(80, DEFAULT_BOUNDS).pick(125));
+  assert.equal(late.rate, 80);
 });
 
 test("an LLM client that returns after the timeout cannot override the fallback", { timeout: 30_000 }, async () => {
@@ -310,4 +312,96 @@ test("supply over the last day is read over the meetings the history really cove
     const none = await decide(s, history, opts(ruleChair));
     assert.deepEqual([none.mandate?.supplyChangeBps, none.mandate?.supplyChangeMeetings], [null, null]);
   }
+});
+
+// ---- the epoch rolls over, or the chain moves, while the model thinks: every sentence is of the read taken after the answer
+
+const COIN = 10n ** 24n;
+const share = (pct: number) => ({ supply: 1_000_000n * COIN, staked: (BigInt(pct) * 1_000_000n * COIN) / 100n });
+
+test("an answer made for a rate that has since decayed is not used: the rule chair decides on the fresh read, and the minutes are of that read", async () => {
+  const seen = snapshot({ epoch: 12, rate: 100, lastSet: 11, timeLeftMs: 20_000, ...share(10) });
+  const fresh = snapshot({ epoch: 13, rate: 50, lastSet: 11, timeLeftMs: 80_000, ...share(10) }); // the silent meeting halved the rate in effect
+  const chair: Chair = { name: "llm:stand-in", propose: () => Promise.resolve({ rateBps: 100, reason: "steady" }) }; // holding 100 was steady, then
+  const d = finalize(fresh, [], await propose(seen, [], opts(chair)), { marginMs: 15_000 });
+  assert.equal(d.kind, "rule-fallback");
+  assert.equal(d.rate, 100);
+  assert.equal(d.previousRateBps, 50);
+  const lines = d.reasoning.split("\n");
+  assert.equal(lines[0], "$CHAIR decision, epoch 13, chair rule-v1.");
+  assert.equal(lines[1], "The AI chair (llm:stand-in) gave an answer that no longer fit the chain when it arrived, so the rule chair, the Chair's built-in fallback, decided this meeting.");
+  assert.equal(lines[2], "Rate in effect 50 bps; decision 100 bps.");
+  assert.equal(lines[3], "The formula suggested printing 1.00% a day. The rule chair applied it.");
+  assert.match(lines[4]!, /^The Committee of One has met\. The Chair moves the rate from printing 0\.50% a day to printing 1\.00% a day, a little at every 60-second meeting, for holders who staked\. The Chair was silent for 1 meeting, /);
+  assert.doesNotMatch(d.reasoning, /holds the rate|steady/);
+  assert.match(d.reasoning, /The epoch rolled over while the Chair was deliberating\./);
+  assert.deepEqual(d.choice, { formulaBps: 100, chosenBps: 100, reason: "fallback" });
+});
+
+test("an answer that still fits the fresh read is the Chair's, and its minutes say the fresh rate, the fresh formula and the silent meeting", async () => {
+  const seen = snapshot({ epoch: 12, rate: 100, lastSet: 11, timeLeftMs: 20_000, ...share(10) });
+  const fresh = snapshot({ epoch: 13, rate: 50, lastSet: 11, timeLeftMs: 80_000, ...share(10) });
+  const chair: Chair = { name: "llm:stand-in", propose: () => Promise.resolve({ rateBps: 100, reason: "stake_low" }) };
+  const d = finalize(fresh, [], await propose(seen, [], opts(chair)), { marginMs: 15_000 });
+  assert.equal(d.kind, "llm");
+  assert.equal(d.rate, 100);
+  assert.match(d.reasoning, /\nRate in effect 50 bps; decision 100 bps\.\nThe formula suggested printing 1\.00% a day\. The Chair agreed: fewer than half of all coins are staked\.\nThe Committee of One has met\. The Chair moves the rate from printing 0\.50% a day to printing 1\.00% a day, a little at every 60-second meeting, for holders who staked\. The Chair was silent for 1 meeting, /);
+  assert.doesNotMatch(d.reasoning, /holds the rate/);
+});
+
+test("the truth of every sentence, against the fresh read: rates that decayed, decayed to zero, and choices that change sign", async () => {
+  // [the rate the model saw, the rate in effect when the decision is made, share of coins staked]
+  const worlds: [number, number, number][] = [[100, 50, 10], [30, 0, 10], [-40, 0, 10], [60, 10, 60], [-60, -10, 60], [30, 0, 50], [100, 50, 50]];
+  let llm = 0;
+  let ruled = 0;
+  for (const [was, now, pct] of worlds) {
+    const seen = snapshot({ epoch: 12, rate: was, lastSet: 11, timeLeftMs: 80_000, ...share(pct) });
+    const fresh = snapshot({ epoch: 13, rate: now, lastSet: 11, timeLeftMs: 80_000, ...share(pct) });
+    const limits = { lo: -200, hi: 200 };
+    for (const reason of MODEL_REASONS) {
+      for (let rate = -120; rate <= 120; rate += 10) {
+        const chair: Chair = { name: "llm:stand-in", propose: () => Promise.resolve({ rateBps: rate, reason }) };
+        const asked = await propose(seen, [], opts(chair));
+        if (asked.kind !== "llm") continue; // not a fair choice even when the model was asked: the earlier tests cover it
+        const d = finalize(fresh, [], asked, { marginMs: 15_000 });
+        const fair = choiceFault({ snapshot: fresh, history: [], window: limits }, rate, reason) === null;
+        const label = `saw ${was}, now ${now}, ${pct}% staked, ${reason} ${rate}`;
+        assert.equal(d.kind, fair ? "llm" : "rule-fallback", label);
+        fair ? llm++ : ruled++;
+        const formula = formulaRate(fresh);
+        const text = d.reasoning;
+        assert.ok(text.startsWith("$CHAIR decision, epoch 13,"), label);
+        assert.ok(text.includes(`\nRate in effect ${now} bps; decision ${d.rate} bps.\nThe formula suggested ${rateDoes(formula)}.`), `${label}: the formula and the rate in effect are the fresh read's\n${text}`);
+        assert.ok(text.includes(d.rate === now ? "The Chair holds the rate: " : `The Chair moves the rate from ${rateDoes(now)} to ${rateDoes(d.rate)}`), `${label}: the statement is of the rate set against the fresh rate in effect\n${text}`);
+        if (was !== now) assert.ok(d.rate === was || !text.includes(`from ${rateDoes(was)}`), `${label}: nothing is said from the rate the model saw`);
+        assert.ok(text.includes("was silent for 1 meeting,") && !text.includes("silent for 2"), label);
+        assert.equal(d.choice?.formulaBps, formula, label);
+        if (fair) assert.ok(text.includes(rate === formula ? "The Chair agreed: " : `The Chair ${d.rate === rate ? "chose" : "asked for"} ${rateDoes(rate)}: `), `${label}\n${text}`);
+        else assert.ok(text.includes(d.rate === formula ? "The rule chair applied it." : "The rule chair asked for it."), `${label}\n${text}`);
+      }
+    }
+  }
+  assert.ok(llm > 5 && ruled > 5, `both outcomes are exercised: ${llm} kept, ${ruled} not`);
+});
+
+test("any chair's choice is checked in propose, not only the LLM chair's: a bad reason or rate falls back instead of throwing in finalize", async () => {
+  const snap = snapshot({ rate: 0 }); // nobody staked: the formula is +50, the band 25..50
+  const seen: (string | undefined)[] = [];
+  for (const [rateBps, reason, fault] of [[40, "formula", "wrong_shape"], [40, "no such reason", "wrong_shape"], [40, undefined, "wrong_shape"], [500, "stake_low", "rate_outside_band"], [40, "stake_high", "reason_not_true"]] as const) {
+    seen.length = 0;
+    const chair = { name: "llm:stand-in", propose: (_i: unknown, _s: unknown, previous?: string) => (seen.push(previous), Promise.resolve({ rateBps, reason } as unknown as Proposal)) } as Chair;
+    const d = await decide(snap, [], opts(chair, 30_000));
+    assert.equal(d.kind, "rule-fallback", `${rateBps} ${String(reason)}`);
+    assert.deepEqual(seen, [undefined, fault], "asked once more, told which of our checks it failed");
+    assert.match(d.reasoning, /gave an answer the Chair could not use, so the rule chair/);
+  }
+});
+
+test("the line that says the model was not asked fits the page's 60 characters and does not contradict the line after it", async () => {
+  const chair = new LlmChair({ label: "llm:stand-in", complete: () => Promise.reject(new Error("must not be called")) });
+  const d = await decide(snapshot({ rate: 30, staked: 0n, timeLeftMs: 20_000 }), [], opts(chair)); // 20 s left: under the 25 s that margin and time limit ask for, the formula's 80 is not sure to be taken
+  const lines = d.reasoning.split("\n");
+  assert.equal(lines[1], "The AI chair (llm:stand-in) was not asked: too little of the meeting was left to choose, so the rule chair, the Chair's built-in fallback, decided this meeting.");
+  assert.equal(lines[3], "The formula suggested printing 0.80% a day. The rule chair applied it.");
+  assert.ok(/\) (.+), so the rule chair/.exec(lines[1]!)![1]!.length <= 60);
 });

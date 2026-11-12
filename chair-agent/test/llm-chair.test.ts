@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { test } from "node:test";
 import { ANSWER_SCHEMA, AnthropicLlmClient, LLM_MODEL, LlmChair, LocalLlmClient, buildPrompt, llmConfigured, parseAnswer } from "../src/llm-chair.js";
 import { MODEL_REASONS } from "../src/choice.js";
-import { ChairFailure } from "../src/decide.js";
+import { ChairFailure, propose } from "../src/decide.js";
 import type { DecisionInput } from "../src/types.js";
 import { snapshot } from "./helpers.js";
 
@@ -88,20 +88,23 @@ test("parseAnswer accepts exactly the schema: a rate and one of our reasons", ()
   assert.throws(() => parseAnswer({ text: "", stopReason: "refusal" }), (e: unknown) => e instanceof ChairFailure && e.reason === "refusal");
 });
 
-test("the chair answers once: a choice outside the band, or with a reason that does not fit, is a malformed failure for the decision to retry or fall back on", async () => {
+test("a choice outside the band, or with a reason that does not fit, is a malformed answer that names our check, asked for once more; the chair itself only parses", async () => {
   const i = input({ rate: 0, supply: 1_000_000n * COIN, staked: 100_000n * COIN }); // formula +50, band 25..50
-  const asked = (rate: number, reason: string) => {
-    let calls = 0;
-    const chair = new LlmChair({ complete: () => { calls++; return Promise.resolve({ text: JSON.stringify({ rate_bps: rate, reason }), stopReason: "end_turn" }); } });
-    return { chair, calls: () => calls };
+  const answering = (rate: number, reason: string) => {
+    const prompts: string[] = [];
+    const chair = new LlmChair({ label: "llm:stand-in", complete: (req) => { prompts.push(req.user); return Promise.resolve({ text: JSON.stringify(req.schema === undefined ? { rate_bps: rate, reason } : { remark: "" }), stopReason: "end_turn" }); } });
+    return { chair, prompts };
   };
-  const ok = asked(30, "smaller_move");
-  assert.deepEqual(await ok.chair.propose(i, new AbortController().signal), { rateBps: 30, reason: "smaller_move" });
-  assert.deepEqual(await asked(50, "stake_low").chair.propose(i, new AbortController().signal), { rateBps: 50, reason: "stake_low" }, "the formula's own number, with a true reason");
+  const ok = answering(30, "smaller_move");
+  assert.deepEqual((await propose(i.snapshot, [], { chair: ok.chair, marginMs: 15_000, timeoutMs: 30_000 })).proposal, { rateBps: 30, reason: "smaller_move" });
+  assert.deepEqual((await propose(i.snapshot, [], { chair: answering(50, "stake_low").chair, marginMs: 15_000, timeoutMs: 30_000 })).proposal, { rateBps: 50, reason: "stake_low" }, "the formula's own number, with a true reason");
+  const said = { rate_outside_band: /rate_bps was not inside allowed_bps/, reason_points_other_way: /not on the side of the formula/, reason_not_true: /reason was not true of this meeting/ };
   for (const [rate, reason, fault] of [[24, "smaller_move", "rate_outside_band"], [51, "stake_low", "rate_outside_band"], [30, "stake_low", "reason_points_other_way"], [50, "stake_high", "reason_not_true"], [50, "steady", "reason_not_true"], [50, "smaller_move", "reason_not_true"], [30, "larger_move", "reason_not_true"]] as const) {
-    const bad = asked(rate, reason);
-    await assert.rejects(bad.chair.propose(i, new AbortController().signal), (e: unknown) => e instanceof ChairFailure && e.reason === "malformed" && e.fault === fault, `${rate} ${reason}`);
-    assert.equal(bad.calls(), 1);
+    const bad = answering(rate, reason);
+    const p = await propose(i.snapshot, [], { chair: bad.chair, marginMs: 15_000, timeoutMs: 30_000 });
+    assert.equal(p.kind, "rule-fallback", `${rate} ${reason}`);
+    assert.equal(bad.prompts.length, 2, "asked once more");
+    assert.match(bad.prompts[1]!, said[fault], `${rate} ${reason}: the retry names what was wrong, in our words`);
   }
 });
 

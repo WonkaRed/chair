@@ -1,5 +1,5 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { bandFor, choiceFault, MODEL_REASONS, offeredReasons, type ModelReason } from "./choice.js";
+import { bandFor, MODEL_REASONS, offeredReasons, type ModelReason } from "./choice.js";
 import { ChairFailure } from "./decide.js";
 import { writeRemark } from "./remark.js";
 import { formulaRate, percent, stakedShareBps, supplyMoved, TARGET_STAKED_BPS } from "./rule-chair.js";
@@ -143,13 +143,10 @@ export class LlmChair implements Chair {
     this.name = client.label ?? "llm:unlabelled-client";
   }
 
-  /** One attempt: a malformed answer, or a choice outside the band or with a reason that does not fit, is a `ChairFailure` the decision's own retry and fallback deal with. */
+  /** One attempt: a malformed answer is a `ChairFailure` the decision's own retry and fallback deal with; whether the choice fits the band and the reason the chain is checked there (decide.ts `propose`), for any chair. */
   async propose(input: DecisionInput, signal: AbortSignal, previous?: AnswerFault): Promise<Proposal> {
     const { system, user } = buildPrompt(input, previous);
-    const answer = parseAnswer(await this.client.complete({ system, user, signal }));
-    const fault = choiceFault(input, answer.rateBps, answer.reason);
-    if (fault !== null) throw new ChairFailure("malformed", `choice: ${fault}`, fault);
-    return answer;
+    return parseAnswer(await this.client.complete({ system, user, signal }));
   }
 
   /** The Chair's own closing remark: a separate call whose prompt holds chain facts only, never a visitor's question. Null when none passes. */
