@@ -187,7 +187,7 @@ test result: ok. 0 passed; 0 failed; ...       # contract/ doc-tests: there are 
 test result: ok. 7 passed; 0 failed; ...       # sandbox-tests/ against the real wasm: 10 files, one line each (7, 7, 2, 9, 3, 3, 2, 10, 3, 7 tests)
 ```
 
-The sandbox files hold 53 tests in all. The other lanes run 363 (`chair-agent`), 95 (`sim`), 230 (`web`) and 31 (`activity`) tests, and `deploy` runs 49 (`make -C deploy test`).
+The sandbox files hold 53 tests in all. The other lanes run 363 (`chair-agent`), 95 (`sim`), 243 (`web`) and 31 (`activity`) tests, and `deploy` runs 49 (`make -C deploy test`).
 
 Root `make demo` runs three demos in order and exits non-zero if any of them fails.
 
