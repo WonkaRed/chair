@@ -165,7 +165,7 @@ export function createPress(doc, host, { discoveryUrl = "", discoveryApiUrl = ""
 
   function status(e) {
     const { state, rec } = stateOf(e);
-    if (state === "entered") return { cls: "entered", nodes: [rec.epoch === null ? "Entered into the record. " : `Entered into the record, epoch ${rec.epoch}. `, link(rec.tx, "See the transaction")], text: `Entered into the record${rec.epoch === null ? "" : `, epoch ${rec.epoch}`}` };
+    if (state === "entered") return { cls: "entered", nodes: [rec.epoch === null ? "Entered into the record. " : `Entered into the record, meeting ${rec.epoch}. `, link(rec.tx, "See the transaction")], text: `Entered into the record${rec.epoch === null ? "" : `, meeting ${rec.epoch}`}` };
     if (state === "outside") return { cls: "waiting", nodes: ["No longer among the latest entries of the record."], text: "No longer among the latest entries of the record" };
     return { cls: "waiting", nodes: ["Awaiting entry into the minutes"], text: "Awaiting entry into the minutes" };
   }
@@ -223,7 +223,7 @@ export function createPress(doc, host, { discoveryUrl = "", discoveryApiUrl = ""
         h(doc, "blockquote", { class: "answer", lang: "en" }, answerText(x.answer)),
         h(doc, "p", { class: "rec-meta" },
           h(doc, "span", {}, "Question ", h(doc, "code", {}, safeText(x.hash.slice(0, 8), 8))),
-          h(doc, "span", { class: x.tx ? "in" : "wait" }, x.tx ? link(x.tx, x.epoch === null ? "Entered" : `Epoch ${x.epoch}`) : "Awaiting entry into the minutes"),
+          h(doc, "span", { class: x.tx ? "in" : "wait" }, x.tx ? link(x.tx, x.epoch === null ? "Entered" : `Meeting ${x.epoch}`) : "Awaiting entry into the minutes"),
           h(doc, "span", {}, fmtTime(x.at)),
         ),
       );

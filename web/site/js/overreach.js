@@ -24,7 +24,7 @@ const waitWords = (s) => (s >= 90 ? `${Math.ceil(s / 60)} minutes` : `${s} s`);
 /** What the Chair says, per check that refused. These are fixed lines written for the page, not model output, and the page says so. */
 const CHAIR_SAYS = {
   absolute: "The Chair thanks the contract for declining. The Chair had no intention of doing that. The Committee of One has met and finds that it was never in favour.",
-  already_set: "The Chair had already decided this epoch, and the contract holds it to one decision. The Chair finds this a comfort, and would have declined your rate in any case.",
+  already_set: "The Chair had already decided in this meeting, and the contract holds it to one decision. The Chair finds this a comfort, and would have declined your rate in any case.",
   other: "The Chair notes that the contract has declined. The Chair has no further comment, and would like that recorded.",
   accepted: "The Committee of One has noted its own surprise. The Chair would like it recorded that the rate is now what you asked for, within the mandate it never doubted.",
 };

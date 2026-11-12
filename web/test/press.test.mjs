@@ -138,7 +138,7 @@ test("asking: the answer is quoted, the status reads Awaiting entry, then Entere
     desk.state.entries[0].epoch = 777;
     desk.state.entries[0].tx_hash = TX;
     await timers.tick();
-    assert.equal(text(claim(root, "entry")), "Entered into the record, epoch 777. See the transaction");
+    assert.equal(text(claim(root, "entry")), "Entered into the record, meeting 777. See the transaction");
     assert.equal(find(claim(root, "entry"), (n) => n.tag === "a").attrs.href, `${EXPLORER}/txns/${TX}`);
     assert.equal(timers.queue.length, 0, "nothing pending, so the polling stopped");
     assert.equal(press.state().pollScheduled, false);
@@ -182,7 +182,7 @@ test("the visitor's questions stay in this browser, keyed by id: a reload shows 
     const again = await make({ discoveryUrl: DISCOVERY, fetchImpl: viaFake(desk), storage });
     const page = text(again.root);
     assert.ok(page.includes("Is the Chair comfortable?") && page.includes("Does the Chair take questions?"));
-    assert.equal(text(claim(again.root, "entry")).startsWith("Entered into the record, epoch"), true);
+    assert.equal(text(claim(again.root, "entry")).startsWith("Entered into the record, meeting"), true);
     const rows = [...walk(again.root)].filter((n) => n.attrs?.class === "rec");
     assert.equal(rows.length, 3, "two seeded answers and the earlier own entry; the latest own sits in the exchange above");
     assert.equal(rows.filter((r) => text(r).includes("You asked")).length, 1, "only the visitor's own entry shows a question");

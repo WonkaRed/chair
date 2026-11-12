@@ -141,8 +141,8 @@ async function showChain() {
 /** The best-of strip carries each answer's transaction as data; its link is built from the configured explorer, like every other link on the page. */
 function linkQuips(explorer) {
   for (const li of doc.querySelectorAll(".quips li[data-tx]")) {
-    const label = `Epoch ${safeText(li.dataset.epoch, 6)} of the earlier token, on chain`;
-    li.append(explorer !== null && isTxHash(li.dataset.tx) ? h(doc, "a", { href: `${explorer}/txns/${li.dataset.tx}`, rel: "noopener noreferrer", target: "_blank" }, label) : h(doc, "span", {}, `Epoch ${safeText(li.dataset.epoch, 6)} of the earlier token`));
+    const label = `Meeting ${safeText(li.dataset.epoch, 6)} of the earlier token, on chain`;
+    li.append(explorer !== null && isTxHash(li.dataset.tx) ? h(doc, "a", { href: `${explorer}/txns/${li.dataset.tx}`, rel: "noopener noreferrer", target: "_blank" }, label) : h(doc, "span", {}, `Meeting ${safeText(li.dataset.epoch, 6)} of the earlier token`));
   }
 }
 
