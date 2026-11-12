@@ -5,6 +5,7 @@ import { clear, h } from "./dom.js";
 import { renderGuarantees, VERIFY_COMMAND } from "./guarantees.js";
 import { holdersModel, renderHolders, renderHoldersUnavailable } from "./holders.js";
 import { loadLog } from "./loadlog.js";
+import { createJoin } from "./join.js";
 import { loadTexts, renderHero, renderMinutes, resolveTexts } from "./minutes.js";
 import { createOverreach } from "./overreach.js";
 import { createPress, pressFromChain } from "./press.js";
@@ -116,7 +117,9 @@ async function showChain() {
     renderMinutes(doc, $("minutes-body"), data, ctx);
     renderRefusals(doc, $("refusals-body"), data, { explorer, indexerUrl });
     chainData = data;
+    resolvedTexts = ctx.resolved;
     overreach.refresh();
+    committee.refresh();
     const answers = pressFromChain(data.decisions, ctx.resolved);
     press.setChain(answers);
     const newest = newestAnswer(answers);
@@ -127,7 +130,9 @@ async function showChain() {
     const draw = () => renderLog(doc, $("log-body"), data, state, { explorer, indexerUrl, rerender: draw });
     draw();
   };
-  await run();
+  let reading = null; // one read at a time: the join panel asks again while it waits for the Chair's minutes
+  reloadChain = () => (reading ??= run().finally(() => (reading = null)));
+  await reloadChain();
 }
 
 /** The best-of strip carries each answer's transaction as data; its link is built from the configured explorer, like every other link on the page. */
@@ -231,7 +236,10 @@ linkFallback(doc, $("pull"), pageExplorer);
 renderBound(doc, $("bound-body"), {}, { explorer: pageExplorer });
 const press = createPress(doc, $("press-body"), { discoveryUrl: config.pressDiscoveryUrl, explorer: pageExplorer });
 let chainData = null; // loadLog's latest result, for the overreach panel's hint and its desk-closed list
+let resolvedTexts = null; // the minutes texts that match their chain hashes, for the join panel
+let reloadChain = async () => undefined;
 const overreach = createOverreach(doc, $("overreach-body"), { request: press.request, explorer: pageExplorer, rpcUrl: config.rpcUrls[0], refusals: () => chainData });
+const committee = createJoin(doc, $("join-body"), { section: $("join"), request: press.request, explorer: pageExplorer, chain: () => ({ data: chainData, resolved: resolvedTexts }), reload: () => reloadChain() });
 showGuarantees();
 showSimulation();
 setupPage();

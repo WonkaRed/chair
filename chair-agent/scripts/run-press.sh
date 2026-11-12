@@ -5,8 +5,9 @@
 # Optional, with the values of the live deployment as defaults:
 #   CHAIR_LLM_ENDPOINT, CHAIR_LLM_MODEL   the model on this machine that answers
 #   CHAIR_PRESS_PORT                      default 18790
-#   CHAIR_RPC_URL, CHAIR_TOKEN, CHAIR_ACCOUNT   the chain, the token and the chair account (as run-chair.sh); only "Make the Chair overreach" reads them
+#   CHAIR_RPC_URL, CHAIR_TOKEN, CHAIR_ACCOUNT   the chain, the token and the chair account (as run-chair.sh); only "Make the Chair overreach" and "Join the Committee" read them
 #   CHAIR_OVERREACH_KEY_FILE              the chair account's key file; set it (the unit does) to switch "Make the Chair overreach" on, unset it to switch it off
+#   CHAIR_VISITOR_ACCOUNT, CHAIR_VISITOR_KEY_FILE   the visitor pool account and its key file; both set (the unit does) switch "Join the Committee" on, unset it to switch it off. No defaults: the unit names the pool account
 #   CHAIR_STATE_DIR                       where press.jsonl lives (default ~/.local/state/chair-agent), shared with run-chair.sh
 set -euo pipefail
 

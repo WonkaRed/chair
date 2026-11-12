@@ -1,21 +1,44 @@
 import { DEFAULT_BOUNDS, meetingsPerDay } from "./bounds.js";
-import { NearRpc, RpcError } from "./rpc.js";
-import type { Snapshot } from "./types.js";
-import { parseParams, parsePolicy, parseStaking, u128, ValidationError } from "./validate.js";
+import { NearRpc, RpcError, type FinalBlock } from "./rpc.js";
+import type { PoolView, Snapshot } from "./types.js";
+import { parseParams, parsePolicy, parseStaking, parseStakingView, u128, ValidationError } from "./validate.js";
 
 export interface Reader {
   snapshot(): Promise<Snapshot>;
 }
 
+/** What the visitor pool's decisions need, all from one block: the token's snapshot and the pool account's own stake and coins. */
+export interface PoolReader {
+  pool(): Promise<PoolView>;
+}
+
 /** Reads the token's views at one final block so time, policy and supply agree with each other. */
-export class ChainReader implements Reader {
+export class ChainReader implements Reader, PoolReader {
   constructor(
     private readonly rpc: NearRpc,
     private readonly token: string,
+    /** The visitor pool's account, when the press desk runs "Join the Committee". */
+    private readonly poolAccount: string | null = null,
   ) {}
 
   async snapshot(): Promise<Snapshot> {
-    const block = await this.rpc.finalBlock();
+    return this.snapshotAt(await this.rpc.finalBlock());
+  }
+
+  /** The newest block, not the newest final one: a stake the pool sent a moment ago is already in it, where `final` lags it by a few seconds. */
+  async pool(): Promise<PoolView> {
+    if (this.poolAccount === null) throw new Error("no pool account is configured");
+    const block = await this.rpc.finalBlock("optimistic");
+    const args = { account_id: this.poolAccount };
+    const [snapshot, staking, liquid] = await Promise.all([
+      this.snapshotAt(block),
+      this.rpc.view(this.token, "get_staking", args, block.hash).then(parseStakingView),
+      this.rpc.view(this.token, "ft_balance_of", args, block.hash).then((v) => u128(v, "ft_balance_of")),
+    ]);
+    return { snapshot, staked: staking.staked, unlockEpoch: staking.unlockEpoch, backing: staking.backing, liquid };
+  }
+
+  private async snapshotAt(block: FinalBlock): Promise<Snapshot> {
     const view = (m: string) => this.rpc.view(this.token, m, {}, block.hash);
     const [rawParams, rawPolicy, rawSupply, staking] = await Promise.all([
       view("get_params"),

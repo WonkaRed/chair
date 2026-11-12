@@ -37,6 +37,18 @@ export interface Snapshot {
   readonly staking: Staking | null;
 }
 
+/** The visitor pool's account at one block: the token's snapshot, and what the pool has staked and holds. */
+export interface PoolView {
+  readonly snapshot: Snapshot;
+  readonly staked: bigint;
+  /** The pool's coins that are not staked: what a stake draws on. */
+  readonly liquid: bigint;
+  /** First epoch in which the pool's stake may be unstaked. */
+  readonly unlockEpoch: number;
+  /** The candidate the pool backs; the pool never backs one, so anything but null is wrong. */
+  readonly backing: string | null;
+}
+
 /** Supply as it stood when an earlier decision was made; read back from the decision log. */
 export interface HistoryPoint {
   readonly epoch: number;

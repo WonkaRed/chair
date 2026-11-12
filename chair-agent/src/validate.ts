@@ -73,6 +73,17 @@ export function parsePolicy(v: unknown, maxRateBps: number): Policy {
   };
 }
 
+/** `get_staking` of one account: its stake, the epoch its stake unlocks, and the candidate it backs (null for none). */
+export function parseStakingView(v: unknown): { staked: bigint; unlockEpoch: number; backing: string | null } {
+  const o = obj(v, "get_staking");
+  const backing = o["backing"];
+  return {
+    staked: u128(o["staked"], "staked"),
+    unlockEpoch: int(o["unlock_epoch"], "unlock_epoch", 0),
+    backing: backing === null || backing === undefined ? null : accountId(backing, "backing"),
+  };
+}
+
 export function parseStaking(v: unknown): Staking {
   const o = obj(v, "get_reward_pool");
   return { totalStaked: u128(o["total_staked"], "total_staked"), rewardPool: u128(o["reward_pool"], "reward_pool") };

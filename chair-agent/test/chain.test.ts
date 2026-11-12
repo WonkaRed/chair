@@ -55,3 +55,30 @@ test("a meetings_per_day that is not the epoch's own day divided up is refused",
   }
   assert.equal((await reader({ meetingsPerDay: day }).snapshot()).params.meetingsPerDay, day);
 });
+
+test("the pool's view comes from the newest block, with the snapshot, its stake, its unlock epoch, what it backs and its liquid coins", async () => {
+  const asked: { finality: string | undefined; account: unknown; method: string; at: string }[] = [];
+  const views: Record<string, unknown> = {
+    get_params: { epoch_ms: EPOCH_MS, meetings_per_day: 1440, start_ms: START, max_rate_bps: 200, max_step_bps: 50, impeach_threshold_bps: 3000, quorum_bps: 500, nominate_bond: "1" },
+    get_policy: { epoch: 5, rate_bps: 10, chair: "chair.test", streak: 1, last_set_epoch: null, epoch_ends_ms: START + 6 * EPOCH_MS },
+    ft_total_supply: "1000000",
+    get_reward_pool: { total_staked: "100", reward_pool: "0", reward_per_share: "0" },
+    get_staking: { staked: "30", pending_reward: "0", backing: null, unlock_epoch: 7 },
+    ft_balance_of: "70",
+  };
+  const rpc = {
+    finalBlock: (finality?: string) => (asked.push({ finality, account: null, method: "block", at: "" }), Promise.resolve({ hash: "h", timestampMs: NOW })),
+    view: (_c: string, method: string, args: Record<string, unknown>, at: string) => (asked.push({ finality: undefined, account: args["account_id"], method, at }), Promise.resolve(views[method])),
+  };
+  const reader = new ChainReader(rpc as unknown as NearRpc, "token.test", "pool.test");
+  const p = await reader.pool();
+  assert.deepEqual([p.staked, p.liquid, p.unlockEpoch, p.backing, p.snapshot.policy.epoch], [30n, 70n, 7, null, 5]);
+  assert.equal(asked[0]!.finality, "optimistic");
+  assert.deepEqual(asked.filter((a) => a.method === "get_staking" || a.method === "ft_balance_of").map((a) => [a.account, a.at]), [["pool.test", "h"], ["pool.test", "h"]]);
+
+  views["get_staking"] = { staked: "30", pending_reward: "0", backing: "someone.test", unlock_epoch: 7 };
+  assert.equal((await reader.pool()).backing, "someone.test");
+  views["get_staking"] = { staked: 30, pending_reward: "0", backing: null, unlock_epoch: 7 };
+  await assert.rejects(reader.pool(), /U128/);
+  await assert.rejects(new ChainReader(rpc as unknown as NearRpc, "token.test").pool(), /no pool account/);
+});

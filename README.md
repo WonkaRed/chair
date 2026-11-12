@@ -7,6 +7,7 @@ $CHAIR is a coin on a test network (NEAR testnet, not the real one). An AI calle
 Try it, no install: <https://wonkared.github.io/chair/>
 
 - **Make the Chair overreach.** Type a rate beyond the limit (2% a day) and watch the contract refuse it, on the real testnet, in its own words.
+- **Join the Committee.** One button stakes a small step of test coins from a pool account the project controls; a meeting later the Chair's own minutes cite the changed staked share and the rate it then chose.
 - **Ask the Chair a question.** The answer is added to the Chair's minutes on the chain. The Chair replies with a line from a reviewed book of statements, never free text, and the desk that takes questions is closed whenever my workstation is off (the page says so).
 
 The Chair's latest minutes, the written record of a decision, as of 2026-11-11:
@@ -106,6 +107,21 @@ Refusals it produced on testnet, each readable with the `curl` the page shows:
 | `6beTctZNF81dpkwJtD1RRJtPkRMQg89C2aWRVht7dyzj` | +500 bps | `rate_bps out of bounds: must be within -200..=200` |
 
 Code: [`chair-agent/src/press-overreach.ts`](chair-agent/src/press-overreach.ts), the page side in [`web/site/js/overreach.js`](web/site/js/overreach.js).
+
+## Join the Committee
+
+A second section of the page has one button. The press desk has a pool account that holds test coins and this project controls; a press stakes one step of them on the token contract (`stake`), or, once the pool is full, takes one step back out (`unstake`). The page shows the real transaction and the staked share read from the chain before and after, counts down to the Chair's next meeting, and then quotes the Chair's own minutes for it with the share marked, with one plain sentence computed from the data: "More coins are staked, so the Chair printed less: 0.38% a day before, 0.35% a day now." The page claims a cause only when the data supports it: the minutes must state the share, the rule chair's arithmetic at that share without the press must give a different rate than the one chosen, and a share that other accounts moved the other way, a move inside the 0.05% a day dead band, or the 0.50% a meeting step limit is said as exactly that.
+
+- **A step is 1% of the current total supply** (floored), and the pool holds at most 4 steps (4% of supply). Direction is automatic and read off the chain: stake while there is room for another step, then unstake one step a press until the pool is empty, then start again. The contract locks a stake for two epochs, so a step out right after a step in is answered "not yet", with the time, and nothing is sent.
+- **A visitor can never impeach the Chair with this.** The only calls the pool's signer can build are `stake` and `unstake` (`PoolSigner` in `chair-agent/src/signer.ts`): it backs no challenger and transfers nothing, and the desk also refuses to sign when the chain says the pool backs one. Impeachment needs a challenger with more than 30% of the staked coins and more than 5% of the whole supply; the pool's 4% could not reach the second even if it backed one.
+- **Capped against the chain, not against memory.** Every press reads the pool's stake at the newest block and signs only if the call keeps it within the cap; if the read fails, nothing is signed.
+- **One step barely moves the Chair.** The mandate's target moves by (1% of supply) / 40, about 0.025% a day, and the Chair ignores a difference under 0.05% a day. A single press often lands inside that dead band, and the page then says "held the rate" and why instead of crediting the press. The step is `stepBps` in `DEFAULT_JOIN_LIMITS`.
+- **Limits, in memory:** 3 presses per address per hour, 20 an hour and 200 a day over all addresses, one on chain at a time. A visitor who hits one is shown the most recent real press (its transaction, the share before and after, the minutes that cited it) beside the reason. The desk also remembers the latest press for `GET /join/state`, and the page keeps the latest it has seen in `localStorage`, so a closed desk still shows one.
+- **The key.** `stake` and `unstake` need an attached deposit, which a function-call key cannot attach, so the pool account's key is a full-access key. It is safe to hold only because the account holds nothing but the pool's test coins and a few NEAR for gas, only `PoolSigner` can use it, and the feature switches itself off, saying why in the log, when the key is not full access (it would fail every call).
+- **Cost:** a press costs the pool account the gas of one `stake` or `unstake` call, at most 0.003 NEAR (30 Tgas at the testnet gas price); the 0.01 NEAR a stake attaches is refunded except for the first stake's record. `set_policy` measured 0.000163 NEAR; the pool calls are not yet measured on testnet.
+- **Off unless `CHAIR_VISITOR_KEY_FILE` is set** (with `CHAIR_VISITOR_ACCOUNT` naming the pool account). `/health` reports `join: true|false`. The pool account must be registered with the token (`storage_deposit`) and funded with test coins (an `ft_transfer`) of at least 4% of supply plus one step, and with NEAR for gas. Like the overreach toy it runs on the press desk, so it is closed whenever my workstation is off; the page then shows the latest press on record, or hides the section if it has none.
+
+Code: [`chair-agent/src/press-join.ts`](chair-agent/src/press-join.ts), the page side in [`web/site/js/join.js`](web/site/js/join.js).
 
 ## It runs on NEAR testnet
 

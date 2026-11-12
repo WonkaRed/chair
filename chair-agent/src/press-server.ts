@@ -2,9 +2,10 @@ import { randomUUID } from "node:crypto";
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { isIP } from "node:net";
 import type { Answered } from "./press-answer.js";
+import type { Join } from "./press-join.js";
 import type { Overreach } from "./press-overreach.js";
 import { cleanQuestion, toPublic, type PressEntry, type PressStore } from "./press-store.js";
-import { SlidingWindow } from "./press-window.js";
+import { SerialQueue, SlidingWindow } from "./press-window.js";
 import { reasoningHash } from "./reasoning.js";
 
 /** The only host the server binds to: only a tunnel on this machine may face the internet. */
@@ -36,27 +37,6 @@ const RECORD_MAX = 50;
 
 /** The page, and a page served from this machine while it is being built. */
 const ALLOWED_ORIGIN = /^(https:\/\/wonkared\.github\.io|http:\/\/(127\.0\.0\.1|localhost)(:\d{1,5})?)$/;
-
-/** One job at a time; at most `maxWaiting` more may wait. */
-class SerialQueue {
-  private waiting = 0;
-  private tail: Promise<unknown> = Promise.resolve();
-  constructor(private readonly maxWaiting: number) {}
-
-  get hasRoom(): boolean {
-    return this.waiting < this.maxWaiting;
-  }
-
-  run<T>(job: () => Promise<T>): Promise<T> {
-    this.waiting++;
-    const result = this.tail.then(() => {
-      this.waiting--;
-      return job();
-    });
-    this.tail = result.catch(() => undefined);
-    return result;
-  }
-}
 
 /** An address as a rate-limit key: an IPv4-mapped address is its IPv4, an IPv6 one is its /56 (the block a provider hands one household or one phone). */
 function ipKey(ip: string): string {
@@ -90,6 +70,8 @@ export interface PressServerOptions {
   readonly limits?: Partial<Limits>;
   /** "Make the Chair overreach" (POST /overreach, GET /overreach/<id>); absent, those routes answer that the desk is closed. */
   readonly overreach?: Pick<Overreach, "start" | "poll">;
+  /** "Join the Committee" (POST /join, GET /join); absent, those routes answer that the desk is closed. */
+  readonly join?: Pick<Join, "start" | "state">;
   readonly now?: () => number;
   /** One line per answered question: id, hash, source. Never the question and never the asker. */
   readonly log?: (line: string) => void;
@@ -188,6 +170,20 @@ export function createPressServer(opts: PressServerOptions): Server {
     reply(res, r.status, r.body, { ...cors, ...r.headers });
   }
 
+  async function join(req: IncomingMessage, res: ServerResponse, cors: Record<string, string>): Promise<void> {
+    if (opts.join === undefined) return reply(res, 503, DESK_CLOSED, cors);
+    // The body carries nothing; asking for JSON makes the click a request a foreign page cannot send without the preflight this desk answers only for the page's own origin.
+    if ((await jsonObject(req, res, cors, "the body must be {}")) === null) return;
+    const r = await opts.join.start(clientKey(req));
+    reply(res, r.status, r.body, { ...cors, ...r.headers });
+  }
+
+  function joinState(res: ServerResponse, cors: Record<string, string>): void {
+    if (opts.join === undefined) return reply(res, 503, DESK_CLOSED, cors);
+    const r = opts.join.state();
+    reply(res, r.status, r.body, cors);
+  }
+
   function record(url: URL, res: ServerResponse, cors: Record<string, string>): void {
     const param = url.searchParams.get("limit");
     const limit = param === null ? RECORD_DEFAULT : /^\d{1,6}$/.test(param) ? Number(param) : 0;
@@ -216,7 +212,9 @@ export function createPressServer(opts: PressServerOptions): Server {
       "/ask": { method: "POST", run: () => ask(req, res, cors) },
       "/record": { method: "GET", run: () => record(url, res, cors) },
       "/overreach": { method: "POST", run: () => overreach(req, res, cors) },
-      "/health": { method: "GET", run: () => reply(res, 200, { ok: true, overreach: opts.overreach !== undefined }, cors) },
+      "/join": { method: "POST", run: () => join(req, res, cors) },
+      "/join/state": { method: "GET", run: () => joinState(res, cors) },
+      "/health": { method: "GET", run: () => reply(res, 200, { ok: true, overreach: opts.overreach !== undefined, join: opts.join !== undefined }, cors) },
     };
     const attempt = /^\/overreach\/([^/]{1,64})$/.exec(url.pathname);
     if (attempt !== null) {

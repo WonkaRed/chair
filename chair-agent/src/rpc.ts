@@ -84,8 +84,9 @@ export class NearRpc {
     return id;
   }
 
-  async finalBlock(): Promise<FinalBlock> {
-    const r = await this.call("block", { finality: "final" });
+  /** The newest block that is final, or (`optimistic`) the newest of all: what a call that has just executed already shows in. */
+  async finalBlock(finality: "final" | "optimistic" = "final"): Promise<FinalBlock> {
+    const r = await this.call("block", { finality });
     const h = obj(r["header"], "block header");
     const hash = h["hash"];
     if (typeof hash !== "string" || !BASE58_HASH_RE.test(hash)) throw new ValidationError("block", "bad hash");

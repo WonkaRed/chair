@@ -1,5 +1,5 @@
 import { readFileSync, statSync } from "node:fs";
-import { actions, baseDecode, createTransaction, KeyPairSigner, type SignedTransaction } from "near-api-js";
+import { actions, baseDecode, createTransaction, KeyPairSigner, type Action, type SignedTransaction } from "near-api-js";
 import { DEFAULT_BOUNDS, type Rate, type RefusedRate } from "./bounds.js";
 import { NearRpc, type AccessKeyInfo } from "./rpc.js";
 import type { Decision } from "./types.js";
@@ -91,19 +91,16 @@ export function policyArgs(rate: Rate | RefusedRate, reasoning: string): { rate_
   return { rate_bps: rate, reasoning_hash: reasoningHash(reasoning), reasoning };
 }
 
-/**
- * Builds and sends `set_policy` transactions. The only action it can construct is one function call to
- * `set_policy` with zero deposit; the only fields taken from a `Decision` are its `Rate` and its reasoning text.
- */
-export class ChairSigner implements Submitter {
+/** One key on one account, signing single function calls to the token. The subclasses decide which call they can construct. */
+abstract class TokenCaller {
   private readonly keys: KeyPairSigner;
   constructor(
     secretKey: string,
     readonly accountId: string,
     readonly token: string,
-    private readonly rpc: NearRpc,
+    protected readonly rpc: NearRpc,
   ) {
-    checkAccountId(accountId, "chair account");
+    checkAccountId(accountId, "signer account");
     checkAccountId(token, "token account");
     try {
       this.keys = KeyPairSigner.fromSecretKey(secretKey as `ed25519:${string}`);
@@ -116,24 +113,41 @@ export class ChairSigner implements Submitter {
     return (await this.keys.getPublicKey()).toString();
   }
 
-  /** Sign one set_policy call. Exposed for tests; `submit` is the normal path. */
-  async build(rate: Rate | RefusedRate, reasoning: string, nonce: bigint, blockHash: string): Promise<SignedTransaction> {
-    const args = policyArgs(rate, reasoning);
+  /** Sign one call. */
+  protected async sign(call: Action, nonce: bigint, blockHash: string): Promise<SignedTransaction> {
     const publicKey = await this.keys.getPublicKey();
-    const tx = createTransaction(
-      this.accountId,
-      publicKey,
-      this.token,
-      nonce + 1n,
-      [actions.functionCall(METHOD, args, GAS, 0n)],
-      baseDecode(blockHash),
-    );
+    const tx = createTransaction(this.accountId, publicKey, this.token, nonce + 1n, [call], baseDecode(blockHash));
     const { signedTransaction } = await this.keys.signTransaction(tx);
     return signedTransaction;
   }
 
+  /**
+   * The nonce is read at `optimistic` finality: a call this key sent moments ago is already counted, where `final` lags it by a block or two and would
+   * reuse its nonce. `allowed` throws when the key is not the kind this caller may use. `onBroadcast` runs once, just before the transaction is sent;
+   * a throw before it means nothing was sent.
+   */
+  protected async send(call: (nonce: bigint, blockHash: string) => Promise<SignedTransaction>, allowed: (info: AccessKeyInfo) => void, onBroadcast: () => void): Promise<SubmitResult> {
+    const info = await this.rpc.accessKey(this.accountId, await this.publicKey(), "optimistic");
+    allowed(info);
+    const block = await this.rpc.finalBlock();
+    const signed = await call(info.nonce, block.hash);
+    onBroadcast();
+    return this.rpc.sendTx(Buffer.from(signed.encode()).toString("base64"));
+  }
+}
+
+/**
+ * Builds and sends `set_policy` transactions. The only action it can construct is one function call to
+ * `set_policy` with zero deposit; the only fields taken from a `Decision` are its `Rate` and its reasoning text.
+ */
+export class ChairSigner extends TokenCaller implements Submitter {
+  /** Sign one set_policy call. Exposed for tests; `submit` is the normal path. */
+  async build(rate: Rate | RefusedRate, reasoning: string, nonce: bigint, blockHash: string): Promise<SignedTransaction> {
+    return this.sign(actions.functionCall(METHOD, policyArgs(rate, reasoning), GAS, 0n), nonce, blockHash);
+  }
+
   async submit(decision: Decision): Promise<SubmitResult> {
-    return this.send(decision.rate, decision.reasoning);
+    return this.sendPolicy(decision.rate, decision.reasoning);
   }
 
   /**
@@ -145,20 +159,63 @@ export class ChairSigner implements Submitter {
     if (!Number.isSafeInteger(rate) || Math.abs(rate) <= DEFAULT_BOUNDS.maxRateBps) {
       throw new RangeError(`refusing to send ${rate} as an overreach: only a rate beyond +-${DEFAULT_BOUNDS.maxRateBps} is certain to be refused`);
     }
-    return this.send(rate, reasoning, onBroadcast);
+    return this.sendPolicy(rate, reasoning, onBroadcast);
   }
 
-  /**
-   * Both the agent's decision and the desk's overreach go through here, signed by the same key, so the nonce is read at `optimistic` finality: a call
-   * the other one sent moments ago is already counted, where `final` lags it by a block or two and would reuse its nonce.
-   */
-  private async send(rate: Rate | RefusedRate, reasoning: string, onBroadcast: () => void = () => undefined): Promise<SubmitResult> {
-    const key = await this.publicKey();
-    const info = await this.rpc.accessKey(this.accountId, key, "optimistic");
-    assertScoped(info, this.token);
-    const block = await this.rpc.finalBlock();
-    const signed = await this.build(rate, reasoning, info.nonce, block.hash);
-    onBroadcast();
-    return this.rpc.sendTx(Buffer.from(signed.encode()).toString("base64"));
+  /** Both the agent's decision and the desk's overreach go through here, signed by the same key, so the nonce is counted at `optimistic` finality (see `send`). */
+  private sendPolicy(rate: Rate | RefusedRate, reasoning: string, onBroadcast: () => void = () => undefined): Promise<SubmitResult> {
+    return this.send((nonce, block) => this.build(rate, reasoning, nonce, block), (info) => assertScoped(info, this.token), onBroadcast);
   }
+}
+
+export const STAKE_METHOD = "stake";
+export const UNSTAKE_METHOD = "unstake";
+/** Both calls are a few reads and writes after a `roll()`; sandbox-tests/tests/resolver_gas.rs bounds the worst-case roll well under half of 30 Tgas. */
+export const POOL_GAS = 30_000_000_000_000n;
+/** What a stake attaches: the contract wants at least 1 yoctoNEAR, and an account's first stake also pays for its record (about 80 bytes, measured by the contract), the rest refunded. 0.01 NEAR, as the sandbox tests attach (`STAKE_RECORD_DEPOSIT`). */
+export const STAKE_DEPOSIT = 10n ** 22n;
+/** The deposit `unstake` insists on, exactly. */
+export const UNSTAKE_DEPOSIT = 1n;
+
+/** The U128 argument the contract's `stake` and `unstake` take: a positive whole number as a decimal string. */
+function amountArgs(amount: bigint): { amount: string } {
+  if (amount <= 0n || amount >= 1n << 128n) throw new RangeError("amount must be a positive U128");
+  return { amount: amount.toString() };
+}
+
+export interface PoolSender {
+  /** `onBroadcast` is called once, just before the transaction leaves: anything thrown before it means nothing was sent. */
+  stake(amount: bigint, onBroadcast: () => void): Promise<SubmitResult>;
+  unstake(amount: bigint, onBroadcast: () => void): Promise<SubmitResult>;
+}
+
+/**
+ * The visitor pool's signer for "Join the Committee". The only actions it can construct are one `stake` or one `unstake` on the token, with the
+ * deposit those calls need: no transfer, no `back`, no `nominate`, nothing else exists to call. The contract wants a deposit with both, which a
+ * function-call key cannot attach, so the pool account's key is a full-access key; this class is the only thing that holds it, and the account
+ * holds nothing but the pool's test coins and the NEAR its calls cost.
+ */
+export class PoolSigner extends TokenCaller implements PoolSender {
+  /** Sign one stake or unstake call. Exposed for tests; `stake` and `unstake` are the normal path. */
+  async build(method: typeof STAKE_METHOD | typeof UNSTAKE_METHOD, amount: bigint, nonce: bigint, blockHash: string): Promise<SignedTransaction> {
+    const deposit = method === STAKE_METHOD ? STAKE_DEPOSIT : UNSTAKE_DEPOSIT;
+    return this.sign(actions.functionCall(method, amountArgs(amount), POOL_GAS, deposit), nonce, blockHash);
+  }
+
+  stake(amount: bigint, onBroadcast: () => void = () => undefined): Promise<SubmitResult> {
+    return this.sendPool(STAKE_METHOD, amount, onBroadcast);
+  }
+
+  unstake(amount: bigint, onBroadcast: () => void = () => undefined): Promise<SubmitResult> {
+    return this.sendPool(UNSTAKE_METHOD, amount, onBroadcast);
+  }
+
+  private sendPool(method: typeof STAKE_METHOD | typeof UNSTAKE_METHOD, amount: bigint, onBroadcast: () => void): Promise<SubmitResult> {
+    return this.send((nonce, block) => this.build(method, amount, nonce, block), assertFullAccess, onBroadcast);
+  }
+}
+
+/** `stake` and `unstake` need a deposit, which only a full-access key can attach: a function-call key would fail every call, so say so up front. */
+export function assertFullAccess(info: AccessKeyInfo): void {
+  if (info.permission !== "FullAccess") throw new KeyError("the pool key must be a full-access key: stake and unstake attach a deposit, which a function-call key cannot");
 }

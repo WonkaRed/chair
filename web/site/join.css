@@ -1,0 +1,40 @@
+/* "Join the Committee" (js/join.js): one big button and, after it, the real transaction, the share before and after, the countdown and the Chair's minutes. It sits on the page's own panel colours, so it follows the theme; the dark banknote above it is the overreach dare. */
+#join {
+  position: relative; padding: clamp(1.5rem, 4vw, 3rem); background: var(--panel);
+  box-shadow: inset 0 0 0 7px var(--panel), inset 0 0 0 8px var(--rule), 0 24px 40px -28px rgb(0 0 0 / 0.35);
+  display: grid; gap: 1.25rem 3rem; grid-template-columns: minmax(0, 1fr); align-items: start;
+}
+@media (min-width: 62rem) { #join { grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); grid-template-rows: auto 1fr; } #join .slot { grid-column: 2; grid-row: 1 / span 2; } }
+#join h2 { margin: 0; }
+#join [hidden] { display: none; }
+#join .jn-act { display: flex; flex-direction: column; gap: 0.5rem; align-items: stretch; }
+#join .jn-btn { width: 100%; min-height: 3.6rem; font: 700 1.2rem/1.2 var(--text); border-radius: 3px; box-shadow: 0 4px 0 var(--ink); transition: transform 0.1s, box-shadow 0.1s; }
+#join .jn-btn:hover:not(:disabled) { filter: none; transform: translateY(-1px); box-shadow: 0 5px 0 var(--ink); }
+#join .jn-btn:active:not(:disabled) { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+#join .jn-btn:disabled { box-shadow: none; }
+#join .jn-who { margin: 0; color: var(--muted); font-size: 0.92rem; text-align: center; }
+#join .form-note { margin: 0; text-align: center; }
+#join .jn-result { margin-top: 1.25rem; }
+#join .jn-line { margin: 0 0 1rem; font: 1.15rem/1.4 var(--serif); }
+#join .jn-card { padding: 1.25rem 1.4rem; background: var(--bg); border: 1px solid var(--rule); border-left: 4px solid var(--accent); border-radius: 3px; }
+#join .jn-card.earlier { border-left-color: var(--brass); }
+#join .jn-card > :first-child { margin-top: 0; } #join .jn-card > :last-child { margin-bottom: 0; }
+#join .or-lead { margin: 0 0 0.75rem; color: var(--ink2); }
+#join .or-k, #join .k { margin: 1rem 0 0.3rem; color: var(--muted); font-size: 0.85rem; }
+#join .k { margin: 0; display: inline; }
+#join .jn-stamp { display: inline-block; margin: 0.2rem 0 0.5rem; padding: 0.3rem 0.9rem; border: 3px solid var(--accent); outline: 1px solid var(--accent); outline-offset: 3px; border-radius: 3px; color: var(--accent); font: 700 clamp(1.1rem, 3vw, 1.5rem)/1.2 var(--serif); letter-spacing: 0.04em; transform: rotate(-1.5deg); animation: jn-in 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+@keyframes jn-in { 0% { opacity: 0; transform: rotate(-8deg) scale(1.8); } 100% { opacity: 1; transform: rotate(-1.5deg) scale(1); } }
+@media (prefers-reduced-motion: reduce) { #join .jn-stamp { animation: none; } }
+#join .or-tx { margin: 0.3rem 0 0; font-family: var(--mono); overflow-wrap: anywhere; }
+#join .or-plain { margin: 0.6rem 0 0; font: 1.1rem/1.4 var(--serif); }
+#join .jn-shares { margin: 0.75rem 0 0; font-size: 1.05rem; }
+#join .jn-shares strong { font: 700 1.35rem/1 var(--serif); font-variant-numeric: lining-nums; }
+#join .or-count { margin: 1rem 0 0; padding-top: 0.75rem; border-top: 1px dashed var(--rule); font: 1.1rem/1.4 var(--serif); }
+#join .jn-minutes { margin-top: 1rem; padding-top: 0.5rem; border-top: 1px dashed var(--rule); }
+#join .jn-quote { font-size: 1.1rem; max-height: 22rem; overflow: auto; }
+#join .jn-quote mark { color: inherit; background: rgb(224 194 106 / 0.45); padding: 0 0.2em; border-radius: 2px; box-shadow: 0 0 0 1px var(--brass); }
+#join .jn-says { margin: 1rem 0 0; font: 1.15rem/1.45 var(--serif); }
+#join .jn-says .k { font-family: var(--text); }
+#join .jn-foot { margin: 1rem 0 0; }
+#join .jn-how { margin-top: 1rem; }
+#join .jn-how > :not(summary) { max-width: 60ch; }

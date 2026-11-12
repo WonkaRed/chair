@@ -27,3 +27,24 @@ export class SlidingWindow {
     this.hits.set(key, [...this.live(key, now), now]);
   }
 }
+
+/** One job at a time; at most `maxWaiting` more may wait. */
+export class SerialQueue {
+  private waiting = 0;
+  private tail: Promise<unknown> = Promise.resolve();
+  constructor(private readonly maxWaiting: number) {}
+
+  get hasRoom(): boolean {
+    return this.waiting < this.maxWaiting;
+  }
+
+  run<T>(job: () => Promise<T>): Promise<T> {
+    this.waiting++;
+    const result = this.tail.then(() => {
+      this.waiting--;
+      return job();
+    });
+    this.tail = result.catch(() => undefined);
+    return result;
+  }
+}

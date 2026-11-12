@@ -8,7 +8,7 @@ import { createHash } from "node:crypto";
 import { RateWindow, DEFAULT_BOUNDS, type RefusedRate } from "../src/bounds.js";
 import { MAX_REASONING_CHARS, reasoningHash } from "../src/reasoning.js";
 import { NearRpc } from "../src/rpc.js";
-import { ChairSigner, GAS, KeyError, assertScoped, loadSecretKey } from "../src/signer.js";
+import { ChairSigner, GAS, KeyError, POOL_GAS, PoolSigner, STAKE_DEPOSIT, UNSTAKE_DEPOSIT, assertFullAccess, assertScoped, loadSecretKey } from "../src/signer.js";
 
 const secret = KeyPair.fromRandom("ed25519").toString();
 const blockHash = baseEncode(createHash("sha256").update("block").digest());
@@ -165,4 +165,49 @@ test("both the agent's decision and the desk's overreach read the access key at 
   await signer.submit({ rate, reasoning: "why", reasoningHash: reasoningHash("why") } as never);
   await signer.submitRefused(500 as RefusedRate, "overreach");
   assert.deepEqual(seen, ["optimistic", "optimistic"]);
+});
+
+test("the pool signs one stake or one unstake on the token with the deposit that call needs, and nothing else can be built", async () => {
+  const signer = new PoolSigner(secret, "pool.test", "token.test", rpc);
+  for (const [method, deposit] of [["stake", STAKE_DEPOSIT], ["unstake", UNSTAKE_DEPOSIT]] as const) {
+    const decoded = SignedTransaction.decode((await signer.build(method, 12345n, 7n, blockHash)).encode());
+    const tx = decoded.transaction;
+    assert.equal(tx.signerId, "pool.test");
+    assert.equal(tx.receiverId, "token.test");
+    assert.equal(tx.nonce, 8n);
+    assert.equal(tx.actions.length, 1);
+    const call = tx.actions[0]!.functionCall;
+    assert.ok(call, "the only action is a function call");
+    assert.equal(call.methodName, method);
+    assert.deepEqual(JSON.parse(Buffer.from(call.args).toString("utf8")), { amount: "12345" });
+    assert.equal(call.deposit, deposit);
+    assert.equal(call.gas, POOL_GAS);
+  }
+  assert.equal(STAKE_DEPOSIT, 10n ** 22n, "0.01 NEAR: pays a first stake's record, the rest is refunded");
+  assert.equal(UNSTAKE_DEPOSIT, 1n, "unstake wants exactly 1 yoctoNEAR");
+  // The amount is a positive U128 and nothing else; no other method name type-checks, and none is reachable at run time.
+  for (const bad of [0n, -1n, 1n << 128n]) await assert.rejects(signer.build("stake", bad, 7n, blockHash), RangeError, String(bad));
+});
+
+test("the pool sends only with a full-access key, at optimistic finality; a function-call key is refused before anything is signed", async () => {
+  const seen: string[] = [];
+  let sent = 0;
+  const stub = (permission: unknown) => ({
+    accessKey: (_a: string, _k: string, finality: string) => {
+      seen.push(finality);
+      return Promise.resolve({ nonce: 41n, permission });
+    },
+    finalBlock: () => Promise.resolve({ hash: blockHash, height: 1, timestampMs: 0 }),
+    sendTx: () => (sent++, Promise.resolve({ txHash: "tx", failure: null })),
+  });
+  const full = new PoolSigner(secret, "pool.test", "token.test", stub("FullAccess") as unknown as NearRpc);
+  let broadcast = 0;
+  assert.equal((await full.stake(5n, () => broadcast++)).txHash, "tx");
+  assert.equal((await full.unstake(5n, () => broadcast++)).txHash, "tx");
+  assert.deepEqual([seen, sent, broadcast], [["optimistic", "optimistic"], 2, 2]);
+
+  const scoped = new PoolSigner(secret, "pool.test", "token.test", stub({ receiverId: "token.test", methodNames: ["stake", "unstake"] }) as unknown as NearRpc);
+  await assert.rejects(scoped.stake(5n, () => broadcast++), KeyError);
+  assert.deepEqual([sent, broadcast], [2, 2], "nothing was signed or sent");
+  assert.doesNotThrow(() => assertFullAccess({ nonce: 1n, permission: "FullAccess" }));
 });
