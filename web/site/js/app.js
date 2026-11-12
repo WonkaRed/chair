@@ -9,6 +9,7 @@ import { createJoin } from "./join.js";
 import { createMine, SEND_TIMEOUT_MS } from "./mine.js";
 import { loadTexts, renderHero, renderMinutes, resolveTexts } from "./minutes.js";
 import { createOverreach } from "./overreach.js";
+import { setupPhoneFolds } from "./phonefold.js";
 import { createPress, pressFromChain } from "./press.js";
 import { linkFallback, newestAnswer, setPullQuote } from "./pullquote.js";
 import { renderRefusals } from "./refusals.js";
@@ -87,11 +88,26 @@ async function showChain() {
   const showSource = () => renderSource(doc, $("source"), { mode: made.fixture ? "fixture" : "live", config, fixture: made.fixture, rpcUrl: made.transport.rpcInUse?.() });
   showSource();
   let shown = null; // the data on screen, if a read has succeeded
+  let heroTx = null; // the decision the hero shows, so a read that ends on the same one does not redraw it (and shut a proof the visitor opened)
+  const explorer = made.fixture ? null : config.explorerUrl;
+  const indexerUrl = made.fixture ? null : config.indexerUrl;
+  const contextFor = (bundled, resolved, params) => ({ texts: bundled, resolved, explorer, indexerUrl, repoBase: `${config.repoUrl}/blob/${config.repoRef}`, network: made.fixture ? null : config.network, unit: printUnit(params) });
   const run = async () => {
     let data;
+    let over = false; // the whole read has ended: its own hero draw is the last word
+    /** The newest decision, read ahead of the rest of the log: the hero is drawn from it as soon as it is known. */
+    const showLatest = async ({ decision, policy, params }) => {
+      if (decision.tx === heroTx) return;
+      const bundled = await texts;
+      const resolved = await resolveTexts([decision], bundled);
+      if (over) return;
+      heroTx = decision.tx;
+      renderHero(doc, $("hero-minutes"), { decisions: [decision], remembered: [], status: "partial", policy }, contextFor(bundled, resolved, params));
+    };
     try {
-      data = await loadLog(made.transport, { onViews: (views) => showViews(views, made) });
+      data = await loadLog(made.transport, { onViews: (views) => showViews(views, made), onLatest: showLatest });
     } catch (e) {
+      over = true;
       if (shown !== null) {
         // A failed retry must not take down what was read: keep it, and say quietly that the chain is out of reach for the moment.
         renderReconcile(doc, $("reconcile"), shown, { onRetry: run });
@@ -109,13 +125,16 @@ async function showChain() {
       clear($("log-body"));
       return;
     }
+    over = true;
     shown = data;
     showSource();
     const bundled = await texts;
-    const explorer = made.fixture ? null : config.explorerUrl;
-    const indexerUrl = made.fixture ? null : config.indexerUrl;
-    const ctx = { texts: bundled, resolved: await resolveTexts([...data.decisions, ...data.remembered], bundled), explorer, indexerUrl, repoBase: `${config.repoUrl}/blob/${config.repoRef}`, network: made.fixture ? null : config.network, unit: printUnit(data.params) };
-    renderHero(doc, $("hero-minutes"), data, ctx);
+    const ctx = contextFor(bundled, await resolveTexts([...data.decisions, ...data.remembered], bundled), data.params);
+    // What the read-ahead drew stands when the whole read agrees with it, or when the index failed part-way and has nothing newer to say.
+    if (heroTx === null || (data.decisions.length > 0 && data.decisions[0].tx !== heroTx)) {
+      renderHero(doc, $("hero-minutes"), data, ctx);
+      heroTx = data.decisions[0]?.tx ?? null;
+    }
     renderMinutes(doc, $("minutes-body"), data, ctx);
     renderRefusals(doc, $("refusals-body"), data, { explorer, indexerUrl });
     chainData = data;
@@ -226,6 +245,7 @@ function showGuarantees() {
 
 /** Sections ease in as they are reached; a link into a folded section opens the fold. */
 function setupPage() {
+  setupPhoneFolds(doc);
   setupReveal([...doc.querySelectorAll(".reveal")], doc.documentElement);
   const open = () => {
     let id = "";
@@ -235,7 +255,10 @@ function setupPage() {
       // A malformed fragment names nothing.
     }
     const target = id === "" ? null : doc.getElementById(id);
-    if (target) openFoldsAround(target);
+    if (target) {
+      for (const fold of target.querySelectorAll(":scope > .phone-fold")) fold.open = true; // a link to a section opens its phone fold
+      openFoldsAround(target);
+    }
   };
   addEventListener("hashchange", open);
   open();

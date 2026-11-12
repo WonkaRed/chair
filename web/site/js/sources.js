@@ -88,6 +88,8 @@ export function rpcTransport({ rpcUrls, indexerUrl, account, fetchImpl = globalT
   const indexer = failoverPoster(fetchImpl, "indexer", [indexerUrl], sleep);
   const cache = txCache({ store, key: `chair-txs/1:${account}` });
   let drewOnCache = false; // whether the last `transactions` call used anything kept
+  const ahead = new Map(); // complete transactions `peek` read from the index this visit, not yet written to storage
+  let peeking = Promise.resolve(); // the `peek` in flight: `transactions` waits for it so the same hash is never asked for twice
   const view = async (method, { blockHeight = null } = {}) => {
     const where = blockHeight === null ? { finality: "final" } : { block_id: blockHeight };
     const body = { jsonrpc: "2.0", id: "chair-web", method: "query", params: { request_type: "call_function", account_id: account, method_name: method, args_base64: "e30=", ...where } };
@@ -109,21 +111,54 @@ export function rpcTransport({ rpcUrls, indexerUrl, account, fetchImpl = globalT
     return keys.length;
   };
 
-  /** Hashes of every transaction that touched the token, oldest first. Throws if the index cannot be read to its end. */
-  const txHashes = async () => {
+  /**
+   * Hashes of every transaction that touched the token, oldest first. Throws if the index cannot be read to its end. The index is read newest
+   * first (the same list, reversed), so `onFirstPage` can hand the newest ones to the caller while the older pages are still coming.
+   */
+  const txHashes = async ({ onFirstPage } = {}) => {
     const hashes = [];
     const seen = new Set();
     let resume;
     for (let page = 0; page < MAX_PAGES; page++) {
-      const reply = await indexer.post("/v0/account", { account_id: account, is_receiver: true, desc: false, limit: PAGE_LIMIT, ...(resume ? { resume_token: resume } : {}) });
+      const reply = await indexer.post("/v0/account", { account_id: account, is_receiver: true, desc: true, limit: PAGE_LIMIT, ...(resume ? { resume_token: resume } : {}) });
       const rows = reply?.account_txs;
       if (!Array.isArray(rows)) throw new SourceError("indexer", "unexpected response shape");
       for (const r of rows) if (typeof r?.transaction_hash === "string" && !seen.has(r.transaction_hash)) (seen.add(r.transaction_hash), hashes.push(r.transaction_hash));
-      if (rows.length < PAGE_LIMIT) return hashes;
+      if (page === 0) onFirstPage?.([...hashes]);
       resume = reply.resume_token;
-      if (typeof resume !== "string" || resume === "") return hashes;
+      if (rows.length < PAGE_LIMIT || typeof resume !== "string" || resume === "") return hashes.reverse();
     }
     throw new SourceError("indexer", `more than ${MAX_PAGES * PAGE_LIMIT} transactions: not read to the end`);
+  };
+
+  /**
+   * The newest transactions (the first `TX_BATCH` of `newest`, a newest-first list of hashes) read ahead of the rest, so the hero can show the latest
+   * decision long before the whole list is in. One request for what is not already kept; complete results are held for `transactions`, so nothing is
+   * asked twice. Null when they could not be read (the full read then decides what the page shows).
+   */
+  const peek = (newest) => {
+    const wanted = newest.slice(0, TX_BATCH);
+    peeking = (async () => {
+      const have = new Map([...cache.read(), ...ahead]);
+      const need = wanted.filter((h) => !have.has(h));
+      const fetched = new Map();
+      if (need.length > 0) {
+        try {
+          const reply = await indexer.post("/v0/transactions", { tx_hashes: need });
+          if (!Array.isArray(reply?.transactions)) return null;
+          for (const tx of reply.transactions) {
+            const kept = slim(tx, account);
+            if (kept === null) continue;
+            fetched.set(kept.transaction.hash, kept);
+            if (complete(tx)) ahead.set(kept.transaction.hash, kept);
+          }
+        } catch {
+          return null;
+        }
+      }
+      return wanted.map((h) => have.get(h) ?? fetched.get(h)).filter((tx) => tx !== undefined);
+    })();
+    return peeking;
   };
 
   /**
@@ -132,8 +167,10 @@ export function rpcTransport({ rpcUrls, indexerUrl, account, fetchImpl = globalT
    * that succeeded. The first failed batch (after the poster's retries) stops the others and fails the call.
    */
   const transactions = async (hashes) => {
-    const have = cache.read();
-    drewOnCache = have.size > 0;
+    await peeking;
+    const stored = cache.read();
+    drewOnCache = stored.size > 0;
+    const have = new Map([...stored, ...ahead]);
     const need = hashes.filter((h) => !have.has(h));
     const batches = [];
     for (let i = 0; i < need.length; i += TX_BATCH) batches.push(need.slice(i, i + TX_BATCH));
@@ -158,7 +195,8 @@ export function rpcTransport({ rpcUrls, indexerUrl, account, fetchImpl = globalT
       }
     };
     await Promise.all(Array.from({ length: Math.min(CONCURRENCY, batches.length) }, worker));
-    if (fresh.size > 0) cache.write(hashes, new Map([...have, ...fresh]));
+    if (fresh.size > 0 || ahead.size > 0) cache.write(hashes, new Map([...have, ...fresh]));
+    ahead.clear();
     if (failure !== null) throw failure;
     const missing = hashes.filter((h) => !have.has(h) && !fetched.has(h));
     if (missing.length > 0) throw new SourceError("indexer", `${missing.length} of ${hashes.length} transactions were not returned`);
@@ -173,7 +211,7 @@ export function rpcTransport({ rpcUrls, indexerUrl, account, fetchImpl = globalT
     if (drewOnCache) cache.clear();
   };
 
-  return { kind: "live", token: account, rpcInUse: rpc.inUse, view, accessKeys, txHashes, transactions, remembered, distrust };
+  return { kind: "live", token: account, rpcInUse: rpc.inUse, view, accessKeys, txHashes, peek, transactions, remembered, distrust };
 }
 
 /** `doc` is a parsed `chair-web-fixture/1` file (a recorded sandbox run). */

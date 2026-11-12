@@ -177,7 +177,10 @@ test("a link into a folded section opens every closed fold around the target, an
 test("page markup: ledger, simulation detail, limits and sources start closed, sections reveal, and every honesty fold is present", () => {
   const opens = [...html.matchAll(/<details\b[^>]*>/g)].map((m) => m[0]);
   assert.ok(opens.length >= 6);
-  assert.equal(opens.some((d) => /\bopen\b/.test(d)), false, "no fold starts open");
+  const phone = opens.filter((d) => /\bphone-fold\b/.test(d));
+  assert.equal(phone.length, 5, "the five deep sections fold on a phone");
+  assert.ok(phone.every((d) => /\bopen\b/.test(d)), "a phone fold is open in the file: nothing is hidden without script (js/phonefold.js shuts it on a phone)");
+  assert.equal(opens.filter((d) => !/\bphone-fold\b/.test(d)).some((d) => /\bopen\b/.test(d)), false, "no other fold starts open");
   for (const id of ["ledger-fold", "sim-more"]) assert.match(html, new RegExp(`<details[^>]*id="${id}"`));
   assert.ok((html.match(/class="[^"]*\breveal\b/g) ?? []).length >= 5);
   assert.doesNotMatch(html, /reveal-on/, "the hidden state is only ever set by script");

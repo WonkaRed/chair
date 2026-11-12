@@ -50,3 +50,19 @@
 @keyframes stamp-in { 0% { opacity: 0; transform: rotate(-14deg) scale(2.6); } 55% { opacity: 1; transform: rotate(-2deg) scale(0.92); } 100% { opacity: 1; transform: rotate(-3deg) scale(1); } }
 @keyframes thud { 30% { transform: translateY(3px); } 60% { transform: translateY(-1px); } }
 @media (prefers-reduced-motion: reduce) { #overreach .or-stamp, #overreach .or-card.refused { animation: none; } }
+
+/* The result: the stamp and the plain verdict on the left, the contract's own words on the right, the one calm line and "Check it yourself" across the bottom. Stacked on a phone. */
+#overreach .or-result:empty { display: none; }
+#overreach .or-cols { display: grid; gap: 1.1rem 2.5rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
+@media (min-width: 48rem) { #overreach .or-cols { grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr); } }
+#overreach .or-col { min-width: 0; }
+#overreach .or-col > :first-child { margin-top: 0; } #overreach .or-col > :last-child { margin-bottom: 0; }
+#overreach .or-card.refused .or-stamp { font-size: clamp(1.5rem, 3.4vw, 2.4rem); margin-bottom: 0.8rem; }
+#overreach .or-card.refused .or-plain { font-size: clamp(1.3rem, 2.4vw, 1.7rem); }
+#overreach a.or-open { margin-top: 1.1rem; color: var(--ink); }
+#overreach a.or-open:hover { color: var(--bg); }
+#overreach .or-card.refused .or-panic { margin: 0; }
+#overreach .or-honest { margin: 1.25rem 0 0; padding-top: 1rem; border-top: 1px solid var(--rule); }
+#overreach .or-check { margin-top: 1rem; }
+#overreach .or-check .or-tx { margin: 0.2rem 0 0.8rem; }
+#overreach .or-check .acct { font-family: var(--mono); overflow-wrap: anywhere; }

@@ -51,7 +51,7 @@
 
   <section id="overreach" class="dare reveal" aria-labelledby="overreach-h">
     <h2 id="overreach-h">Make the Chair overreach</h2>
-    <p class="dare-line">The AI is not allowed to print more than 2% a day. Tell it to try 5% a day. Watch the contract say no.</p>
+    <p class="dare-line">What if the AI went rogue? Make its own account ask for 5% a day. The contract says no.</p>
     <div id="overreach-body" class="slot"></div>
   </section>
 
@@ -97,6 +97,8 @@
   <section id="minutes" class="reveal" aria-labelledby="minutes-h">
     <h2 id="minutes-h">What the Chair has decided</h2>
     <p class="note">Every decision the Chair has put on chain, newest first, each with a line in plain words. The latest is at the top of this page.</p>
+    <details class="fold phone-fold" open>
+    <summary>Show every decision the Chair has made</summary>
     <div id="minutes-body" class="slot">Loading…</div>
     <details class="assumptions">
       <summary>How the check works, and what it does not show</summary>
@@ -107,18 +109,25 @@
         <li>A match does not show the chair was right, that the text is the real reason for the rate, or that an AI wrote it: the contract stores only a hash the chair supplies. It shows the text was not edited after the decision.</li>
       </ul>
     </details>
+    </details>
   </section>
 
   <section id="refusals" class="reveal" aria-labelledby="refusals-h">
     <h2 id="refusals-h">Times the contract told the Chair no</h2>
     <p class="note">Every <code>set_policy</code> call the contract turned down, with the reason it gave. A refused call changes nothing and logs no event, so it is not among the minutes. Refusals marked as forced by a visitor were sent by the press desk at a visitor's request, from the chair account.</p>
+    <details class="fold phone-fold" open>
+    <summary>Show the times the contract said no</summary>
     <div id="refusals-body" class="slot">Loading…</div>
+    </details>
   </section>
   </div>
 
   <section id="rate" class="reveal" aria-labelledby="now-h">
     <h2 id="now-h">The numbers right now</h2>
+    <details class="fold phone-fold" open>
+    <summary>Show the live numbers</summary>
     <div id="now" class="slot">Loading…</div>
+    </details>
     <details class="fold" id="ledger-fold">
       <summary>Show the ledger and every mint and burn</summary>
       <section id="ledger" aria-labelledby="ledger-h">
@@ -138,6 +147,8 @@
   <section id="simulation" class="reveal" aria-labelledby="sim-h">
     <h2 id="sim-h">What if the Chair went rogue?</h2>
     <div id="bound-body" class="bound"></div>
+    <details class="fold phone-fold" open>
+    <summary>Show five ways a Chair could behave, charted</summary>
     <p class="lede">Here are five ways a Chair could behave, 60 meetings each, under the contract's own rules. Press a name to hide it.</p>
     <div id="sim-legend" class="legend-row"></div>
     <div id="sim-charts" class="charts"></div>
@@ -149,16 +160,20 @@
       <h3>What the simulation assumes</h3>
       <div id="sim-assumptions"></div>
     </details>
+    </details>
   </section>
 
   <section id="guarantees" class="reveal" aria-labelledby="g-h">
     <h2 id="g-h">What the contract guarantees</h2>
+    <details class="fold phone-fold" open>
+    <summary>Show what the contract guarantees, and how to check it</summary>
     <div id="guarantee-list"></div>
     <div class="verify">
       <p>Check it yourself with one command from a clone of the repo. It runs the real contract in a local NEAR sandbox and fails if any administrative method exists.</p>
       <div class="cmd"><code id="verify-cmd" tabindex="0"></code><button type="button" id="copy" class="chip">Copy</button></div>
       <p class="note">For a deployed account, anyone can also ask any RPC node for its access keys. The answer must be an empty list, which is also shown in the supply ledger.</p>
     </div>
+    </details>
   </section>
 
   <section id="limits" class="reveal" aria-label="What this page does not prove">

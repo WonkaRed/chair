@@ -4,6 +4,7 @@
 import { formatTokens } from "./amounts.js";
 import { IMPEACHMENT } from "./bound.js";
 import { clear, h } from "./dom.js";
+import { phoneFold } from "./phonefold.js";
 import { safeText, showAccount } from "./text.js";
 import { plainPct } from "./views.js";
 
@@ -29,6 +30,7 @@ export function holdersModel(d) {
     staked: supply.totalStaked,
     total: supply.totalSupply,
     chair: policy.chair,
+    epoch: policy.epoch,
     streak: policy.streak,
     needed,
     thresholdBps: params.impeachThresholdBps,
@@ -72,16 +74,18 @@ export function renderHolders(doc, host, m, { explorer = null, specUrl = null, s
   // `append(null)` would write the text "null": nodes only.
   host.append(...[
     h(doc, "div", { class: "hold-grid" },
-      h(doc, "div", { class: "hold hold-big" }, h(doc, "span", { class: "k" }, "Staked right now"), h(doc, "span", { class: "hv" }, `${m.stakedPct.toFixed(2)}%`),
+      h(doc, "div", { class: "hold hold-big" }, h(doc, "span", { class: "k" }, `Staked now, at meeting ${m.epoch}`), h(doc, "span", { class: "hv" }, `${m.stakedPct.toFixed(2)}%`),
         meter(doc, m.stakedPct, `${m.stakedPct.toFixed(2)}% of all coins are staked`),
-        h(doc, "span", { class: "s" }, `${coins(m.staked)} of ${coins(m.total)} coins. Every coin the Chair prints is shared among these. Coins that are not staked get none, so their share shrinks. This moves whenever someone stakes or takes coins out; the Chair's minutes give the share as it was at each meeting, so the two can differ.`)),
-      stat(doc, "", "The Chair in the seat", h(doc, "span", { class: "acct" }, showAccount(m.chair)), `${m.streak} meetings in office.`),
+        h(doc, "span", { class: "s" }, `${coins(m.staked)} of ${coins(m.total)} coins. Every coin the Chair prints is shared among these. Coins that are not staked get none, so their share shrinks. This moves whenever someone stakes or takes coins out; the Chair's minutes give the share as it was at the meeting they were written, so an earlier meeting's figure can differ.`)),
+      stat(doc, "", "Who holds the seat", "The Chair's account", h(doc, "span", { class: "acct" }, showAccount(m.chair)), `${m.streak} meetings in office.`),
       stat(doc, "", "What it takes to fire the Chair", `${coins(m.needed)} coins`, `A challenger needs more than ${rule} behind them. Each staker backs one challenger at a time, and a bigger holder counts for more.`)),
-    h(doc, "h3", {}, "Challengers right now"),
-    challengerRows(doc, m),
-    showPast ? h(doc, "div", { class: "hold-past" },
-      h(doc, "h3", {}, "It has already happened once"),
-      h(doc, "p", {}, `At meeting ${IMPEACHMENT.epoch}, stakers backing ${IMPEACHMENT.backing} of the ${IMPEACHMENT.staked} staked coins replaced the first Chair with ${IMPEACHMENT.newChair}. It was my own scripted test accounts voting, not a crowd. It shows the mechanism works, not that anyone is using it. `, link)) : null,
+    // On a phone the challenger list and the one past replacement are one tap away; everywhere else they are simply there.
+    phoneFold(doc, "Show the challengers and the past replacement",
+      h(doc, "h3", {}, "Challengers right now"),
+      challengerRows(doc, m),
+      showPast ? h(doc, "div", { class: "hold-past" },
+        h(doc, "h3", {}, "It has already happened once"),
+        h(doc, "p", {}, `At meeting ${IMPEACHMENT.epoch}, stakers backing ${IMPEACHMENT.backing} of the ${IMPEACHMENT.staked} staked coins replaced the first Chair with ${IMPEACHMENT.newChair}. It was my own scripted test accounts voting, not a crowd. It shows the mechanism works, not that anyone is using it. `, link)) : null),
     h(doc, "p", { class: "note" }, "Holders do not set the rate. The Chair does, inside the contract's limits. Holders decide who the Chair is."),
     h(doc, "details", { class: "fold" },
       h(doc, "summary", {}, "How a holder does it"),

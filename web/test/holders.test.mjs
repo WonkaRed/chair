@@ -16,7 +16,7 @@ const { UNIT } = await site("amounts.js");
 const coins = (n) => BigInt(n) * UNIT;
 const params = { epochMs: 90_000, startMs: 1, maxRateBps: 200, maxStepBps: 50, impeachThresholdBps: 3000, quorumBps: 500 };
 const supply = { totalSupply: coins(1_600_000), totalStaked: coins(600_000) };
-const policy = { chair: "challenger.chair-coin-3.testnet", streak: 654, rateBps: 25 };
+const policy = { chair: "challenger.chair-coin-3.testnet", streak: 654, rateBps: 25, epoch: 700 };
 const text = (n) => n.textContent.replaceAll("\u202f", " "); // coins are grouped with a narrow no-break space
 const find = (n, pred) => [...walk(n)].filter((x) => x.tag !== undefined && pred(x));
 
@@ -45,8 +45,13 @@ test("the panel says the live figures in plain words and the past impeachment wi
   const m = holdersModel({ params, policy, supply, candidates: [] });
   renderHolders(doc, el, m, { explorer: "https://explorer.example", specUrl: "https://repo.example/SPEC.md" });
   const t = text(el);
-  assert.match(t, /Staked right now37\.50%/);
-  assert.match(t, /the Chair's minutes give the share as it was at each meeting, so the two can differ\./);
+  assert.match(t, /Staked now, at meeting 700.*37\.50%/, "the figure says which moment it is from");
+  assert.match(t, /the Chair's minutes give the share as it was at the meeting they were written, so an earlier meeting's figure can differ\./);
+  const fold = find(el, (n) => n.tag === "details" && /\bphone-fold\b/.test(n.attrs?.class ?? ""));
+  assert.equal(fold.length, 1, "the challenger list and the past replacement sit in one phone fold");
+  assert.match(text(fold[0]), /Challengers right now.*It has already happened once/);
+  assert.doesNotMatch(text(fold[0]), /Who holds the seat/, "the figures above the fold stay outside it");
+  assert.match(t, /Who holds the seat.*The Chair's account.*challenger\.chair-coin-3\.testnet.*654 meetings in office\./, "a human label leads, the raw account name is the detail");
   assert.match(t, /600 000 of 1 600 000 coins\. Every coin the Chair prints is shared among these\./);
   assert.match(t, /654 meetings in office\./);
   assert.match(t, /180 000 coins/);
@@ -112,7 +117,7 @@ test("get_candidates is read strictly: a list of accounts with a U128 backing, a
 
 const views = { get_params: { epoch_ms: 90_000, start_ms: 1, max_rate_bps: 200, max_step_bps: 50, impeach_threshold_bps: 3000, quorum_bps: 500 }, get_policy: { epoch: 5, rate_bps: 25, chair: "c.testnet", streak: 2, last_set_epoch: 4, epoch_ends_ms: 9 }, get_supply: { epoch: 5, launch_supply: "1000000000000000000000000000000", minted: "0", burned: "0", total_supply: "1000000000000000000000000000000", total_staked: "0", reward_pool: "0" } };
 
-test("loadLog hands over the four quick views before it touches the slow index, and a candidates view that fails does not fail the page", async () => {
+test("loadLog hands over the four quick views without waiting for the slow index, and a candidates view that fails does not fail the page", async () => {
   const order = [];
   const transport = {
     kind: "live",
@@ -124,6 +129,7 @@ test("loadLog hands over the four quick views before it touches the slow index, 
     },
     accessKeys: async () => 0,
     txHashes: async () => {
+      await new Promise((done) => setTimeout(done, 5)); // the index is asked at once, beside the views, and answers later than they do
       order.push("txHashes");
       return [];
     },
@@ -131,7 +137,7 @@ test("loadLog hands over the four quick views before it touches the slow index, 
   };
   let seen = null;
   const d = await loadLog(transport, { onViews: (v) => { order.push("onViews"); seen = v; } });
-  assert.ok(order.indexOf("onViews") < order.indexOf("txHashes"), "the page has its numbers before the index is asked");
+  assert.ok(order.indexOf("onViews") < order.indexOf("txHashes"), "the page has its numbers before the index has answered");
   assert.deepEqual(Object.keys(seen).sort(), ["candidates", "params", "policy", "supply"]);
   assert.equal(seen.candidates, null);
   assert.equal(d.candidates, null);

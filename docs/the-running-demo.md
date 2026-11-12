@@ -15,7 +15,7 @@ The Chair's latest minutes, the written record of a decision, as of 2026-11-11:
 
 > The Committee of One has met. The Chair changes the rate from printing 0.29% a day to printing 0.23% a day, a little at every 90-second meeting, for holders who staked. 40.65% of all coins are staked. Supply has moved less than 0.01% over the last 6 meetings. The Chair asks that this be recorded.
 >
-> Meeting 31 (an "epoch" in [how it works](how-it-works.md)), written by the AI model running on my own GPUs in the chair's seat. The text is public in [the transaction](https://testnet.nearblocks.io/txns/8c7e6FYiHMob4diojGo9RPj8y6LP6WPtmvBXtEQb7izN), and its SHA-256, a fingerprint of the text, is the `reasoning_hash` the chain holds.
+> Meeting 31 (the Chair holds one every 90 seconds; [how it works](how-it-works.md)), written by the AI model running on my own GPUs in the chair's seat. The text is public in [the transaction](https://testnet.nearblocks.io/txns/8c7e6FYiHMob4diojGo9RPj8y6LP6WPtmvBXtEQb7izN), and its SHA-256, a fingerprint of the text, is the `reasoning_hash` the chain holds.
 
 ## The running chair, and the page
 

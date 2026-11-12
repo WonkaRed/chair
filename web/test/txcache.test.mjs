@@ -51,7 +51,7 @@ class MemStore {
  * A chain and an index that answer from the recorded run. `txs` is what the index holds; `up` false makes every index call a network error (a 429
  * without CORS headers looks like that); `script` is a list of replies (or null for "answer normally") for the next /v0/transactions calls.
  */
-function world({ txs = FULL, store = new MemStore() } = {}) {
+function world({ txs = FULL, store = new MemStore(), peek = true } = {}) {
   const w = { up: true, script: [], batches: [], accountCalls: 0, slept: [], store };
   const fetchImpl = async (url, init) => {
     const body = JSON.parse(init.body);
@@ -59,7 +59,8 @@ function world({ txs = FULL, store = new MemStore() } = {}) {
       if (!w.up) throw new TypeError("Failed to fetch");
       if (url.endsWith("/v0/account")) {
         w.accountCalls++;
-        return ok({ account_txs: txs.map((t) => ({ transaction_hash: hashOf(t) })) });
+        const rows = txs.map((t) => ({ transaction_hash: hashOf(t) }));
+        return ok({ account_txs: body.desc ? rows.reverse() : rows });
       }
       w.batches.push(body.tx_hashes);
       const scripted = w.script.shift();
@@ -70,7 +71,11 @@ function world({ txs = FULL, store = new MemStore() } = {}) {
     const view = { get_params: fixture.params, get_policy: w.policy ?? fixture.policyNow, get_supply: p.block_id === undefined ? fixture.supplyNow : fixture.supplyAtLastTx, get_candidates: [] }[p.method_name];
     return ok({ jsonrpc: "2.0", result: { result: bytes(view), logs: [] } });
   };
-  w.transport = () => rpcTransport({ rpcUrls: [A], indexerUrl: IDX, account: TOKEN, fetchImpl, sleep: async (ms) => void w.slept.push(ms), store: w.store });
+  w.transport = () => {
+    const t = rpcTransport({ rpcUrls: [A], indexerUrl: IDX, account: TOKEN, fetchImpl, sleep: async (ms) => void w.slept.push(ms), store: w.store });
+    if (!peek) delete t.peek; // the full read alone, for tests that script the failures of its batches
+    return t;
+  };
   w.load = () => loadLog(w.transport());
   return w;
 }
@@ -191,14 +196,14 @@ test("what was kept is forgotten once it is shown wrong: a log that does not add
 });
 
 test("a failed batch is retried once after one short pause and the log is complete; a batch that fails twice makes the log incomplete", async () => {
-  const w = world({ txs: FULL.slice(0, 20) });
+  const w = world({ txs: FULL.slice(0, 20), peek: false });
   w.script = [throttled];
   const d = await w.load();
   assert.equal(d.txCount, 20, "the log was read");
   assert.equal(w.batches.length, 2, "one failure and the answer");
   assert.deepEqual(w.slept, [400], "one short pause");
 
-  const dead = world({ txs: FULL.slice(0, 20) });
+  const dead = world({ txs: FULL.slice(0, 20), peek: false });
   dead.script = [throttled, throttled, throttled];
   const gone = await dead.load();
   assert.equal(gone.status, "incomplete");
@@ -209,13 +214,13 @@ test("a failed batch is retried once after one short pause and the log is comple
 
 test("what arrived before a failure is kept, and the failure stops the other readers", async () => {
   const store = new MemStore();
-  const w = world({ store });
+  const w = world({ store, peek: false });
   const second = FULL.slice(20).map(hashOf);
   w.script = [null, throttled, throttled].map((s) => s && (() => s()));
   const d = await w.load();
   assert.equal(d.status, "incomplete");
   assert.equal(Object.keys(JSON.parse(store.getItem(KEY))).length, 20, "the batch that arrived is saved");
-  const next = world({ store });
+  const next = world({ store, peek: false });
   assert.equal((await next.load()).status, "complete");
   assert.deepEqual(next.batches, [second], "the next try asks only for the rest");
 });
@@ -306,4 +311,63 @@ test("a complete read still shows the latest decision as before", async () => {
   const text = await hero(d);
   assert.match(text, /Latest minutes of the Committee of One/);
   assert.doesNotMatch(text, /saved copy/);
+});
+
+test("the latest decision is offered after one request for the newest transactions, before the rest of the list is read, and no hash is asked twice", async () => {
+  const w = world();
+  const atOffer = [];
+  const d = await loadLog(w.transport(), { onLatest: ({ decision, policy }) => atOffer.push({ batches: w.batches.length, decision, policy }) });
+  assert.equal(d.status, "complete");
+  assert.equal(atOffer.length, 1, "offered once");
+  assert.equal(atOffer[0].batches, 1, "one request had been made for transactions");
+  assert.equal(atOffer[0].decision.tx, d.decisions[0].tx, "the decision offered is the one the whole read ends on");
+  assert.deepEqual(w.batches[0], FULL.slice(1).reverse().map(hashOf), "the twenty newest hashes, newest first");
+  const asked = w.batches.flat();
+  assert.equal(new Set(asked).size, asked.length, "nothing asked twice");
+  assert.deepEqual(w.batches.map((b) => b.length), [20, 1]);
+});
+
+test("what was read ahead is kept for the next visit like everything else", async () => {
+  const w = world();
+  await w.load();
+  assert.equal(Object.keys(JSON.parse(w.store.getItem(KEY))).length, FULL.length, "the twenty read ahead and the one read after them");
+  const again = world({ store: w.store });
+  const offered = [];
+  await loadLog(again.transport(), { onLatest: (l) => offered.push(l) });
+  assert.deepEqual(again.batches, [], "a warm visit asks for no transaction at all, the newest included");
+  assert.equal(offered.length, 1, "and still has the latest decision for the hero at once");
+});
+
+test("no decision at least as new as the chain's last one in the newest transactions: nothing is offered early, and the full read still answers", async () => {
+  const w = world();
+  w.policy = { ...fixture.policyNow, last_set_epoch: fixture.policyNow.epoch + 50 };
+  const offered = [];
+  const d = await loadLog(w.transport(), { onLatest: (l) => offered.push(l) });
+  assert.equal(offered.length, 0);
+  assert.equal(d.status, "complete");
+});
+
+test("a read-ahead the index throttles changes nothing for the full read", async () => {
+  const w = world();
+  w.script = [throttled, throttled]; // both tries of the read-ahead; the full read then asks again and is answered
+  const offered = [];
+  const d = await loadLog(w.transport(), { onLatest: (l) => offered.push(l) });
+  assert.equal(offered.length, 0);
+  assert.equal(d.status, "complete");
+  assert.equal(d.txCount, fixture.txs.length);
+});
+
+test("loadLog never offers the latest decision after it has returned", async () => {
+  const w = world();
+  const t = w.transport();
+  const peek = t.peek;
+  let release;
+  const held = new Promise((done) => (release = done));
+  t.peek = async (page) => (await held, peek(page)); // the read-ahead outlives the read
+  const offered = [];
+  const d = await loadLog(t, { onLatest: (l) => offered.push(l) });
+  assert.equal(d.status, "complete", "the read ended without waiting for the read-ahead");
+  release();
+  await new Promise((done) => setTimeout(done, 20));
+  assert.equal(offered.length, 0);
 });

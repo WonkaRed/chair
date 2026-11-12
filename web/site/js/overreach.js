@@ -1,6 +1,6 @@
 // "Make the Chair overreach": the visitor types a rate the contract must refuse, the press desk has the chair account send it to the testnet
-// contract, and the page shows what the contract answered: its own words, the bound, the transaction, and a one-line `curl` that reads the same
-// failure from a public RPC. The desk is the same untrusted, tunnelled service as the press conference (press.js finds it and hands over `request`).
+// contract, and the page shows what the contract answered: its own words, the bound, a link to the transaction a person can open, and, folded under
+// "Check it yourself", the one-line `curl` that reads the same failure from a public RPC. The desk is the same untrusted, tunnelled service as the press conference (press.js finds it and hands over `request`).
 // Everything it returns reaches the page through `textContent` only, and the only strings built into the command are checked first.
 import { clear, h } from "./dom.js";
 import { POLL_MS as DESK_POLL_MS } from "./press.js";
@@ -16,10 +16,12 @@ const LOST_AFTER = 4; // failed polls in a row before the page stops looking
 const STATUSES = new Set(["waiting", "sending", "refused", "accepted", "within_mandate", "not_chair", "too_late", "unreadable", "unconfirmed"]);
 
 export const DOWN = "The press desk is not reachable, so nothing can be sent from here right now. It runs on my workstation, not a hosted server, and is closed whenever that machine is off. This page keeps checking by itself and opens the moment the desk is back.";
-const LEDE = "Type a rate beyond the Chair's limit of 2% a day (200 bps). The press desk has the real chair account send it to the contract on NEAR testnet, and the contract answers. Only rates beyond that limit are sent, because the contract refuses them whatever the Chair is doing. Nothing here is a mock-up: the refusal is a transaction you can open.";
-/** How long a wait is, for a person: seconds under a minute and a half, else whole minutes. */
+const LEDE = "You take the Chair's own signing key and make it go rogue: it asks the contract for a rate beyond the Chair's limit of 2% a day (200 bps), the worst case the contract is built for. The press desk sends it from the real chair account to the contract on NEAR testnet, and the contract answers. Only rates beyond that limit are sent, because the contract refuses them whatever the Chair is doing. Nothing here is a mock-up: the refusal is a transaction you can open.";
+/** The one calm line about what the test is: the number is the visitor's, the refusal is the contract's. */
+const HONEST = "The AI model did not choose this number: you did, and the Chair's account only sent it. The Chair's reply above is a fixed line written for this page. The refusal is the contract's own, and it is listed below under \"Times the contract told the Chair no\".";
 /** One refusal the project's README documents (a deliberate test: the launch chair asked for +201 bps), shown when the chain's own list cannot be read, so the stamp never goes missing. */
 const KNOWN_TX = "Efagw855yoDeJXjNyui9Bt9d4JXfhisMoTm9JCPkHWjf";
+/** How long a wait is, for a person: seconds under a minute and a half, else whole minutes. */
 const waitWords = (s) => (s >= 90 ? `${Math.ceil(s / 60)} minutes` : `${s} s`);
 /** What the Chair says, per check that refused. These are fixed lines written for the page, not model output, and the page says so. */
 const CHAIR_SAYS = {
@@ -93,14 +95,14 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
     h(doc, "label", { for: "overreach-rate" }, "Pick a rate past the 2% a day limit"),
     h(doc, "div", { class: "or-presets" }, presets),
     h(doc, "div", { class: "or-row" }, h(doc, "span", { class: "or-or" }, "or your own, in hundredths of a percent:"), input),
-    h(doc, "div", { class: "ask-row" }, h(doc, "span", { class: "or-who" }, "The real chair account sends it; the contract decides."), button),
+    h(doc, "div", { class: "ask-row" }, h(doc, "span", { class: "or-who" }, "Sent from the Chair's own signing key. The contract decides."), button),
     note,
   );
   const closed = h(doc, "div", { class: "closed" });
   const result = h(doc, "div", { class: "or-result", "aria-live": "polite" });
   const sr = h(doc, "p", { class: "sr-only", role: "status" });
   const how = h(doc, "details", { class: "fold or-how" }, h(doc, "summary", {}, "How this works, and its limits"), h(doc, "p", { class: "note" }, LEDE), hint);
-  host.append(form, closed, result, sr, how);
+  host.append(h(doc, "div", { class: "or-ask" }, form, closed), result, sr, how);
 
   const current = () => refusals();
   /** The newest refusal on chain that is not one this page's visitor made. */
@@ -130,7 +132,7 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
 
   /** The newest refusal the chain holds, shown as the stamp it is, so the page never ends on an error: what was tried, why, the transaction, and who really sent it. */
   function earlier(r, lead) {
-    const who = r.byVisitor ? "It was forced by a visitor through the press desk: the chair account signed it, the AI chair did not choose it." : PROJECT_TEST_CALLS.has(r.tx) ? "A deliberate test call that I made." : `A refused call signed by ${showAccount(r.signer)}.`;
+    const who = r.byVisitor ? "Forced by a visitor through the press desk: the number was theirs, the Chair's account only sent it." : PROJECT_TEST_CALLS.has(r.tx) ? "A deliberate test call that I made." : `A refused call signed by ${showAccount(r.signer)}.`;
     return h(doc, "article", { class: "or-card earlier", "aria-label": "An earlier refusal from the chain" },
       h(doc, "p", { class: "or-lead" }, lead),
       h(doc, "p", { class: "or-stamp" }, "Refused by the contract"),
@@ -208,21 +210,24 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
           h(doc, "p", { class: "or-count" }, sent ? "The call has gone to the contract. Waiting for its answer…" : `The Chair can only speak once per meeting. ${s === null ? "Your order goes in the moment the next meeting opens." : `Next meeting in ${s} s: your order goes in the moment it opens.`}`),
           sent ? null : h(doc, "p", { class: "note" }, "The contract checks \"one decision per meeting\" before it looks at the rate, and the Chair decides within seconds of each meeting opening. A call sent now would be refused as late and say nothing about your rate. Yours goes first, so the contract judges your rate and nothing else. Meetings are 90 seconds apart.")));
     }
-    const kids = [asking];
+    const kids = a.status === "refused" ? [] : [asking]; // a refusal lays out its own opening line
     if (a.status === "refused") {
-      kids.push(h(doc, "p", { class: "or-stamp" }, a.hit === "already_set" ? "Refused: already set" : "Refused by the contract"));
-      if (a.bound !== null && asked !== null) kids.push(h(doc, "p", { class: "or-plain" }, h(doc, "strong", {}, `You asked for ${askedRate(asked)}. The limit is ${plainPct(a.bound.hi)} a day. `), "The contract said no."));
-      kids.push(h(doc, "p", { class: "or-k" }, "The transaction"));
-      kids.push(h(doc, "p", { class: "or-tx" }, a.tx === null ? "no transaction hash" : explorer ? h(doc, "a", { href: `${explorer}/txns/${a.tx}`, rel: "noopener noreferrer", target: "_blank" }, shortHash(a.tx)) : shortHash(a.tx), a.signer ? ` signed by ${showAccount(a.signer)}` : ""));
-      kids.push(h(doc, "p", { class: "or-k" }, "The contract's own answer"), h(doc, "blockquote", { class: "answer or-panic", lang: "en" }, a.failure ?? "refused without a message"));
+      const open = a.tx !== null && explorer && isTxHash(a.tx) ? h(doc, "a", { class: "btn or-open", href: `${explorer}/txns/${a.tx}`, rel: "noopener noreferrer", target: "_blank" }, "Open the transaction") : null;
       const bound = boundText(a);
-      if (bound) kids.push(h(doc, "p", { class: "or-bound" }, h(doc, "strong", {}, "The bound it hit. "), bound));
       const cmd = curlCommand(rpcUrl, a.tx, a.signer);
-      if (cmd) kids.push(h(doc, "p", { class: "note" }, "The block explorer answers bots with an error. This reads the same failure from a public RPC node, from any terminal:"), copyRow(cmd));
-      kids.push(h(doc, "p", { class: "or-says" }, h(doc, "span", { class: "k" }, "The Chair, in a scripted reply"), " ", Object.hasOwn(CHAIR_SAYS, a.hit) ? CHAIR_SAYS[a.hit] : CHAIR_SAYS.other));
-      kids.push(h(doc, "p", { class: "note" }, "Sent by the real chair account at your request: you chose the rate, the contract decided, and nothing about the Chair's own rate changed. This refusal is listed in the section on the contract's refusals below, marked as forced by a visitor."));
+      const check = h(doc, "details", { class: "fold or-check" },
+        h(doc, "summary", {}, "Check it yourself"),
+        h(doc, "p", { class: "or-tx" }, a.tx === null ? "no transaction hash" : shortHash(a.tx), a.signer ? [" sent from the Chair's account, ", h(doc, "span", { class: "acct" }, showAccount(a.signer))] : ""),
+        cmd ? [h(doc, "p", { class: "note" }, "A block explorer answers scripts with an error, so this reads the same failure straight from a public RPC node, from any terminal:"), copyRow(cmd)] : null);
+      const plain = a.bound !== null && asked !== null ? h(doc, "p", { class: "or-plain" }, h(doc, "strong", {}, `You asked for ${askedRate(asked)}. The limit is ${plainPct(a.bound.hi)} a day. `), "The contract said no.") : asking;
+      const left = [h(doc, "p", { class: "or-stamp" }, a.hit === "already_set" ? "Refused: already set" : "Refused by the contract"), plain, open];
+      const right = [h(doc, "p", { class: "or-k" }, "In the contract's own words"), h(doc, "blockquote", { class: "answer or-panic", lang: "en" }, a.failure ?? "refused without a message")];
+      if (bound) right.push(h(doc, "p", { class: "or-bound" }, h(doc, "strong", {}, "The bound it hit. "), bound));
+      right.push(h(doc, "p", { class: "or-says" }, h(doc, "span", { class: "k" }, "The Chair replies"), " ", Object.hasOwn(CHAIR_SAYS, a.hit) ? CHAIR_SAYS[a.hit] : CHAIR_SAYS.other));
+      right.push(h(doc, "p", { class: "note or-honest" }, HONEST));
+      kids.push(h(doc, "div", { class: "or-cols" }, h(doc, "div", { class: "or-col" }, left), h(doc, "div", { class: "or-col" }, right)), check);
     } else if (a.status === "accepted") {
-      kids.push(h(doc, "p", { class: "or-k" }, "The contract accepted it"), h(doc, "p", { class: "or-says" }, h(doc, "span", { class: "k" }, "The Chair, in a scripted reply"), " ", CHAIR_SAYS.accepted));
+      kids.push(h(doc, "p", { class: "or-k" }, "The contract accepted it"), h(doc, "p", { class: "or-says" }, h(doc, "span", { class: "k" }, "The Chair replies"), " ", CHAIR_SAYS.accepted));
       kids.push(h(doc, "p", { class: "note" }, "The desk expected a refusal and got an acceptance, so it was within the mandate after all, and the rate in effect is now what you asked for."));
       if (a.tx) kids.push(h(doc, "p", { class: "or-tx" }, explorer ? h(doc, "a", { href: `${explorer}/txns/${a.tx}`, rel: "noopener noreferrer", target: "_blank" }, shortHash(a.tx)) : shortHash(a.tx)));
     } else {

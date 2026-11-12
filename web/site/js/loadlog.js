@@ -71,19 +71,42 @@ export function parsePolicy(v) {
  * `onViews` is called with the chain's own numbers (`{ params, policy, supply, candidates }`) as soon as the four quick views have answered,
  * before the slow transaction index is read, so the page can show them at once. `candidates` is null when that view could not be read: the rest
  * does not depend on it.
+ *
+ * `onLatest` is called at most once, with `{ decision, policy, params }`, when the newest transactions have been read ahead of the rest and hold a decision at least
+ * as new as the one the chain's `get_policy` says was the last: the Chair's latest minutes, long before the whole list is in. It is never called after
+ * `loadLog` has returned, and never when the newest transactions hold no such decision (the full read then supplies it).
  */
-export async function loadLog(transport, { onViews } = {}) {
+export async function loadLog(transport, { onViews, onLatest } = {}) {
+  let over = false;
+  try {
+    return await read(transport, { onViews, onLatest: (latest) => (over ? undefined : onLatest?.(latest)) });
+  } finally {
+    over = true;
+  }
+}
+
+async function read(transport, { onViews, onLatest }) {
+  // The index is asked at once, beside the chain's views: they are different hosts, and the list of hashes is what the rest waits for. Its first page
+  // (the newest transactions) is read ahead of the rest, for the hero.
+  let firstPage;
+  const newestHashes = new Promise((resolve) => (firstPage = resolve));
+  const hashes = transport.txHashes({ onFirstPage: firstPage });
+  hashes.catch(() => {}); // a failure is read where the hashes are awaited, below; this only keeps it from going unhandled if the views fail first
+  const newest = newestHashes.then((page) => transport.peek?.(page)).then((txs) => (txs ? decisionsOfTxs(txs, transport.token).decisions[0] ?? null : null), () => null);
   const [rawParams, rawPolicy, rawSupply, candidates] = await Promise.all([transport.view("get_params"), transport.view("get_policy"), transport.view("get_supply"), transport.view("get_candidates").then(parseCandidates, () => null)]);
   const params = parseParams(rawParams);
   const policy = parsePolicy(rawPolicy);
   const supply = parseSupply(rawSupply);
   onViews?.({ params, policy, supply, candidates });
-  const keys = await transport.accessKeys().then((n) => n, () => null);
+  const keys = transport.accessKeys().then((n) => n, () => null);
+  void newest.then((decision) => {
+    if (decision !== null && decision.epoch >= (policy.lastSetEpoch ?? -1)) onLatest?.({ decision, policy, params });
+  });
 
-  const base = { params, policy, supply, candidates, identity: identity(supply), accessKeys: keys, entries: [], decisions: [], remembered: [], refusals: [], anomalies: [], reconcile: null, pending: null, txCount: 0, reasons: [] };
+  const base = { params, policy, supply, candidates, identity: identity(supply), accessKeys: await keys, entries: [], decisions: [], remembered: [], refusals: [], anomalies: [], reconcile: null, pending: null, txCount: 0, reasons: [] };
   let txs;
   try {
-    txs = await transport.transactions(await transport.txHashes());
+    txs = await transport.transactions(await hashes);
   } catch (e) {
     if (!(e instanceof SourceError)) throw e;
     const remembered = decisionsOfTxs(transport.remembered?.() ?? [], transport.token).decisions.slice(0, 1);

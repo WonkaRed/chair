@@ -87,11 +87,19 @@ test("a good rate is POSTed as JSON with nothing else, then polled by id until t
   assert.match(out, /Smart contract panicked: rate_bps out of bounds: must be within -200\.\.=200/);
   assert.match(out, /never allows a rate outside −200 bps to \+200 bps/);
   assert.doesNotMatch(out, /step/i, "no step wording anywhere: only rates beyond the absolute limit are sent");
-  assert.match(out, /scripted reply/);
-  assert.match(out, /real chair account sends it; the contract decides/);
+  assert.doesNotMatch(out, /scripted/i, "no disclaimer on the row: one calm line says what the test is");
+  assert.match(out, /The AI model did not choose this number: you did, and the Chair's account only sent it\./);
+  assert.equal(out.match(/did not choose/g).length, 1, "said once, not on every row");
+  assert.match(out, /Sent from the Chair's own signing key\. The contract decides\./);
   const link = find(p.el, (n) => n.tag === "a")[0];
   assert.equal(link.attrs.href, `${EXPLORER}/txns/${TX}`);
+  assert.equal(text(link), "Open the transaction", "a plain link a person can open leads");
+  const fold = find(p.el, (n) => n.tag === "details" && n.attrs.class.includes("or-check"))[0];
+  assert.equal(text(find(fold, (n) => n.tag === "summary")[0]), "Check it yourself");
   const code = find(p.el, (n) => n.tag === "code")[0];
+  assert.ok(find(fold, (n) => n === code).length === 1, "the raw command sits inside the fold, not on the main path");
+  assert.ok(text(fold).includes("sent from the Chair's account"), "the signer is named as the Chair's account, the raw name second");
+  assert.ok(out.indexOf("Open the transaction") < out.indexOf("curl -s"), "the link comes before the command");
   assert.match(text(code), new RegExp(`^curl -s ${RPC} .*"tx_hash":"${TX}","sender_account_id":"${SIGNER}".* \\| head -1$`));
   await find(p.el, (n) => n.tag === "button" && text(n) === "Copy")[0].listeners.click[0]();
   assert.equal(p.wrote[0], text(code));
@@ -217,7 +225,7 @@ test("desk closed: it says so plainly, offers no form, and lists the chain's las
   const p = await panel(() => res(500, null), { open: false, refusals: () => ({ refusals: rows, policy: { rateBps: 0 } }) });
   const out = text(p.el);
   assert.ok(out.includes(DOWN));
-  assert.match(out, /forced by a visitor/);
+  assert.match(out, /forced by a visitor/i);
   assert.match(out, /the chair account's own call/);
   assert.equal(find(p.el, (n) => n.tag === "button" && n.attrs.type === "submit")[0].disabled, true);
   assertInert(p.el);
@@ -364,7 +372,7 @@ test("a cap or per-address 429 never dead-ends: the latest real refusal is shown
     assert.match(out, /Refused by the contract/, code);
     assert.match(out, /An earlier attempt, not yours\./, code);
     assert.match(out, /Asked for 5% a day \(\+500 bps\)/, code);
-    assert.match(out, /forced by a visitor/, code);
+    assert.match(out, /forced by a visitor/i, code);
     assert.match(out, /about 10 minutes/, code);
     assert.equal(find(p.el, (n) => n.tag === "a" && n.attrs.href === `${EXPLORER}/txns/${TX}`).length >= 1, true, "the tx link is on the page");
     assertInert(p.el);
@@ -378,7 +386,7 @@ test("a 429 with no Retry-After body falls back to a short wait, and the label i
   await a.api.submit("500");
   assert.match(a.api.state().message, /Try again in 20 s\./);
   assert.match(text(a.el), /deliberate test call that I made/);
-  assert.doesNotMatch(text(a.el), /forced by a visitor/);
+  assert.doesNotMatch(text(a.el), /forced by a visitor/i);
   const b = await panel(() => res(429, { code: "cap", retry_after_s: 30 }), { refusals: chain([ROWS[1]]) });
   await b.api.submit("500");
   assert.match(text(b.el), /A refused call signed by/);
@@ -415,7 +423,7 @@ test("desk offline: the latest refusal replays under a stamp, with the older one
   const out = text(p.el);
   assert.match(out, /Refused by the contract/);
   assert.match(out, /An earlier attempt, not yours\./);
-  assert.match(out, /forced by a visitor/);
+  assert.match(out, /forced by a visitor/i);
   assert.ok(out.includes(DOWN));
   assertInert(p.el);
 });
