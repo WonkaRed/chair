@@ -306,7 +306,7 @@ test("the refusals are labelled by what they were: every known one is a delibera
     return hostNode;
   };
   const all = draw([row(known, "launch.chair.testnet", "rate_bps out of bounds: must be within -200..=200")]);
-  assert.match(textOf(all), /All 1 were deliberate test calls made by this project to show the bounds hold, signed by launch\.chair\.testnet \(1\)\. In none of them did the AI chair choose a rate the contract refused\./);
+  assert.match(textOf(all), /All 1 were deliberate test calls that I made to show the bounds hold, signed by launch\.chair\.testnet \(1\)\. In none of them did the AI chair choose a rate the contract refused\./);
   assert.match(textOf(all), /limit of 2% \(200 bps\) either way/);
   assert.match(textOf(all), /The contract's own words: rate_bps out of bounds: must be within -200\.\.=200/, "the raw text stays, in small print");
   assert.ok([...walk(all)].some((n) => n.tag === "td" && n.attrs.title === "The contract's own words: rate_bps out of bounds: must be within -200..=200"), "and on hover");

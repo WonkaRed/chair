@@ -38,7 +38,20 @@ export function parseSupply(v) {
 
 export function parseParams(v) {
   if (!isObj(v)) throw new SourceError("rpc", "get_params: not an object");
-  return { epochMs: int(v.epoch_ms, "epoch_ms"), startMs: int(v.start_ms, "start_ms"), maxRateBps: int(v.max_rate_bps, "max_rate_bps"), maxStepBps: int(v.max_step_bps, "max_step_bps"), impeachThresholdBps: int(v.impeach_threshold_bps, "impeach_threshold_bps") };
+  return { epochMs: int(v.epoch_ms, "epoch_ms"), startMs: int(v.start_ms, "start_ms"), maxRateBps: int(v.max_rate_bps, "max_rate_bps"), maxStepBps: int(v.max_step_bps, "max_step_bps"), impeachThresholdBps: int(v.impeach_threshold_bps, "impeach_threshold_bps"), quorumBps: v.quorum_bps === undefined ? null : int(v.quorum_bps, "quorum_bps") };
+}
+
+/** `get_candidates`: who is up against the Chair and how many staked coins back each. Any other shape is an error, never a guess. */
+export function parseCandidates(v) {
+  if (!Array.isArray(v)) throw new SourceError("rpc", "get_candidates: not a list");
+  return v.map((c) => {
+    if (!isObj(c) || typeof c.candidate !== "string") throw new SourceError("rpc", "get_candidates: bad shape");
+    try {
+      return { candidate: c.candidate, backing: parseU128(c.backing, "backing") };
+    } catch (e) {
+      throw new SourceError("rpc", `get_candidates: ${e.message}`);
+    }
+  });
 }
 
 export function parsePolicy(v) {
@@ -47,14 +60,20 @@ export function parsePolicy(v) {
   return { epoch: int(v.epoch, "epoch"), rateBps: v.rate_bps, chair: v.chair, streak: int(v.streak, "streak"), lastSetEpoch: v.last_set_epoch === null || v.last_set_epoch === undefined ? null : int(v.last_set_epoch, "last_set_epoch"), epochEndsMs: int(v.epoch_ends_ms, "epoch_ends_ms") };
 }
 
-export async function loadLog(transport) {
-  const [rawParams, rawPolicy, rawSupply] = await Promise.all([transport.view("get_params"), transport.view("get_policy"), transport.view("get_supply")]);
+/**
+ * `onViews` is called with the chain's own numbers (`{ params, policy, supply, candidates }`) as soon as the four quick views have answered,
+ * before the slow transaction index is read, so the page can show them at once. `candidates` is null when that view could not be read: the rest
+ * does not depend on it.
+ */
+export async function loadLog(transport, { onViews } = {}) {
+  const [rawParams, rawPolicy, rawSupply, candidates] = await Promise.all([transport.view("get_params"), transport.view("get_policy"), transport.view("get_supply"), transport.view("get_candidates").then(parseCandidates, () => null)]);
   const params = parseParams(rawParams);
   const policy = parsePolicy(rawPolicy);
   const supply = parseSupply(rawSupply);
+  onViews?.({ params, policy, supply, candidates });
   const keys = await transport.accessKeys().then((n) => n, () => null);
 
-  const base = { params, policy, supply, identity: identity(supply), accessKeys: keys, entries: [], decisions: [], refusals: [], anomalies: [], reconcile: null, pending: null, txCount: 0, reasons: [] };
+  const base = { params, policy, supply, candidates, identity: identity(supply), accessKeys: keys, entries: [], decisions: [], refusals: [], anomalies: [], reconcile: null, pending: null, txCount: 0, reasons: [] };
   let txs;
   try {
     txs = await transport.transactions(await transport.txHashes());

@@ -23,7 +23,7 @@
     <nav aria-label="Sections">
       <a href="#overreach">Overreach</a>
       <a href="#press">Ask the Chair</a>
-      <a href="#minutes">Minutes</a>
+      <a href="#holders">Holders</a>
       <a href="#refusals">Contract said no</a>
       <a href="#guarantees">Proof</a>
     </nav>
@@ -34,22 +34,27 @@
   <section class="hero" aria-labelledby="hero-h">
     <div class="hero-copy">
       <h1 id="hero-h"><span>An AI runs this memecoin's central bank.</span> <span class="h1-second">The contract keeps it on a leash.</span></h1>
-      <div id="now-plain" class="slot">Reading the chain…</div>
+      <div id="now-plain" class="slot now-slot"><span class="sr-only" role="status">Reading the chain…</span><span class="skel" aria-hidden="true"></span><span class="skel" aria-hidden="true"></span><span class="skel skel-short" aria-hidden="true"></span></div>
       <p class="hero-do"><a class="btn btn-main" href="#overreach">Make the Chair overreach</a><a class="btn" href="#press">Ask the Chair a question</a></p>
       <noscript><p class="source fixture">This page reads the chain with JavaScript. Nothing is sent anywhere and no script is loaded from any other host.</p></noscript>
     </div>
-    <div id="hero-minutes" class="slot hero-slot">Reading the chain…</div>
+    <div id="hero-minutes" class="slot hero-slot"><div class="minutes-paper skeleton" aria-hidden="true"><p class="paper-head"><span>Latest minutes of the Committee of One</span></p><span class="skel"></span><span class="skel"></span><span class="skel"></span><span class="skel"></span><span class="skel skel-short"></span></div></div>
   </section>
+
+  <figure id="pull" class="pull" data-tx="GuLkS2VJmnxq9gL6tJH7PD2tMRUnqv7FV721cbw2Fo2a" data-epoch="525">
+    <blockquote lang="en">The Chair is neither up nor down. The Chair is seated.</blockquote>
+    <figcaption>A line the Chair gave the press, meeting 525.</figcaption>
+  </figure>
 
   <section id="overreach" class="dare reveal" aria-labelledby="overreach-h">
     <h2 id="overreach-h">Make the Chair overreach</h2>
-    <p class="dare-line">The AI is not allowed to print more than 2% at a time. Tell it to try 5%. Watch the contract say no.</p>
+    <p class="dare-line">The AI is not allowed to print more than 2% in one meeting. Tell it to try 5%. Watch the contract say no.</p>
     <div id="overreach-body" class="slot"></div>
   </section>
 
   <section id="press" class="reveal" aria-labelledby="press-h">
     <h2 id="press-h">Ask the Chair a question</h2>
-    <p class="lede">It replies from its approved statements, and the reply is entered into the on-chain minutes. Your question goes to the submitter's press desk, so keep anything private out of it.</p>
+    <p class="lede">It replies from its approved statements, and the reply is entered into the on-chain minutes. Your question goes to my press desk, so keep anything private out of it.</p>
     <div id="press-body" class="slot"></div>
   </section>
 
@@ -67,6 +72,12 @@
     </details>
   </section>
 
+  <section id="holders" class="reveal" aria-labelledby="holders-h">
+    <h2 id="holders-h">What holders control</h2>
+    <p class="lede holders-plain"><strong>Holders who stake get every new coin. Holders who stake can also fire the Chair.</strong> Here is where that stands on the chain right now.</p>
+    <div id="holders-body" class="slot holders-slot"><div class="hold-grid skeleton" aria-hidden="true"><div class="hold"><span class="skel"></span><span class="skel skel-short"></span></div><div class="hold"><span class="skel"></span><span class="skel skel-short"></span></div><div class="hold"><span class="skel"></span><span class="skel skel-short"></span></div></div></div>
+  </section>
+
   <div class="band">
   <section id="minutes" class="reveal" aria-labelledby="minutes-h">
     <h2 id="minutes-h">What the Chair has decided</h2>
@@ -76,7 +87,7 @@
       <summary>How the check works, and what it does not show</summary>
       <ul class="plain">
         <li>The contract stores the hash and logs it in a <code>policy_set</code> event with the epoch and the rate. The chair also sends the reasoning text as an extra argument of the same <code>set_policy</code> call. The contract ignores it, but it stays in the transaction, so it is public.</li>
-        <li>This page reads that text from the transaction's arguments. Decisions made before the chair sent it have no text there: for those, the chair's own saved text is used, copied into this page's files when the page is built, from the <code>docs/</code> folder of the repo. Nothing is fetched from a model or a server of ours.</li>
+        <li>This page reads that text from the transaction's arguments. Decisions made before the chair sent it have no text there: for those, the chair's own saved text is used, copied into this page's files when the page is built, from the <code>docs/</code> folder of the repo. Nothing is fetched from a model or a server of mine.</li>
         <li>Your browser computes the SHA-256 of the exact text shown and compares it with the hash read from the chain. Verified means this is the text the chair committed to in that transaction. A decision with neither text shows its hash only.</li>
         <li>A match does not show the chair was right, or that the text is the real reason for the rate. It shows the text was not edited after the decision.</li>
       </ul>
@@ -97,12 +108,12 @@
       <summary>Show the ledger and every mint and burn</summary>
       <section id="ledger" aria-labelledby="ledger-h">
         <h3 id="ledger-h">The supply ledger</h3>
-        <p class="scripted"><strong>Scripted test activity.</strong> The three holders behind these stakes, transfers and claims are test accounts run by this project, not users.</p>
+        <p class="scripted"><strong>Scripted test activity.</strong> The three holders behind these stakes, transfers and claims are test accounts I run, not users.</p>
         <div id="ledger-body" class="slot">Loading…</div>
       </section>
       <section id="log" aria-labelledby="log-h">
         <h3 id="log-h">Every mint and burn</h3>
-        <p class="scripted"><strong>Scripted test activity.</strong> The three holders whose stakes and transfers move these numbers are test accounts run by this project, not users.</p>
+        <p class="scripted"><strong>Scripted test activity.</strong> The three holders whose stakes and transfers move these numbers are test accounts I run, not users.</p>
         <div id="reconcile" class="slot"></div>
         <div id="log-body" class="slot"></div>
       </section>
@@ -111,12 +122,13 @@
 
   <section id="simulation" class="reveal" aria-labelledby="sim-h">
     <h2 id="sim-h">What if the Chair went rogue?</h2>
-    <p class="lede">Five ways a Chair could behave, 60 rounds each, under the contract's own rules. Press a name to hide it.</p>
+    <div id="bound-body" class="bound"></div>
+    <p class="lede">Here is how that plays out. Five ways a Chair could behave, 60 rounds each, under the contract's own rules. Press a name to hide it.</p>
     <div id="sim-legend" class="legend-row"></div>
     <div id="sim-charts" class="charts"></div>
     <details class="fold" id="sim-more">
       <summary>More charts, the numbers, and what it assumes</summary>
-      <p class="note">The same contract rules run for 60 epochs under five behaviours of the chair. With one-day epochs that is 60 days; the epoch length is a launch setting, and the simulation only counts epochs. It is the repo's own simulator (<code>sim/</code>) running in your browser, not a recording.</p>
+      <p class="note">The same contract rules run for 60 epochs under five behaviours of the chair. The simulation counts epochs, not time: how long an epoch lasts is a launch setting, and the live token's is in the numbers above. It is the repo's own simulator (<code>sim/</code>) running in your browser, not a recording.</p>
       <div id="sim-charts-more" class="charts"></div>
       <div id="sim-summary" class="slot"></div>
       <h3>What the simulation assumes</h3>
@@ -139,6 +151,7 @@
       <summary id="l-h">What this page does not prove</summary>
       <ul class="plain">
         <li>It does not say the chair is wise. The contract bounds the chair; it does not make it right.</li>
+        <li>It does not say a bad Chair cannot do harm. A Chair that prints at its ceiling keeps doing so for as long as the holders let it. What stops it is the holders; see "What if the Chair went rogue?".</li>
         <li>It does not say anything about price, liquidity or returns. The simulation is a model of supply under stated assumptions.</li>
         <li>The log comes from an index, so it is checked, not signed: its sums must equal the chain's own ledger, and a difference is shown as such. Each row links to its transaction so you can check any entry by hand.</li>
       </ul>
@@ -146,7 +159,7 @@
   </section>
 </main>
 <footer class="wrap foot">
-  <p id="foot">$CHAIR is a hackathon project and a toy monetary experiment. Nothing here is advice. The transfers, stakes and claims in the log are scripted test activity by three accounts the submitter controls, not users.</p>
+  <p id="foot">$CHAIR is a hackathon project and a toy monetary experiment. Nothing here is advice. The transfers, stakes and claims in the log are scripted test activity by three accounts I control, not users.</p>
   <details class="fold">
     <summary>Where this page reads from</summary>
     <p id="source" class="source" role="note">Loading the chain…</p>

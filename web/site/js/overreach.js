@@ -14,7 +14,7 @@ const GIVE_UP_MS = 4 * 60_000; // an attempt waits for at most one epoch, then a
 const LOST_AFTER = 4; // failed polls in a row before the page stops looking
 const STATUSES = new Set(["waiting", "sending", "refused", "accepted", "within_mandate", "not_chair", "too_late", "unreadable", "unconfirmed"]);
 
-export const DOWN = "The press desk is not reachable, so nothing can be sent from here right now. It runs on the submitter's workstation, not a hosted server, and is closed whenever that machine is off.";
+export const DOWN = "The press desk is not reachable, so nothing can be sent from here right now. It runs on my workstation, not a hosted server, and is closed whenever that machine is off.";
 const LEDE = "Type a rate beyond the Chair's limit of 2% (200 bps). The press desk has the real chair account send it to the contract on NEAR testnet, and the contract answers. Only rates beyond that limit are sent, because the contract refuses them whatever the Chair is doing. Nothing here is a mock-up: the refusal is a transaction you can open.";
 /** How long a wait is, for a person: seconds under a minute and a half, else whole minutes. */
 /** One refusal the project's README documents (a deliberate test: the launch chair asked for +201 bps), shown when the chain's own list cannot be read, so the stamp never goes missing. */
@@ -125,7 +125,7 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
 
   /** The newest refusal the chain holds, shown as the stamp it is, so the page never ends on an error: what was tried, why, the transaction, and who really sent it. */
   function earlier(r, lead) {
-    const who = r.byVisitor ? "It was forced by a visitor through the press desk: the chair account signed it, the AI chair did not choose it." : PROJECT_TEST_CALLS.has(r.tx) ? "A deliberate test call made by this project." : `A refused call signed by ${showAccount(r.signer)}.`;
+    const who = r.byVisitor ? "It was forced by a visitor through the press desk: the chair account signed it, the AI chair did not choose it." : PROJECT_TEST_CALLS.has(r.tx) ? "A deliberate test call that I made." : `A refused call signed by ${showAccount(r.signer)}.`;
     return h(doc, "article", { class: "or-card earlier", "aria-label": "An earlier refusal from the chain" },
       h(doc, "p", { class: "or-lead" }, lead),
       h(doc, "p", { class: "or-stamp" }, "Refused by the contract"),
@@ -141,7 +141,7 @@ export function createOverreach(doc, host, { request, explorer = null, rpcUrl = 
       h(doc, "p", { class: "or-stamp" }, "Refused by the contract"),
       h(doc, "p", { class: "or-plain" }, h(doc, "strong", {}, `Asked for ${plainSigned(201)} (${fmtRate(201)}). `), "The limit is 2%, so the contract said no."),
       h(doc, "p", { class: "or-tx" }, txLink(KNOWN_TX)),
-      h(doc, "p", { class: "note" }, "An earlier recorded attempt, not yours and not live: a deliberate test by this project, made with the launch chair's account. The AI chair was not involved."));
+      h(doc, "p", { class: "note" }, "An earlier recorded attempt, not yours and not live: a deliberate test I made with the launch chair's account. The AI chair was not involved."));
   }
 
   function renderClosed() {

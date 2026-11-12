@@ -48,7 +48,7 @@ function summary(refusals) {
   const lead = tests.length === refusals.length ? `All ${tests.length} were` : `${tests.length} of the ${refusals.length} were`;
   const visitors = forced === 0 ? "" : `; ${forced} ${forced === 1 ? "was" : "were"} forced by visitors through the press desk`;
   const clean = tests.length + forced === refusals.length ? " In none of them did the AI chair choose a rate the contract refused." : "";
-  return `${lead} deliberate test calls made by this project to show the bounds hold, signed by ${signers}${visitors}.${clean}`;
+  return `${lead} deliberate test calls that I made to show the bounds hold, signed by ${signers}${visitors}.${clean}`;
 }
 
 /** `d` is `loadLog`'s result. */

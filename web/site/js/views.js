@@ -84,7 +84,7 @@ export function renderSource(doc, host, { mode, config, fixture, rpcUrl = null }
     host.append(
       h(doc, "strong", {}, `Live: ${safeText(config.account, 64)} on ${safeText(config.network, 12)}.`),
       " ",
-      `Views come from ${(rpcUrl === null ? config.rpcUrls : [rpcUrl]).map((u) => safeText(new URL(u).host, 80)).join(" or ")}, the transaction list from ${safeText(new URL(config.indexerUrl).host, 80)}. Nothing passes through a server of ours.`,
+      `Views come from ${(rpcUrl === null ? config.rpcUrls : [rpcUrl]).map((u) => safeText(new URL(u).host, 80)).join(" or ")}, the transaction list from ${safeText(new URL(config.indexerUrl).host, 80)}. Nothing passes through a server of mine.`,
     );
   }
 }
@@ -115,10 +115,11 @@ export function renderPlain(doc, host, d) {
   const r = policy.rateBps;
   const fig = (t) => h(doc, "strong", { class: "fig" }, t);
   const limit = fig(plainPct(params.maxRateBps));
+  const vote = " Holders who staked can vote it out.";
   host.append(h(doc, "p", { class: "now-plain" },
-    r > 0 ? ["Right now the AI is printing ", fig(plainPct(r)), ` more coins ${everyOr(params.epochMs)} and giving them to holders who staked. The most the contract will ever let it print is `, limit, "."]
-      : r < 0 ? ["Right now the AI is burning ", fig(plainPct(r)), " of every transfer. The most the contract will ever let it burn is ", limit, "."]
-        : ["Right now the AI is holding the supply still: nothing is being printed or burned. The most the contract will ever let it print is ", limit, "."]));
+    r > 0 ? ["Right now the AI is printing ", fig(plainPct(r)), ` more coins ${everyOr(params.epochMs)} and giving them to holders who staked. The most the contract lets it print each time is `, limit, ".", vote]
+      : r < 0 ? ["Right now the AI is burning ", fig(plainPct(r)), " of every transfer. The most the contract lets it burn is ", limit, ".", vote]
+        : ["Right now the AI is holding the supply still: nothing is being printed or burned. The most the contract lets it print each time is ", limit, ".", vote]));
 }
 
 export function renderNow(doc, host, d) {

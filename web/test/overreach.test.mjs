@@ -317,7 +317,7 @@ test("a 429 with no Retry-After body falls back to a short wait, and the label i
   const a = await panel(() => res(429, { code: "cap" }), { refusals: chain([{ tx: known, rateBps: 400, reason: "rate step too large", signer: SIGNER, tsMs: 1, byVisitor: false }]) });
   await a.api.submit("500");
   assert.match(a.api.state().message, /Try again in 20 s\./);
-  assert.match(text(a.el), /deliberate test call made by this project/);
+  assert.match(text(a.el), /deliberate test call that I made/);
   assert.doesNotMatch(text(a.el), /forced by a visitor/);
   const b = await panel(() => res(429, { code: "cap", retry_after_s: 30 }), { refusals: chain([ROWS[1]]) });
   await b.api.submit("500");
