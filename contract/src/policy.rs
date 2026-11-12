@@ -5,7 +5,8 @@ use crate::MAX_TOTAL_SUPPLY;
 use near_sdk::near;
 use std::fmt;
 
-/// The chair may set any rate in `-MAX_RATE_BPS..=MAX_RATE_BPS`. Hard-coded: no state can change it.
+/// The chair may set any rate in `-MAX_RATE_BPS..=MAX_RATE_BPS`. Hard-coded: no state can change it. Easing is basis
+/// points of supply per day (a meeting mints a `meetings_per_day`th of it); tightening is basis points of a transfer.
 pub const MAX_RATE_BPS: i32 = 200;
 /// The chair may move the rate by at most this much per epoch; a missed epoch decays by the same amount.
 pub const MAX_STEP_BPS: i32 = 50;
@@ -21,14 +22,26 @@ pub fn is_sha256_hex(hash: &str) -> bool {
     hash.len() == 64 && hash.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
 }
 
-/// What an easing epoch mints: `supply * rate / 10_000`, rounded down so the contract never mints more
-/// than the formula's exact value, and clipped so the supply never passes `MAX_TOTAL_SUPPLY`.
-/// Zero unless the rate is positive. `supply <= MAX_TOTAL_SUPPLY` keeps the product inside `u128`.
-pub fn mint_amount(supply: u128, rate_bps: i32) -> u128 {
+/// Milliseconds in the day an easing rate is quoted over.
+pub const DAY_MS: u64 = 86_400_000;
+
+/// Epochs (meetings) a day is cut into for an epoch of `epoch_ms`, rounded up: the divisor that turns the per-day
+/// rate into a per-meeting mint. Rounding up means a 24 hour span never holds more meetings than the divisor, so a
+/// day's easing never exceeds the rate, whatever the epoch length; 90 s gives exactly 960. Never 0.
+pub fn meetings_per_day(epoch_ms: u64) -> u64 {
+    DAY_MS.div_ceil(epoch_ms)
+}
+
+/// What an easing epoch mints: the per-day rate spread over the day's meetings, `supply * rate / (10_000 *
+/// meetings_per_day)`, rounded down so the contract never mints more than the formula's exact value, and clipped so
+/// the supply never passes `MAX_TOTAL_SUPPLY`. Zero unless the rate is positive. `supply <= MAX_TOTAL_SUPPLY` keeps
+/// the product inside `u128`, and `meetings_per_day <= DAY_MS` keeps the divisor inside it too.
+pub fn mint_amount(supply: u128, rate_bps: i32, meetings_per_day: u64) -> u128 {
     let Ok(rate) = u128::try_from(rate_bps) else {
         return 0;
     };
-    (supply * rate / 10_000).min(MAX_TOTAL_SUPPLY.saturating_sub(supply))
+    (supply * rate / (10_000 * u128::from(meetings_per_day)))
+        .min(MAX_TOTAL_SUPPLY.saturating_sub(supply))
 }
 
 /// What a transfer burns while the rate is negative: `amount * |rate| / 10_000`, rounded down, so a
@@ -309,10 +322,13 @@ mod tests {
         state(0, 1, None).set_rate(2, 10).ok();
     }
 
+    /// Meetings a day at the launch epoch length of 90 s.
+    const DAY: u64 = 960;
+
     #[test]
     fn worked_vector_mint_floors() {
-        // SPEC.md worked vector: supply 1_000_001 at 33 bps is 3300.0033, minted as 3300.
-        assert_eq!(mint_amount(1_000_001, 33), 3300);
+        // SPEC.md worked vector: supply 1_000_001_000 at 33 bps a day over 960 meetings is 3437.5034, minted as 3437.
+        assert_eq!(mint_amount(1_000_001_000, 33, DAY), 3437);
     }
 
     #[test]
@@ -323,31 +339,101 @@ mod tests {
 
     #[test]
     fn mint_is_zero_unless_the_rate_is_positive() {
-        assert_eq!(mint_amount(1_000_000, 0), 0);
-        assert_eq!(mint_amount(1_000_000, -200), 0);
-        assert_eq!(mint_amount(1_000_000, 1), 100);
+        assert_eq!(mint_amount(1_000_000_000, 0, DAY), 0);
+        assert_eq!(mint_amount(1_000_000_000, -200, DAY), 0);
+        assert_eq!(mint_amount(9_600_000, 1, DAY), 1);
         assert_eq!(
-            mint_amount(9_999, 1),
+            mint_amount(9_599_999, 1, DAY),
             0,
             "a mint under one unit rounds to nothing"
         );
     }
 
     #[test]
+    fn one_basis_point_a_day_on_a_million_coins_mints_a_nonzero_amount_per_meeting() {
+        // 24 decimals: a million coins is 10^30 units. 1 bps a day over 960 meetings is 10^30 / 9_600_000.
+        let supply = 1_000_000u128 * 10u128.pow(24);
+        assert_eq!(mint_amount(supply, 1, DAY), supply / 9_600_000);
+        assert_eq!(mint_amount(supply, 1, DAY), 104_166_666_666_666_666_666_666);
+    }
+
+    #[test]
     fn mint_stops_at_the_supply_cap_and_cannot_overflow() {
-        assert_eq!(mint_amount(MAX_TOTAL_SUPPLY, 200), 0);
-        assert_eq!(mint_amount(MAX_TOTAL_SUPPLY - 7, 200), 7);
+        assert_eq!(mint_amount(MAX_TOTAL_SUPPLY, 200, DAY), 0);
+        assert_eq!(mint_amount(MAX_TOTAL_SUPPLY - 7, 200, DAY), 7);
         let just_under = MAX_TOTAL_SUPPLY - 1_000_000_000_000;
         assert_eq!(
-            mint_amount(just_under, 200),
+            mint_amount(just_under, 200, DAY),
             1_000_000_000_000,
-            "2% of the supply would pass the cap, so the cap wins"
+            "a meeting's share of the supply would pass the cap, so the cap wins"
         );
-        // 2% of a near-max supply is below the cap headroom of an emptier supply: the formula decides.
+        // A meeting's share of a near-max supply is below the cap headroom of an emptier supply: the formula decides.
         assert_eq!(
-            mint_amount(MAX_TOTAL_SUPPLY / 2, 200),
-            MAX_TOTAL_SUPPLY / 2 / 50
+            mint_amount(MAX_TOTAL_SUPPLY / 2, 200, DAY),
+            MAX_TOTAL_SUPPLY / 2 * 200 / 9_600_000
         );
+        // The product and the divisor stay inside u128 at the most meetings a day the launch checks allow (1 s epochs).
+        assert_eq!(
+            mint_amount(MAX_TOTAL_SUPPLY / 2, 200, meetings_per_day(1_000)),
+            MAX_TOTAL_SUPPLY / 2 * 200 / (10_000 * 86_400)
+        );
+    }
+
+    #[test]
+    fn a_day_of_meetings_at_the_top_rate_grows_the_supply_by_at_most_the_documented_two_percent() {
+        // SPEC.md "The leash in numbers": (1 + 200 / 9_600_000)^960 - 1 = 2.0201% over 24 hours of 90 s epochs.
+        let launch = 1_000_000u128 * 10u128.pow(24);
+        let mut supply = launch;
+        for _ in 0..DAY {
+            supply += mint_amount(supply, 200, DAY);
+        }
+        assert!(supply * 10_000_000 < launch * 10_202_012, "{supply}");
+        assert!(supply * 10_000_000 > launch * 10_202_011, "{supply}");
+    }
+
+    #[test]
+    fn the_per_day_divisor_never_lets_a_day_hold_more_meetings_than_it_divides_by() {
+        assert_eq!(meetings_per_day(90_000), 960);
+        assert_eq!(meetings_per_day(30_000), 2_880);
+        assert_eq!(meetings_per_day(1_000), 86_400);
+        assert_eq!(
+            meetings_per_day(60_001),
+            1_440,
+            "1439.98 meetings a day round up"
+        );
+        assert_eq!(
+            meetings_per_day(57_600_000),
+            2,
+            "an epoch of 16 h meets 1.5 times a day"
+        );
+        assert_eq!(meetings_per_day(DAY_MS), 1);
+        assert_eq!(
+            meetings_per_day(31_536_000_000),
+            1,
+            "an epoch longer than a day still meets once"
+        );
+        for epoch_ms in [
+            1_000,
+            1_001,
+            7_777,
+            45_000,
+            90_000,
+            90_001,
+            3_600_000,
+            43_200_001,
+            DAY_MS - 1,
+            31_536_000_000,
+        ] {
+            let n = meetings_per_day(epoch_ms);
+            assert!(
+                n >= 1 && n * epoch_ms >= DAY_MS,
+                "epoch_ms {epoch_ms}: {n} meetings cover the day"
+            );
+            assert!(
+                (n - 1) * epoch_ms < DAY_MS,
+                "epoch_ms {epoch_ms}: not one more than needed"
+            );
+        }
     }
 
     #[test]

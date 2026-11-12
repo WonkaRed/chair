@@ -12,8 +12,8 @@ stated assumptions, not what any market would do.
 Read on 2026-11-10 against the working tree of `../contract/src` (uncommitted; files last modified 18:47 to
 18:52 that day: `policy.rs`, `rollover.rs`, `staking.rs`, `voting.rs`, `token.rs`). Constants taken from it:
 `STAKE_LOCK_EPOCHS = 2` (`staking.rs:30`, enforced at `staking.rs:194`), `MAX_RATE_BPS = 200`, `MAX_STEP_BPS = 50`,
-`REWARD_SCALE = 10^24`, `MAX_TOTAL_SUPPLY = u128::MAX / 10_000`, `MAX_CANDIDATES = 10`. If the contract changes,
-this is the list to re-check; nothing ties the two together mechanically. `contract/` and `SPEC.md` were not edited.
+`MEETINGS_PER_DAY = 960` (`policy.rs` derives it as `ceil(86_400_000 / epoch_ms)`; the simulator runs the 90 s epoch the demo launches with), `REWARD_SCALE = 10^24`, `MAX_TOTAL_SUPPLY = u128::MAX / 10_000`, `MAX_CANDIDATES = 10`. If the contract changes,
+this is the list to re-check; nothing ties the two together mechanically.
 
 Contract: [`../SPEC.md`](../SPEC.md) ("Epochs and rollover", "Worked vectors").
 
@@ -23,8 +23,8 @@ Needs Node 22 or newer (`engines.node` in `package.json` is `>=22`; `chair-agent
 No network is used after `npm ci`, no keys.
 
 ```sh
-make test     # typecheck, then 88 tests (node --test)
-make demo     # the twelve scenario tables on stdout, and out/scenarios.json
+make test     # typecheck, then 95 tests (node --test)
+make demo     # the twelve scenario tables and the two multi-day tables on stdout, and out/scenarios.json
 node dist/src/main.js --all --out /some/where.json   # after a build: every epoch, custom JSON path
 ```
 
@@ -48,7 +48,7 @@ Per epoch, in this order (the order the contract has):
    this epoch, bounds of +-200 bps, step of at most 50 bps). A rejected call changes nothing.
 4. Transfers: `velocityBps` of the liquid supply moves in `transfersPerEpoch` equal transfers; each burns
    `amount * |rate| / 10_000` (floor) while the rate in effect is negative.
-5. Boundary: mint `supply * rate / 10_000` (floor, capped at `u128::MAX / 10_000`) at the rate in effect
+5. Boundary: mint `supply * rate / (10_000 * 960)` (a rate is per day, spread over the 960 meetings of a day; floor, capped at `u128::MAX / 10_000`) at the rate in effect
    *before* decay, if positive and someone is staked; add it to the reward index
    (`minted * 10^24 / total_staked`, floor); then decay one 50 bps step toward zero unless the chair set a
    rate this epoch; then impeachment: a candidate whose backing is **strictly more than** both the threshold
@@ -72,8 +72,8 @@ its eviction rule.
 
 | id | what it shows |
 | --- | --- |
-| `honest-rule-chair` | the shipped rule chair `rule-v1` (hand-ported, same constants): asks for +50 bps at 30% staked and brakes to 0 after supply grew 3% in 6 epochs |
-| `max-inflation` | +50 bps per epoch to the +200 bound, held |
+| `honest-rule-chair` | the shipped rule chair `rule-v1` (hand-ported, same constants): asks for +50 bps at 30% staked; its brake (supply grew 3% in 6 epochs) never trips under a per-day rate |
+| `max-inflation` | +50 bps per epoch to the +200 bps a day bound, held |
 | `max-deflation` | -50 bps per epoch to the -200 bound, held |
 | `steady-easing` | +25 bps per epoch to +100, held; 30% staked |
 | `steady-tightening` | -25 bps per epoch to -100, held |
@@ -83,6 +83,12 @@ its eviction rule.
 | `impeachment-silent-successor` | the same vote seats a candidate with no script: the chair changes, nothing is set, the rate decays 50 bps per epoch |
 | `staking-low` / `staking-high` | the same chair with 10% versus 80% of the supply staked |
 | `easing-nobody-staked` | a positive rate with no stakers mints nothing |
+
+Two more scenarios, `max-inflation-7d` and `max-inflation-30d` (the same pinned chair for 6,720 and 28,800 epochs), print one line per day
+(days 1 to 3, every seventh, the last): the supply, its growth against launch, the bound `(1 + 200 / 9,600,000)^epochs` and the per-meeting rule
+the contract used before the rate became per day, run on the same rates. They are not in the JSON. Exact figures: the first day 1.020169x (the climb to +200 takes four epochs),
+seven days 1.150236x against a bound of 1.150272x, thirty days 1.822050x against 1.822107x; the largest growth over any 960 consecutive epochs is
+1.020201x. The old rule reached 2.14x in the first hour and its 34,028x ceiling in a day (tests in `test/leash.test.ts`).
 
 The stdout tables show every fifth epoch, the last, and any epoch with an event (`--all` shows all 60).
 Columns: `rate bps` is the rate in effect during that epoch; `minted` and `burned` are that epoch's amounts.

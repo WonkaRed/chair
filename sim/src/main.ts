@@ -1,9 +1,9 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { toJson } from "./export.js";
-import { SCENARIOS } from "./scenarios.js";
+import { DAY_SCENARIOS, SCENARIOS } from "./scenarios.js";
 import { run } from "./sim.js";
-import { renderTable } from "./table.js";
+import { renderDaily, renderTable } from "./table.js";
 
 const USAGE = "usage: node dist/src/main.js [--all] [--out <file.json>]";
 const defaultOut = join(import.meta.dirname, "..", "..", "out", "scenarios.json");
@@ -24,6 +24,7 @@ try {
   const { all, out } = parseArgs(process.argv.slice(2));
   const results = SCENARIOS.map(run);
   console.log(results.map((r) => renderTable(r, all)).join("\n\n"));
+  console.log(`\n${DAY_SCENARIOS.map((sc) => renderDaily(run(sc))).join("\n\n")}`);
   mkdirSync(dirname(out), { recursive: true });
   writeFileSync(out, `${JSON.stringify(toJson(results), null, 2)}\n`);
   console.log(`\nwrote ${out}`);

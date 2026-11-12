@@ -239,6 +239,13 @@ pub fn mul_div(a: u128, b: u128, c: u128) -> u128 {
     (wide::U256::from(a) * wide::U256::from(b) / wide::U256::from(c)).as_u128()
 }
 
+/// What one boundary mints on `supply` at `rate_bps` a day when epochs last `epoch_ms`: the rate spread over the
+/// day's epochs (`86_400_000 / epoch_ms`, rounded up), `supply * rate / (10_000 * epochs_per_day)`, floored.
+/// Written out here, not imported, so the tests check the contract against its SPEC.md formula.
+pub fn mint_of(supply: u128, rate_bps: u128, epoch_ms: u64) -> u128 {
+    supply * rate_bps / (10_000 * u128::from(86_400_000u64.div_ceil(epoch_ms)))
+}
+
 /// Names of the functions a wasm module exports (what the NEAR runtime lets a transaction call, plus
 /// nothing else: `memory` and friends are not functions). Reads the export section directly.
 pub fn exported_methods(wasm: &[u8]) -> Result<Vec<String>> {

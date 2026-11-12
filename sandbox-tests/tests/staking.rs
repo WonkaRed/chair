@@ -2,7 +2,7 @@
 //! invariant: total supply == liquid balances + stake + unclaimed reward pool.
 
 use near_workspaces::types::NearToken;
-use sandbox_tests::{TOKEN, ensure_success, events, failure_text, launch, mul_div};
+use sandbox_tests::{TOKEN, ensure_success, events, failure_text, launch, mint_of, mul_div};
 use serde_json::{Value, json};
 
 /// Long enough that a scenario's handful of transactions never straddles a boundary by accident.
@@ -261,8 +261,8 @@ async fn easing_mints_at_the_boundary_and_stakers_claim_their_share() -> anyhow:
 
     // The chair acted in epoch 0, so 50 bps is in effect during epoch 1 too and decays after it:
     // boundaries 0 and 1 mint, each floored, each on the supply the previous one left.
-    let mint_0 = supply * 50 / 10_000;
-    let mint_1 = (supply + mint_0) * 50 / 10_000;
+    let mint_0 = mint_of(supply, 50, EPOCH_MS);
+    let mint_1 = mint_of(supply + mint_0, 50, EPOCH_MS);
     let index = mul_div(mint_0, TOKEN, total_staked) + mul_div(mint_1, TOKEN, total_staked);
     let owed = |staked: u128| mul_div(staked, index, TOKEN);
 
@@ -328,7 +328,7 @@ async fn a_stake_made_after_a_boundary_earns_nothing_from_it_and_cannot_leave_st
     ensure_success(&t.stake(&t.alice, 100 * TOKEN).await?)?;
     ensure_success(&t.set_policy(&chair, 50).await?)?;
     let supply = t.total_supply().await?;
-    let mint_0 = supply * 50 / 10_000;
+    let mint_0 = mint_of(supply, 50, EPOCH_MS);
 
     // Epoch 1 begins: boundary 0 has passed, its mint belongs to alice alone, whoever stakes now.
     t.advance_to_epoch(1).await?;
@@ -338,10 +338,14 @@ async fn a_stake_made_after_a_boundary_earns_nothing_from_it_and_cannot_leave_st
         0,
         "bob earned nothing from boundary 0"
     );
-    assert_eq!(u(&t.staking(&t.alice).await?.pending_reward), mint_0);
+    assert_eq!(
+        u(&t.staking(&t.alice).await?.pending_reward),
+        mul_div(100 * TOKEN, mul_div(mint_0, TOKEN, 100 * TOKEN), TOKEN),
+        "alice's whole stake earned boundary 0, to the floor of the index"
+    );
 
     // Boundary 1 mints again (50 bps is still in effect) and bob shares it.
-    let mint_1 = (supply + mint_0) * 50 / 10_000;
+    let mint_1 = mint_of(supply + mint_0, 50, EPOCH_MS);
     t.advance_to_epoch(2).await?;
     let bob_share = mul_div(400 * TOKEN, mul_div(mint_1, TOKEN, 500 * TOKEN), TOKEN);
     assert_eq!(u(&t.staking(&bob).await?.pending_reward), bob_share);
@@ -367,17 +371,18 @@ async fn unstaking_keeps_the_reward_already_earned_and_stops_earning() -> anyhow
     ensure_success(&t.stake(&t.alice, 100 * TOKEN).await?)?;
     ensure_success(&t.set_policy(&chair, 50).await?)?;
     let supply = t.total_supply().await?;
-    let mint_0 = supply * 50 / 10_000;
-    let mint_1 = (supply + mint_0) * 50 / 10_000;
+    let mint_0 = mint_of(supply, 50, EPOCH_MS);
+    let mint_1 = mint_of(supply + mint_0, 50, EPOCH_MS);
 
     // Bob leaves in epoch 2, having sat through boundaries 0 and 1 (both minted); the rate is 0 by then.
     t.advance_to_epoch(2).await?;
     ensure_success(&t.unstake(&bob, 100 * TOKEN).await?)?;
     let earned = u(&t.staking(&bob).await?.pending_reward);
+    let half = |mint: u128| mul_div(100 * TOKEN, mul_div(mint, TOKEN, 200 * TOKEN), TOKEN);
     assert_eq!(
         earned,
-        (mint_0 + mint_1) / 2,
-        "half of both mints, to the yocto: the stakes were equal"
+        half(mint_0) + half(mint_1),
+        "half of both mints, each floored through the index: the stakes were equal"
     );
     assert_eq!(
         t.balance(&bob).await?,

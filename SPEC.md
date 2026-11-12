@@ -29,7 +29,8 @@ Set once in `new`, readable with `get_params`. No method changes them and the co
 | --- | --- | --- | --- |
 | `epoch_ms` | `u64` | `new` arg, `1000..=31_536_000_000` | Epoch length in milliseconds of block time |
 | `start_ms` | `u64` | block time at `new` | Epoch 0 starts here |
-| `max_rate_bps` | `i32` | constant `200` | Rate bound: `-200 <= rate_bps <= 200` |
+| `max_rate_bps` | `i32` | constant `200` | Rate bound: `-200 <= rate_bps <= 200`. Easing, a positive rate, is basis points of supply **per day**; tightening, a negative rate, is basis points of a transfer (see "The leash in numbers") |
+| `meetings_per_day` | `u64` | derived: `ceil(86_400_000 / epoch_ms)` | Epoch boundaries in a day, the divisor of an easing mint: `960` at the 90 s demo epoch |
 | `max_step_bps` | `i32` | constant `50` | Largest change per epoch; also the missed-epoch decay step |
 | `impeach_threshold_bps` | `u32` | `new` arg, `1..=5_000` | Share of total staked that a candidate's backing must exceed |
 | `quorum_bps` | `u32` | constant `500` | Share of the whole supply (staked or not) that a candidate's backing must also exceed |
@@ -179,7 +180,7 @@ can neither count for a later nomination of the same account nor underflow it.
 
 ```rust
 fn get_params(&self) -> Params                       // [implemented]
-// { epoch_ms, start_ms, max_rate_bps, max_step_bps, impeach_threshold_bps, quorum_bps, nominate_bond }
+// { epoch_ms, start_ms, max_rate_bps, max_step_bps, meetings_per_day, impeach_threshold_bps, quorum_bps, nominate_bond }
 
 fn get_supply(&self) -> SupplyLedger                 // [implemented]
 // { epoch, launch_supply, minted, burned, total_supply, total_staked, reward_pool }  (all U128 except epoch)
@@ -245,7 +246,7 @@ The **rate in effect** during epoch `e` is: the rate left by boundary `e-1`, rep
 Boundary `e -> e+1` closes epoch `e`. Steps run in this order, using integers throughout:
 
 1. **Mint (easing).** `rate = rate_in_effect_during(e)`. If `rate > 0` and `total_staked > 0`:
-   `minted = min(total_supply * rate / 10_000, MAX_TOTAL_SUPPLY - total_supply)` (floor), `total_supply += minted`,
+   `minted = min(total_supply * rate / (10_000 * meetings_per_day), MAX_TOTAL_SUPPLY - total_supply)` (floor; a rate is per day, and a boundary mints one meeting's share of it), `total_supply += minted`,
    `reward_pool += minted`, `reward_per_share += minted * REWARD_SCALE / total_staked` (floor), with
    `REWARD_SCALE = 10^24` and 256-bit intermediates (the index itself is 256 bits: one staked yocto under a
    near-max mint exceeds `u128`). The floor remainder stays in the pool, never paid out. If `total_staked == 0`
@@ -268,7 +269,7 @@ Rounding, every formula (the contract never mints more than the exact value of a
 
 | Formula | Direction | Why |
 | --- | --- | --- |
-| `minted = supply * rate / 10_000` | down | never more than exact |
+| `minted = supply * rate / (10_000 * meetings_per_day)` | down | never more than exact. `supply * rate` fits `u128` for `rate <= 10_000`, and the rate is at most 200 |
 | `reward_per_share += minted * 10^24 / total_staked` | down | the remainder stays in the pool |
 | `pending = staked * (index - paid) / 10^24` | down | stakers are never paid more than the pool holds |
 | `burn = amount * abs(rate) / 10_000` | down | the SPEC vector (92.5875 burns 92); see Transfer burn |
@@ -303,6 +304,51 @@ Tested end to end in `sandbox-tests/tests/chair_rules.rs`
 (`a_silent_chair_cannot_stall_the_token_the_rate_decays_to_zero_by_contract_code`): a chair climbs to 200,
 goes silent, every view reports `200, 150, 100, 50, 0, 0, 0` over the next seven epochs, one transaction
 then logs the four `rate_decayed` events, and transfers, staking and a new `set_policy` all work.
+
+### The leash in numbers
+
+**The rate is per day and the contract spreads it over the day's meetings.** A boundary mints
+`supply * rate / (10_000 * meetings_per_day)`, with `meetings_per_day = ceil(86_400_000 / epoch_ms)` fixed by the epoch
+length at launch (960 at 90 s; 2880 at 30 s; 1 for an epoch of a day or more). The divisor is rounded up so a span of 24 hours
+never holds more boundaries than the divisor: epochs sit on a fixed grid `epoch_ms` apart, and a half-open span of `D` ms
+holds at most `ceil(D / epoch_ms)` of them. The chair is bounded at `|rate| <= 200` (2% a day) and the bound is checked by
+`set_policy` and by nothing else; the step of 50 bps per epoch still applies to the per-day level, which means a chair can
+walk the rate from 0 to 200 in four meetings (six minutes); that is harmless, because a meeting at 200 mints only one 48,000th of the supply.
+
+**Worst case, a chair pinned at +200 with every staker earning.** Each meeting multiplies the supply by at most
+`1 + 200 / (10_000 * 960) = 1 + 1/48_000`, whatever happened before (the floor only lowers it, burns only lower the supply, and a
+rollover that was applied late applies each boundary on its own, so waiting changes nothing). Compounded:
+
+| Span (90 s epochs) | Meetings | Supply multiple, at most | Sim run (max chair, 30% staked, climbing from 0) |
+| --- | --- | --- | --- |
+| one meeting | 1 | 1.0000208 | |
+| 1 hour | 40 | 1.000833 | |
+| one day | 960 | `(1 + 1/48_000)^960` = 1.0202011 (2.02%, not 2%) | 1.020169x from launch (the first four epochs climb); largest over any 960 epochs 1.020201x |
+| 7 days | 6_720 | 1.1502721 | 1.150236x |
+| 30 days | 28_800 | 1.8221074 | 1.822050x |
+
+The simulator (`sim/`, scenarios `max-inflation-7d` and `max-inflation-30d`) runs the same integer rule and stays at or under
+each figure. No window and no stored cap state is involved: the bound is the formula, and a chair cannot raise it. Easing also
+stops at `MAX_TOTAL_SUPPLY` (`u128::MAX / 10_000`), 34,028 times a 1,000,000-coin launch; a pinned chair needs
+`ln(34028) / ln(1 + 1/48_000)`, about 500,000 meetings (17 months), to reach it.
+
+**The rule it replaced.** Until this change the rate was per meeting: `minted = supply * rate / 10_000` at every boundary, so a chair
+pinned at 200 grew the supply by 2% every 90 s, `1.02^40` = 2.2x in an hour, and reached the `u128` ceiling (34,028x of a
+1,000,000-coin launch) in about 527 meetings, a little over 13 hours. That is what a skeptic computed from the old text; the
+per-day rule is what makes "the contract keeps the AI on a leash" true on chain.
+
+**Rounding.** `supply * rate / (10_000 * meetings_per_day)` floors. With 24-decimal units the smallest meaningful rate on the
+smallest launch still mints: 1,000,000 coins (`10^30`) at 1 bps a day mint `10^30 / 9_600_000` = 104,166,666,666,666,666,666,666
+base units a meeting (a unit test and a sandbox test pin it). A launch supply below `9_600_000 / rate` base units mints nothing
+per meeting at that rate, which is the floor (down) rule above, never more than exact.
+
+**Burn is per transfer, not per day, and the asymmetry is deliberate.** `burn = amount * |rate| / 10_000` applies to each transfer
+as before: a negative rate is 2% at most of what moves, and moving coins is the holder's choice. Scaling it by 960 would let a
+chair's tightening cost a holder 0.002% of a transfer, which is nothing, and would make the tightening side toothless without
+making the leash on easing any tighter. The honest asymmetry: printing touches all supply once per meeting whether or not
+anyone moves, burning touches only coins that move, so a day of the maximum tightening takes at most 2% of each coin each time it
+moves, and a coin that never moves is never taxed. Both directions are bounded and neither can be raised by a chair; they are
+not symmetric in how much of the supply they reach.
 
 ### Transfer burn **[implemented]**
 
@@ -339,7 +385,8 @@ worse failure than the sub-yocto leak, and would change a vector other lanes bui
 
 | Case | Input | Result |
 | --- | --- | --- |
-| Mint | supply `1_000_001`, rate `33`, staked `500` | `minted = 3300` (3300.0033 floored) |
+| Mint | supply `1_000_001_000`, rate `33`, staked `500`, 960 meetings a day | `minted = 3437` (3437.5034 floored) |
+| Mint, rounding | supply `10^30` (1,000,000 coins of 24 decimals), rate `1`, 960 meetings a day | `minted = 104_166_666_666_666_666_666_666`, never zero |
 | Burn | amount `12_345`, rate `-75` | `burn = 92` (92.5875 floored) |
 | Decay | rate `120`, chair silent after acting | in-effect `120`, then `70`, `20`, `0` |
 | Decay | rate `-120` | `-120`, `-70`, `-20`, `0` |

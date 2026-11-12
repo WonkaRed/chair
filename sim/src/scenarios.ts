@@ -44,13 +44,13 @@ export const SCENARIOS: readonly Scenario[] = [
   {
     ...common, id: "honest-rule-chair", stakedBps: 3000,
     title: "Honest chair",
-    description: "The shipped rule chair (rule-v1): with 30% staked it asks for +50 bps, and it brakes to 0 whenever supply has grown more than 3% over the last 6 epochs, so it eases in bursts and never runs away.",
+    description: "The shipped rule chair (rule-v1), unchanged: with 30% staked it asks for +50 bps a day. Its brake, supply grown more than 3% over the last 6 epochs, was written when a rate was minted every epoch; a rate per day grows the supply a few thousandths of a percent in 6 epochs, so the brake never trips and it holds +50.",
     chairs: [{ name: "rule-v1", policy: ruleChair() }],
   },
   {
     ...common, id: "max-inflation", stakedBps: 3000,
     title: "Maximally inflationary chair",
-    description: "The chair raises the rate 50 bps per epoch, the most the contract allows, to the +200 bound and holds it. 30% of the supply is staked, so every epoch mints 2% of supply to stakers.",
+    description: "The chair raises the rate 50 bps per epoch, the most the contract allows, to the +200 bps a day bound and holds it. 30% of the supply is staked, and every epoch mints a 960th of 2% of the supply to stakers.",
     chairs: [{ name: "inflator", policy: ramp(50, 200) }],
   },
   {
@@ -62,7 +62,7 @@ export const SCENARIOS: readonly Scenario[] = [
   {
     ...common, id: "steady-easing", stakedBps: 3000,
     title: "Steady easing",
-    description: "The chair raises the rate by 25 bps per epoch to +100 and holds it. 30% of the supply is staked.",
+    description: "The chair raises the rate by 25 bps per epoch to +100 bps a day and holds it. 30% of the supply is staked.",
     chairs: [{ name: "easer", policy: ramp(25, 100) }],
   },
   {
@@ -125,5 +125,24 @@ export const SCENARIOS: readonly Scenario[] = [
     title: "Easing with nobody staked",
     description: "The chair eases to +100 but no one stakes, so the contract mints nothing: the rate is a promise with no one to pay.",
     chairs: [{ name: "easer", policy: ramp(25, 100) }],
+  },
+];
+
+/**
+ * The leash over days, not the 60 epochs above (90 minutes at 90 s an epoch): 960 epochs are a day, so these run 7 and 30
+ * days. Kept apart from `SCENARIOS` so the 60-epoch export and its tests stay as they were.
+ */
+export const DAY_SCENARIOS: readonly Scenario[] = [
+  {
+    ...common, id: "max-inflation-7d", stakedBps: 3000, epochs: 7 * 960,
+    title: "Maximally inflationary chair for 7 days",
+    description: "The chair climbs to +200 bps a day and holds it for 6,720 epochs (7 days of 90 s). Each epoch mints one 960th of that to stakers; the supply grows by the daily rate, compounded over the meetings, and not by that rate each meeting.",
+    chairs: [{ name: "inflator", policy: ramp(50, 200) }],
+  },
+  {
+    ...common, id: "max-inflation-30d", stakedBps: 3000, epochs: 30 * 960,
+    title: "Maximally inflationary chair for 30 days",
+    description: "The same chair for 28,800 epochs (30 days of 90 s).",
+    chairs: [{ name: "inflator", policy: ramp(50, 200) }],
   },
 ];

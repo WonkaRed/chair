@@ -3,7 +3,7 @@
 
 use near_workspaces::operations::Function;
 use near_workspaces::types::{Gas, NearToken};
-use sandbox_tests::{NOMINATE_BOND, TOKEN, ensure_success, events, failure_text, launch};
+use sandbox_tests::{NOMINATE_BOND, TOKEN, ensure_success, events, failure_text, launch, mint_of};
 use serde_json::{Value, json};
 
 /// Long enough that a scenario's transactions never straddle a boundary by accident.
@@ -580,7 +580,7 @@ async fn enough_backing_replaces_the_chair_at_the_next_boundary() -> anyhow::Res
             "policy_set"
         ]
     );
-    let mint = supply * 40 / 10_000;
+    let mint = mint_of(supply, 40, EPOCH_MS);
     assert_eq!(
         named(&logged, "epoch_minted")[0]["data"]["amount"],
         mint.to_string()

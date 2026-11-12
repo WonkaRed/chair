@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
-  MAX_IMPEACH_THRESHOLD_BPS, MAX_TOTAL_SUPPLY, Policy, QUORUM_BPS, burnAmount, decay, impeachmentWinner, mintAmount, pendingReward, rewardPerShareDelta,
+  MAX_IMPEACH_THRESHOLD_BPS, MAX_TOTAL_SUPPLY, MEETINGS_PER_DAY, Policy, QUORUM_BPS, burnAmount, decay, impeachmentWinner, mintAmount, pendingReward, rewardPerShareDelta,
 } from "../src/model.js";
 
 describe("SPEC worked vectors", () => {
-  it("mint: supply 1_000_001, rate 33, staked 500 -> 3300", () => {
-    assert.equal(mintAmount(1_000_001n, 33, 500n), 3300n);
+  it("mint: supply 1_000_001_000, rate 33 a day, staked 500 -> 3437 (3437.5034 floored)", () => {
+    assert.equal(mintAmount(1_000_001_000n, 33, 500n), 3437n);
   });
 
   it("burn: 12_345 at -75 -> 92", () => {
@@ -62,8 +62,14 @@ describe("mint", () => {
   });
 
   it("floors", () => {
-    assert.equal(mintAmount(9_999n, 1, 1n), 0n);
-    assert.equal(mintAmount(10_000n, 1, 1n), 1n);
+    assert.equal(mintAmount(9_599_999n, 1, 1n), 0n);
+    assert.equal(mintAmount(9_600_000n, 1, 1n), 1n);
+  });
+
+  it("a day's rate is spread over the 960 meetings of a day: 1 bps a day on 1,000,000 coins of 24 decimals mints a nonzero amount", () => {
+    assert.equal(MEETINGS_PER_DAY, 960n);
+    assert.equal(mintAmount(10n ** 30n, 1, 1n), 104_166_666_666_666_666_666_666n);
+    assert.equal(mintAmount(960_000_000n, 200, 1n), 20_000n);
   });
 });
 

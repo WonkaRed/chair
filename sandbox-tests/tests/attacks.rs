@@ -192,7 +192,7 @@ async fn at_the_supply_cap_the_mint_is_clipped_and_cannot_overflow() -> anyhow::
     ensure_success(&t.stake(&t.alice, 1).await?)?;
     ensure_success(&t.set_policy(&chair, 50).await?)?;
 
-    // 50 bps of the supply is ~1.7e32; only 1000 yocto of headroom remains under the cap.
+    // One boundary at 50 bps a day mints ~2.4e29 (120 s epochs), far over the 1000 yocto of headroom under the cap.
     t.advance_to_epoch(1).await?;
     assert_eq!(t.total_supply().await?, cap);
     assert_eq!(u(&t.staking(&t.alice).await?.pending_reward), 1_000);

@@ -70,10 +70,9 @@ describe("scenario behavior", () => {
     assert.ok(tail.every((r) => r.minted === 0n && r.burned === 0n));
   });
 
-  it("the honest rule chair eases to +50, brakes to 0 once supply has grown 3% in 6 epochs, and starts clean on a second run", () => {
+  it("the honest rule chair eases to +50 and its 3%-in-6-epochs brake never trips under a per-day rate, and it starts clean on a second run", () => {
     const rates = get("honest-rule-chair").rows.map((r) => r.rateBps);
-    assert.deepEqual(rates.slice(0, 9), [50, 50, 50, 50, 50, 50, 0, 50, 50]);
-    assert.ok(rates.every((x) => x === 0 || x === 50), "with 30% staked it asks for +50 and never anything else");
+    assert.ok(rates.every((x) => x === 50), "with 30% staked it asks for +50 and the supply never grows 3% in 6 epochs");
     const again = run(SCENARIOS.find((s) => s.id === "honest-rule-chair")!);
     assert.deepEqual(again.rows.map((r) => r.rateBps), rates);
   });

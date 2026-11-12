@@ -20,6 +20,8 @@ pub struct EpochState {
     /// Minted for stakers and not yet claimed, rounding remainders included.
     pub reward_pool: u128,
     pub reward_per_share: RewardIndex,
+    /// Epochs in a day (`policy::meetings_per_day` of the launch epoch length): the per-day rate is spread over them.
+    pub meetings_per_day: u64,
 }
 
 /// What rolling forward did besides changing `EpochState`.
@@ -54,8 +56,8 @@ fn leading_candidate(
 }
 
 impl EpochState {
-    /// Apply every boundary up to `target` in order. Per boundary closing epoch `e`: (1) mint at the rate
-    /// in effect during `e`, (2) decay if the chair did not act in `e`, (3) impeach if a candidate is over
+    /// Apply every boundary up to `target` in order. Per boundary closing epoch `e`: (1) mint a meeting's share of the
+    /// per-day rate in effect during `e`, (2) decay if the chair did not act in `e`, (3) impeach if a candidate is over
     /// the threshold and the quorum, counted on the stake and supply as they stood before the mint. Work is bounded however long the contract sat idle: once the rate is 0 and no
     /// candidate would win, no later boundary changes anything and the rest are skipped.
     pub fn advance_to(
@@ -101,7 +103,7 @@ impl EpochState {
             return None;
         }
         let rate_bps = self.policy.rate_bps;
-        let amount = mint_amount(self.total_supply, rate_bps);
+        let amount = mint_amount(self.total_supply, rate_bps, self.meetings_per_day);
         if amount == 0 {
             return None;
         }
@@ -140,10 +142,15 @@ mod tests {
     use crate::MAX_TOTAL_SUPPLY;
     use crate::staking::{REWARD_SCALE, Staker};
 
+    /// Meetings a day at the launch epoch length of 90 s.
+    const DAY: u64 = 960;
+
     fn acct(name: &str) -> AccountId {
         name.parse().unwrap()
     }
 
+    /// One meeting a day, so a rate reads as the per-meeting rate the supply-and-reward tests below were written
+    /// against; the tests that exercise the per-day spreading set `meetings_per_day` to `DAY` themselves.
     fn state(rate_bps: i32, epoch: u64, last_set_epoch: Option<u64>, staked: u128) -> EpochState {
         EpochState {
             policy: PolicyState {
@@ -157,6 +164,7 @@ mod tests {
             total_staked: staked,
             reward_pool: 0,
             reward_per_share: RewardIndex::default(),
+            meetings_per_day: 1,
         }
     }
 
@@ -196,18 +204,78 @@ mod tests {
     #[test]
     fn worked_vector_a_mint_is_floored_and_shared_over_the_stake() {
         let mut s = state(33, 0, Some(0), 500);
+        s.meetings_per_day = DAY;
+        s.total_supply = 1_000_001_000;
         let advance = s.advance_to(1, 3_000, &[]);
-        // SPEC.md: supply 1_000_001, rate 33, staked 500 -> minted 3300 (3300.0033 floored).
-        assert_eq!(minted(&advance.events), [(0, 3300)]);
-        assert_eq!(s.total_supply, 1_003_301);
-        assert_eq!(s.reward_pool, 3300);
+        // SPEC.md: supply 1_000_001_000, rate 33 bps a day over 960 meetings, staked 500 -> minted 3437 (3437.5034 floored).
+        assert_eq!(minted(&advance.events), [(0, 3437)]);
+        assert_eq!(s.total_supply, 1_000_004_437);
+        assert_eq!(s.reward_pool, 3437);
         assert_eq!(
             s.reward_per_share.to_string(),
-            (3300 * REWARD_SCALE / 500).to_string()
+            (3437 * REWARD_SCALE / 500).to_string()
         );
-        // A staker holding all 500 is owed the whole mint; one holding 200 is owed 1320.
-        assert_eq!(s.reward_per_share.owed(500, RewardIndex::default()), 3300);
-        assert_eq!(s.reward_per_share.owed(200, RewardIndex::default()), 1320);
+        // A staker holding all 500 is owed the whole mint; one holding 200 is owed 1374 (1374.8 floored).
+        assert_eq!(s.reward_per_share.owed(500, RewardIndex::default()), 3437);
+        assert_eq!(s.reward_per_share.owed(200, RewardIndex::default()), 1374);
+    }
+
+    #[test]
+    fn a_rate_is_per_day_and_the_meetings_of_a_day_share_it() {
+        // Same rate, same supply: one meeting a day mints 960 times what each of 960 meetings mints.
+        let mut daily = state(200, 0, Some(0), 1_000);
+        daily.total_supply = 960_000_000;
+        let one = minted(&daily.advance_to(1, 3_000, &[]).events)[0].1;
+        let mut spread = state(200, 0, Some(0), 1_000);
+        spread.meetings_per_day = DAY;
+        spread.total_supply = 960_000_000;
+        let part = minted(&spread.advance_to(1, 3_000, &[]).events)[0].1;
+        assert_eq!((one, part), (19_200_000, 20_000));
+        assert_eq!(one, part * 960);
+    }
+
+    #[test]
+    fn a_rate_of_one_basis_point_a_day_still_mints_on_a_million_coins_at_24_decimals() {
+        let mut s = state(1, 0, Some(0), 1_000);
+        s.meetings_per_day = DAY;
+        s.total_supply = 1_000_000 * 10u128.pow(24);
+        let events = s.advance_to(1, 3_000, &[]).events;
+        assert_eq!(minted(&events), [(0, 104_166_666_666_666_666_666_666)]);
+    }
+
+    #[test]
+    fn a_chair_pinned_at_the_top_rate_for_a_day_and_a_week_stays_inside_the_documented_bounds() {
+        // SPEC.md "The leash in numbers": per meeting at most 1 + 200 / 9_600_000, so (1 + 1/48000)^960 = 1.020201 a day
+        // and ^6720 = 1.150..., on 10^30 units with someone staked every epoch.
+        let launch = 1_000_000 * 10u128.pow(24);
+        let mut s = state(200, 0, Some(0), launch);
+        s.meetings_per_day = DAY;
+        s.total_supply = launch;
+        let mut day_end = 0;
+        for epoch in 0..7 * DAY {
+            s.policy.last_set_epoch = Some(epoch);
+            s.advance_to(epoch + 1, 3_000, &[]);
+            if epoch + 1 == DAY {
+                day_end = s.total_supply;
+            }
+        }
+        assert!(day_end * 10_000_000 < launch * 10_202_012, "day: {day_end}");
+        assert!(day_end * 10_000_000 > launch * 10_202_011, "day: {day_end}");
+        assert!(
+            s.total_supply * 100_000_000 < launch * 115_027_300,
+            "week: {}",
+            s.total_supply
+        );
+        assert!(
+            s.total_supply * 100_000_000 > launch * 115_027_200,
+            "week: {}",
+            s.total_supply
+        );
+        assert_eq!(
+            s.total_supply - launch,
+            s.reward_pool,
+            "only mints grew the supply"
+        );
     }
 
     #[test]

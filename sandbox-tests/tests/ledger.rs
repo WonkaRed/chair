@@ -2,7 +2,7 @@
 
 use near_workspaces::operations::Function;
 use near_workspaces::types::{Gas, NearToken};
-use sandbox_tests::{INITIAL_SUPPLY, TOKEN, ensure_success, events, launch};
+use sandbox_tests::{INITIAL_SUPPLY, TOKEN, ensure_success, events, launch, mint_of};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -140,7 +140,7 @@ async fn every_mint_and_burn_is_in_the_events_and_adds_up_to_the_ledger_view() -
 #[tokio::test]
 async fn a_forced_close_after_a_boundary_cannot_rewrite_that_boundarys_mint() -> anyhow::Result<()>
 {
-    // The audit's probe p5. Rate +50 in epoch 0 on a 1000-token supply is a 5-token mint at the boundary.
+    // The audit's probe p5. Rate +50 a day in epoch 0 on a 1000-token supply is a mint of 1/288 of 0.5% (300 s epochs) at the boundary.
     // The whale that closes its account after the boundary but before anyone rolls the epoch must not
     // halve it: the close rolls first, so the mint is computed on the supply the boundary closed with.
     let t = launch(300_000).await?;
@@ -149,7 +149,7 @@ async fn a_forced_close_after_a_boundary_cannot_rewrite_that_boundarys_mint() ->
     ensure_success(&t.set_policy(&chair, 50).await?)?;
     t.advance_to_epoch(1).await?;
     let projected: Ledger = t.token.view("get_supply").await?.json()?;
-    let mint = 1000 * TOKEN * 50 / 10_000;
+    let mint = mint_of(1000 * TOKEN, 50, 300_000);
     assert_eq!(projected.minted.parse::<u128>()?, mint);
 
     // Alice holds 500 liquid tokens: a whale relative to the 500 staked.

@@ -14,7 +14,7 @@ use near_contract_standards::fungible_token::FungibleToken;
 use near_sdk::collections::LookupMap;
 use near_sdk::json_types::U128;
 use near_sdk::{AccountId, BorshStorageKey, PanicOnDefault, env, near, require};
-use policy::{MAX_RATE_BPS, MAX_STEP_BPS, PolicyState, epoch_at, is_sha256_hex};
+use policy::{MAX_RATE_BPS, MAX_STEP_BPS, PolicyState, epoch_at, is_sha256_hex, meetings_per_day};
 use rollover::{Advance, EpochState, QUORUM_BPS};
 use staking::{RewardIndex, Staker};
 use voting::Candidate;
@@ -52,6 +52,8 @@ pub struct Params {
     /// A candidate also needs backing over this share of the whole supply (not only of the stake).
     pub quorum_bps: u32,
     pub nominate_bond: U128,
+    /// Epochs in a day, derived from `epoch_ms` (960 at 90 s): an easing rate is per day, spread over this many epochs.
+    pub meetings_per_day: u64,
 }
 
 /// The policy as of the latest block, with any pending missed-epoch decay already applied.
@@ -221,6 +223,7 @@ impl Contract {
             impeach_threshold_bps: self.impeach_threshold_bps,
             quorum_bps: QUORUM_BPS,
             nominate_bond: self.nominate_bond,
+            meetings_per_day: meetings_per_day(self.epoch_ms),
         }
     }
 
@@ -267,6 +270,7 @@ impl Contract {
             total_staked: self.total_staked,
             reward_pool: self.reward_pool,
             reward_per_share: self.reward_per_share,
+            meetings_per_day: meetings_per_day(self.epoch_ms),
         };
         let advance = state.advance_to(
             self.current_epoch(),
@@ -511,6 +515,13 @@ mod tests {
             assert_eq!(view.epoch_ends_ms, T0_MS + (epoch + 1) * EPOCH_MS);
             assert_eq!((view.rate_bps, view.chair.clone()), (0, accounts(1)));
         }
+    }
+
+    #[test]
+    fn the_params_show_the_meetings_a_day_derived_from_the_epoch_length() {
+        // 90 s epochs, the launch length, are exactly 960 a day (the rule for every length is in policy.rs).
+        let c = launch(1_000, 90_000, 3_000, 1);
+        assert_eq!(c.get_params().meetings_per_day, 960);
     }
 
     #[test]

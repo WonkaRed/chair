@@ -39,6 +39,8 @@ export interface Scenario {
   /** Impeachment: share of total staked a candidate's backing must strictly exceed (the contract caps it at 5000). */
   readonly impeachThresholdBps: number;
   readonly votes: readonly Vote[];
+  /** How many epochs to run; `EPOCHS` when absent. */
+  readonly epochs?: number;
 }
 
 export interface Row {
@@ -95,7 +97,7 @@ export function run(sc: Scenario): Result {
   const rows: Row[] = [];
   const sumStaked = (): bigint => staked.reduce((a, b) => a + b, 0n);
 
-  for (let epoch = 0; epoch < EPOCHS; epoch++) {
+  for (let epoch = 0; epoch < (sc.epochs ?? EPOCHS); epoch++) {
     const events: string[] = [];
 
     // Stakers claim (internal accounting, never burns), then move toward the scenario's staked share.

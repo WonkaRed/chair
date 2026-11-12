@@ -9,6 +9,8 @@ export const MAX_STEP_BPS = 50;
 export const QUORUM_BPS = 500;
 /** contract `MAX_IMPEACH_THRESHOLD_BPS`: `new` rejects a threshold above half the stake, so the seat stays within a majority's reach. */
 export const MAX_IMPEACH_THRESHOLD_BPS = 5_000;
+/** contract `policy::meetings_per_day(90_000)`: a day of 90 s epochs. The sim runs the launch epoch length; the rate is per day, spread over these. */
+export const MEETINGS_PER_DAY = 960n;
 export const REWARD_SCALE = 10n ** 24n;
 export const MAX_TOTAL_SUPPLY = (2n ** 128n - 1n) / 10_000n;
 const U256_MAX = 2n ** 256n - 1n;
@@ -20,12 +22,29 @@ function mulDiv(a: bigint, b: bigint, d: bigint): bigint {
   return p / d;
 }
 
-/** Step 1 (easing): `min(supply * rate / 10_000, MAX_TOTAL_SUPPLY - supply)`, nothing if rate <= 0 or nobody staked. */
+/**
+ * Step 1 (easing): the per-day rate spread over the day's meetings, `min(supply * rate / (10_000 * MEETINGS_PER_DAY),
+ * MAX_TOTAL_SUPPLY - supply)`, nothing if rate <= 0 or nobody staked.
+ */
 export function mintAmount(totalSupply: bigint, rateBps: number, totalStaked: bigint): bigint {
   if (rateBps <= 0 || totalStaked === 0n) return 0n;
-  const minted = mulDiv(totalSupply, BigInt(rateBps), 10_000n);
+  const minted = mulDiv(totalSupply, BigInt(rateBps), 10_000n * MEETINGS_PER_DAY);
   const room = MAX_TOTAL_SUPPLY - totalSupply;
   return minted < room ? minted : room < 0n ? 0n : room;
+}
+
+/**
+ * The supply after each epoch if the same rates (someone staked, no burns) had run under the contract before the rate
+ * became per day: every meeting minted the whole rate, `min(supply * rate / 10_000, MAX_TOTAL_SUPPLY - supply)`.
+ * The old bound, kept for the comparison the daily table prints.
+ */
+export function perMeetingCurve(launchSupply: bigint, ratesBps: readonly number[]): bigint[] {
+  let supply = launchSupply;
+  return ratesBps.map((rate) => {
+    const room = MAX_TOTAL_SUPPLY - supply;
+    const minted = rate > 0 ? mulDiv(supply, BigInt(rate), 10_000n) : 0n;
+    return (supply += minted < room ? minted : room);
+  });
 }
 
 /** `reward_per_share += minted * REWARD_SCALE / total_staked`, floor; the remainder stays in the pool. */
