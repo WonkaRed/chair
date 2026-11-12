@@ -2,13 +2,15 @@
 
 An AI runs this memecoin's central bank. The contract keeps it on a leash.
 
-$CHAIR is a coin on a test network (NEAR testnet, not the real one). An AI called the Chair decides, every 90 seconds, whether to print more coins for the holders who staked them or to burn some, and writes down why. Each meeting's minutes end with one sentence the model writes itself, checked by a filter before the Chair signs, with a fixed line as the fallback (detail in [`chair-agent/README.md`](chair-agent/README.md#the-chairs-own-remark)).
+$CHAIR is a coin on a test network (NEAR testnet, not the real one). An AI called the Chair decides, every 90 seconds, whether to print more coins for the holders who staked them or to burn some, and writes down why. The model picks the rate within a band around a formula's advice and gives one reason from a fixed list, and each meeting's minutes end with one sentence it writes itself, checked by a filter before the Chair signs, with a fixed line as the fallback (detail in [`chair-agent/README.md`](chair-agent/README.md#the-chairs-own-remark)).
 
 Try it, no install: <https://wonkared.github.io/chair/>
 
-The Chair's latest minutes, as of 2026-11-11 (meeting 31, [public in the transaction](https://testnet.nearblocks.io/txns/8c7e6FYiHMob4diojGo9RPj8y6LP6WPtmvBXtEQb7izN)):
+The Chair is given a formula's rate each meeting as advice and may choose another rate within 25 bps (0.25%) of it, always inside the contract's limits. Its minutes say what the formula suggested, what the Chair chose and why. An example of the format (illustrative: written to show the form, not a recorded meeting; the live page shows the real ones, each [public in its transaction](https://testnet.nearblocks.io/)):
 
-> The Committee of One has met. The Chair changes the rate from printing 0.29% a day to printing 0.23% a day, a little at every 90-second meeting, for holders who staked. 40.65% of all coins are staked. Supply has moved less than 0.01% over the last 6 meetings. The Chair asks that this be recorded.
+> The formula suggested printing 0.23% a day. The Chair chose printing 0.25% a day: fewer than half of all coins are staked, so it prints a little more.
+>
+> The Committee of One has met. The Chair moves the rate from printing 0.29% a day to printing 0.25% a day, a little at every 90-second meeting, for holders who staked. Supply is up 12 coins since the last meeting. 40.65% of all coins are staked, and the Chair would like 50.00%. The more holders stake, the less the Chair prints. *(closing sentence, written by the model:)* The Chair regards the matter as settled, having consulted the Chair.
 
 ## Try it in a minute
 

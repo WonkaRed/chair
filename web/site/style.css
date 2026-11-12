@@ -127,6 +127,10 @@ h1 .h1-second { color: var(--ink2); font-style: italic; font-weight: 500; }
 .rate-big { font: 600 2rem/1 var(--serif); font-variant-numeric: lining-nums tabular-nums; }
 .rate-bps { font-family: var(--mono); color: var(--muted); font-size: 0.85rem; }
 .rate-effect { flex: 1 1 14rem; color: var(--ink); font-size: 0.95rem; } .rate-prev { color: var(--muted); font-size: 0.88rem; }
+/* The formula's number beside the Chair's: a quiet row under the rate, so the closing line stays the loudest thing on the card. */
+.rate-choice { flex: 1 1 100%; display: grid; gap: 0.1rem; margin-top: 0.3rem; color: var(--ink2); font-size: 0.92rem; line-height: 1.35; }
+.rate-choice strong { color: var(--ink); font-variant-numeric: lining-nums tabular-nums; }
+.rc-why { color: var(--muted); font-style: italic; }
 .minutes-paper > .m-status { margin: 1rem 0 0; }
 .seal { margin-top: 0.9rem; }
 .seal summary { display: inline-flex; align-items: center; gap: 0.6rem; cursor: pointer; list-style: none; min-height: 2.75rem; padding: 0.2rem 0.9rem 0.2rem 0.3rem; border: 1px solid var(--rule); border-radius: 999px; }
@@ -409,10 +413,11 @@ thead th { color: var(--muted); font-weight: 600; font-size: 0.88rem; }
 @keyframes skel { 50% { opacity: 0.45; } }
 .now-slot { min-height: 8.5rem; margin-top: 1.5rem; }
 .now-slot .now-plain { margin-top: 0; }
-.hero-slot { min-height: 44rem; min-width: 0; }
-.hero-slot .minutes-paper.skeleton { min-height: 44rem; }
+/* The room held for the minutes: the height of an AI chair's ordinary minutes with their choice row, at 1280 and at 375 (749 px at most, 48rem is 768); a text with a long silence or a press section is taller and grows past it. */
+.hero-slot { --hero-h: 48rem; min-height: var(--hero-h); min-width: 0; }
+.hero-slot .minutes-paper.skeleton { min-height: var(--hero-h); }
 .hero-empty { margin: 0; }
-.hero-slot .hero-empty { display: grid; align-content: center; min-height: 44rem; } /* the sentence fills the box the placeholder held, so the page below does not move when the hero resolves */
+.hero-slot .hero-empty { display: grid; align-content: center; min-height: var(--hero-h); } /* the sentence fills the box the placeholder held, so the page below does not move when the hero resolves */
 
 /* The Chair's line, big, right under the hero. */
 .pull { margin: 2.25rem 0 0; padding: 1.25rem 0 1rem; border-top: 4px double var(--ink); border-bottom: 1px solid var(--rule); min-height: 11rem; }

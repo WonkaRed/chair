@@ -1,4 +1,4 @@
-import type { Chair, DecisionInput, Proposal, Snapshot } from "./types.js";
+import type { Chair, DecisionInput, Snapshot } from "./types.js";
 
 /**
  * rule-v1. The chair wants half of the supply staked: it eases in proportion to
@@ -10,6 +10,9 @@ import type { Chair, DecisionInput, Proposal, Snapshot } from "./types.js";
  * It moves toward that rate one contract step at a time and ignores gaps under
  * 5 bps unless the wanted rate is 0; with no staking figures at all it has nothing to steer by and walks the rate back to 0.
  * The contract, not the chair, holds printing to at most 2.02% of supply a day.
+ *
+ * What this rule asks for at one meeting is the formula (`formulaRate`): the mandate, one contract step at a time. An AI chair is given it as advice and
+ * may choose another rate near it (choice.ts); this chair always takes it.
  *
  * It writes the minutes in the chair's voice, "The Chair", a deadpan parody of a central banker, for a reader who has never seen a blockchain:
  * percent with two decimals (never bps), what the rate does in plain words, "meetings" and the meeting length (never epochs). The sentences are
@@ -51,12 +54,12 @@ export function mandateRate(snapshot: Snapshot): number {
   return Math.max(-maxRateBps, Math.min(maxRateBps, wanted)) || 0; // `|| 0`: a truncated -0.025 is -0, which is not a rate to log
 }
 
-/** Supply change in bps over the lookback window, or null with too little history. */
-export function supplyDriftBps(input: DecisionInput, lookback = LOOKBACK_EPOCHS): bigint | null {
-  const from = input.snapshot.policy.epoch - lookback;
-  const oldest = input.history.find((h) => h.epoch >= from);
+/** Supply change in bps over the last `lookback` meetings, from the oldest logged supply inside them, and the meetings that span covers; null with no such point. */
+export function supplyDrift(input: DecisionInput, lookback: number): { bps: bigint; meetings: number } | null {
+  const { epoch } = input.snapshot.policy;
+  const oldest = input.history.find((h) => h.epoch >= epoch - lookback);
   if (oldest === undefined || oldest.totalSupply === 0n) return null;
-  return ((input.snapshot.totalSupply - oldest.totalSupply) * 10_000n) / oldest.totalSupply;
+  return { bps: ((input.snapshot.totalSupply - oldest.totalSupply) * 10_000n) / oldest.totalSupply, meetings: epoch - oldest.epoch };
 }
 
 /** A size in bps as the percent a stranger reads: 5 is "0.05%", -10 is "0.10%". The sign is never part of the figure; the words say whether it prints or burns. */
@@ -91,7 +94,7 @@ export function rateEffect(rate: number, epochMs: number, nobodyStaked: boolean)
 }
 
 /** What a rate does, as the clause after "from" or "to": "printing 0.20% a day", "burning 0.10% of every transfer", "neither printing nor burning". */
-function rateDoes(rate: number): string {
+export function rateDoes(rate: number): string {
   return rate > 0 ? `printing ${percent(rate)} a day` : rate < 0 ? `burning ${percent(rate)} of every transfer` : "neither printing nor burning";
 }
 
@@ -102,18 +105,48 @@ function moveSentence(current: number, rate: number, epochMs: number, nobodyStak
   return nobodyStaked ? `${change}, though no coins are printed while nobody has staked.` : `${change}, a little at every ${meetingAdjective(epochMs)} meeting, for holders who staked.`;
 }
 
-/** Supply change over the lookback window as the sentence the minutes carry, or null with too little history. The span (`meetings`) is the one the history really covers. */
-export function supplyMoved(input: DecisionInput, lookback = LOOKBACK_EPOCHS): { sentence: string; bps: bigint; meetings: number } | null {
-  const bps = supplyDriftBps(input, lookback);
-  const oldest = input.history.find((h) => h.epoch >= input.snapshot.policy.epoch - lookback);
-  if (bps === null || oldest === undefined) return null;
-  const n = input.snapshot.policy.epoch - oldest.epoch;
-  const span = n === 1 ? "since the last meeting" : `over the last ${n} meetings`;
-  const how = bps > 0n ? `up ${percent(bps)}` : bps < 0n ? `down ${percent(bps)}` : "has moved less than 0.01%";
-  return { sentence: bps === 0n ? `Supply ${how} ${span}.` : `Supply is ${how} ${span}.`, bps, meetings: n };
+/** One coin in base units: $CHAIR has 24 decimals (SPEC "Parameters"). */
+const COIN = 10n ** 24n;
+
+/** An amount of coins, whole and with thousands separators ("1,563 coins"); below one coin, "less than 1 coin". */
+function coinsIn(units: bigint): string {
+  const whole = units / COIN;
+  return whole === 0n ? "less than 1 coin" : `${whole.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",")} ${whole === 1n ? "coin" : "coins"}`;
 }
 
-export function ruleDecision(input: DecisionInput): Proposal {
+/**
+ * How much the supply moved since the latest logged meeting, at most `LOOKBACK_EPOCHS` ago, as the sentence the minutes carry, or null with no such
+ * meeting. Exact: the difference of two supplies the chain reported, in whole coins, net of any burn in between (a mint is due at each meeting, SPEC "Rollover");
+ * `meetings` is the span the two reads really cover (1 when the Chair decided at the last meeting too).
+ */
+export function supplyMoved(input: DecisionInput): { sentence: string; delta: bigint; meetings: number } | null {
+  const { epoch } = input.snapshot.policy;
+  const last = input.history.at(-1);
+  if (last === undefined || last.epoch < epoch - LOOKBACK_EPOCHS) return null;
+  const delta = input.snapshot.totalSupply - last.totalSupply;
+  const meetings = epoch - last.epoch;
+  const span = meetings === 1 ? "since the last meeting" : `over the last ${meetings} meetings`;
+  const sentence = delta === 0n ? `Supply has not changed ${span}.` : `Supply is ${delta > 0n ? "up" : "down"} ${coinsIn(delta < 0n ? -delta : delta)} ${span}.`;
+  return { sentence, delta, meetings };
+}
+
+/**
+ * The formula for this meeting: the mandate rate, reached one contract step at a time, and left where it is when the gap is under the dead band
+ * (unless the mandate is 0). It always lies inside the contract's window.
+ */
+export function formulaRate(snapshot: Snapshot): number {
+  const { maxStepBps } = snapshot.params;
+  const current = snapshot.policy.rateBps;
+  const wanted = mandateRate(snapshot);
+  const gap = wanted - current;
+  return gap === 0 || (wanted !== 0 && Math.abs(gap) < DEADBAND_BPS) ? current : current + Math.max(-maxStepBps, Math.min(maxStepBps, gap));
+}
+
+/**
+ * The minutes' statement of a meeting that sets `rate`, up to its closing line: the same sentences whoever chose the rate. Every figure is an input or
+ * the rate, so the same inputs give the same text and it never claims more than the numbers.
+ */
+export function statement(input: DecisionInput, rate: number): string {
   const { snapshot } = input;
   const { maxStepBps, epochMs } = snapshot.params;
   const current = snapshot.policy.rateBps;
@@ -127,15 +160,14 @@ export function ruleDecision(input: DecisionInput): Proposal {
   const wanted = mandateRate(snapshot);
   const drift = supplyMoved(input);
 
-  const gap = wanted - current;
-  const rate = gap === 0 || (wanted !== 0 && Math.abs(gap) < DEADBAND_BPS) ? current : current + Math.max(-maxStepBps, Math.min(maxStepBps, gap));
   // The decision first, in what the rate does.
   lines.push(
     rate === current
       ? `The Chair holds the rate: ${rateEffect(rate, epochMs, nobodyStaked)}.`
       : moveSentence(current, rate, epochMs, nobodyStaked),
   );
-  if (rate !== wanted && rate !== current) {
+  // Only the formula is held back by the step, so only a rate that takes the formula's number can be said to be.
+  if (rate === formulaRate(snapshot) && rate !== wanted && rate !== current) {
     lines.push(`The Chair would go further, ${wanted === 0 ? "all the way to a rate of zero" : `to ${rateDoes(wanted)}`}, but the contract lets it move the rate by at most ${percent(maxStepBps)} per meeting.`);
   }
 
@@ -148,12 +180,19 @@ export function ruleDecision(input: DecisionInput): Proposal {
   } else {
     lines.push(`${percent(stakedShareBps(snapshot.staking.totalStaked, snapshot.totalSupply))} of all coins are staked, and the Chair would like ${percent(TARGET_STAKED_BPS)}. ${MANDATE_SENTENCE}`);
   }
+  return lines.join(" ");
+}
 
-  lines.push(rate === current ? CLOSING.leadership : rate !== wanted ? CLOSING.noObjection : rate > current ? CLOSING.thanks : CLOSING.unanimous);
-  return { rateBps: rate, reasoning: lines.join(" ") };
+/** The rule chair's whole text: the formula's rate and the minutes that set it, closed on a line of the book picked by the situation. */
+export function ruleDecision(input: DecisionInput): { rateBps: number; reasoning: string } {
+  const { snapshot } = input;
+  const rate = formulaRate(snapshot);
+  const current = snapshot.policy.rateBps;
+  const closing = rate === current ? CLOSING.leadership : rate !== mandateRate(snapshot) ? CLOSING.noObjection : rate > current ? CLOSING.thanks : CLOSING.unanimous;
+  return { rateBps: rate, reasoning: `${statement(input, rate)} ${closing}` };
 }
 
 export const ruleChair: Chair = {
   name: RULE_NAME,
-  propose: (input) => Promise.resolve(ruleDecision(input)),
+  propose: (input) => Promise.resolve({ rateBps: formulaRate(input.snapshot), reason: "formula" }),
 };

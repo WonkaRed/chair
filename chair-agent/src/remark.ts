@@ -31,8 +31,11 @@ export const EXAMPLES: readonly string[] = [
   "The Chair proposed an amendment to the Chair's own motion and was narrowly outvoted by the Chair.",
 ];
 
+/** The Chair's book of closing lines, with the one the press desk adds. The page mirrors this list (web/site/js/minutes.js `BOOK_CLOSINGS`) to tell a closing the Chair wrote from one it was given. */
+const BOOK_CLOSINGS: readonly string[] = [...Object.values(CLOSING), "The Chair will not be taking questions."];
+
 /** Every line the Chair has been given to say that a remark must not repeat: its closing book, the rule chair's lines, the press desk's book, the tone guides. */
-const KNOWN: readonly string[] = [...Object.values(CLOSING), "The Chair will not be taking questions.", ...BOOK, ...EXAMPLES];
+const KNOWN: readonly string[] = [...BOOK_CLOSINGS, ...BOOK, ...EXAMPLES];
 
 /** Words that make a sentence advice or a claim about the market, a person or a place, that invent a count, or that have no place in a joke on chain. Whole words. */
 const WORDS = new Set(
@@ -148,20 +151,6 @@ export function remarkFault(text: string, avoid: readonly string[], fact: Fact):
     return known !== "" && (said === ` ${known} ` || (known.split(" ").length >= 5 && said.includes(` ${known} `)));
   });
   return repeated === undefined ? null : "a line the Chair has already said";
-}
-
-/** The closing lines of the book: a decision body that ends on one has its own closing, and the minutes close once. */
-const BOOK_CLOSINGS: readonly string[] = [...Object.values(CLOSING), "The Chair will not be taking questions."];
-
-/** `body` without the book closing sentences it ends on, so that the one the agent appends is the only closing. */
-export function withoutClosing(body: string): string {
-  let text = body.trimEnd();
-  for (let cut = true; cut; ) {
-    const line = BOOK_CLOSINGS.find((closing) => text.endsWith(closing) && (text.length === closing.length || /\s/.test(text[text.length - closing.length - 1]!)));
-    cut = line !== undefined;
-    if (line !== undefined) text = text.slice(0, text.length - line.length).trimEnd();
-  }
-  return text;
 }
 
 /** The book line that closes the minutes of `epoch` when the model's remark is not used: one a meeting, in turn. */

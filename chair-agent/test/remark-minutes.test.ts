@@ -10,20 +10,21 @@ import { DecisionLog, findReasoning, verifyLog } from "../src/log.js";
 import { reasoningHash } from "../src/reasoning.js";
 import { PressStore, type PressEntry } from "../src/press-store.js";
 import { BOOK } from "../src/press-book.js";
-import { bookLine, REMARK_MEMORY, withoutClosing } from "../src/remark.js";
-import { CLOSING, FALLBACK_CLOSINGS, mandateRate, ruleChair } from "../src/rule-chair.js";
+import { bookLine, REMARK_MEMORY } from "../src/remark.js";
+import { mandateRate, ruleChair, statement } from "../src/rule-chair.js";
 import type { Chair, Decision } from "../src/types.js";
 import { PATIENT_MS, snapshot, tempDir } from "./helpers.js";
 
 const REMARK = "The Chair has appointed a subcommittee of the Chair to look into the Chair.";
-const BODY = "The Committee of One has met. The Chair keeps printing 0.24% more coins a day.";
 const opts = (chair: Chair, timeoutMs = PATIENT_MS) => ({ chair, marginMs: 15_000, timeoutMs });
 const snap = snapshot({ rate: 24, staked: 1000n });
+/** What the agent writes for a meeting that holds the rate at 24: the statement, up to the closing. */
+const BODY = statement({ snapshot: snap, history: [], window: { lo: -50, hi: 50 } }, 24);
 
 /** An AI chair whose decision is fixed and whose remark is `remark`. */
 const chairWith = (remark: Chair["remark"]): Chair => ({
   name: "llm:stand-in",
-  propose: () => Promise.resolve({ rateBps: 24, reasoning: BODY }),
+  propose: () => Promise.resolve({ rateBps: 24, reason: "steady" }),
   ...(remark === undefined ? {} : { remark }),
 });
 
@@ -100,7 +101,7 @@ function scripted(remarks: string[]): LlmClient & { remarkPrompts: LlmRequest[] 
   return {
     remarkPrompts,
     complete: (req) => {
-      if (req.schema === undefined) return Promise.resolve({ text: JSON.stringify({ rate_bps: 10, reasoning: "The Committee of One has met. The Chair sets the rate." }), stopReason: "end_turn" });
+      if (req.schema === undefined) return Promise.resolve({ text: JSON.stringify({ rate_bps: 10, reason: "smaller_move" }), stopReason: "end_turn" });
       remarkPrompts.push(req);
       return Promise.resolve({ text: JSON.stringify({ remark: remarks[remarkPrompts.length - 1] ?? "" }), stopReason: "end_turn" });
     },
@@ -187,17 +188,15 @@ test("a stake that moves while the model thinks cannot split the minutes from th
   try {
     const before = await w.chain.snapshot();
     const reader = stakeMovesAfterFirstRead(w.chain, 422_600n * 10n ** 24n);
-    // The model copies the staked sentence it was given, as the prompt tells it to.
-    const copying: LlmClient = {
+    const choosing: LlmClient = {
       complete: (req) => {
         if (req.schema !== undefined) return Promise.resolve({ text: JSON.stringify({ remark: "" }), stopReason: "end_turn" });
-        const said = (JSON.parse(req.user) as { staked_share_in_words: string }).staked_share_in_words;
-        return Promise.resolve({ text: JSON.stringify({ rate_bps: 10, reasoning: `The Committee of One has met. ${said}` }), stopReason: "end_turn" });
+        return Promise.resolve({ text: JSON.stringify({ rate_bps: 30, reason: "stake_low" }), stopReason: "end_turn" }); // the formula for the 38% the model sees
       },
     };
-    assert.equal((await tick(agentDeps(w, new LlmChair(copying), reader))).status, "executed");
+    assert.equal((await tick(agentDeps(w, new LlmChair(choosing), reader))).status, "executed");
     const rec = w.log.epochState(w.chain.epoch).decision!;
-    assert.ok(rec.reasoning.includes("38.00% of all coins are staked."), "the text cites the share the model saw");
+    assert.ok(rec.reasoning.includes("38.00% of all coins are staked"), rec.reasoning);
     assert.equal(rec.total_staked, before.staking!.totalStaked.toString(), "so the log holds that stake, not the later one");
     assert.equal(rec.mandate_rate_bps, mandateRate(before), "and the mandate is that of the same read");
     assert.notEqual(rec.mandate_rate_bps, mandateRate(await w.chain.snapshot()), "(the later read would have said something else)");
@@ -221,34 +220,11 @@ test("the same for the rule chair: nothing it writes cites a read other than the
   }
 });
 
-test("the decision prompt leaves the closing line to the remark step and no longer lists closing lines for the model to copy", async () => {
+test("the decision prompt has no free text for the model to write and names no closing line: the minutes' closing is the remark step's alone", async () => {
   const { buildPrompt } = await import("../src/llm-chair.js");
   const { system } = buildPrompt({ snapshot: snap, history: [], window: { lo: -50, hi: 50 } });
-  assert.match(system, /write no ceremonial or closing line of your own/);
+  assert.match(system, /Answer with JSON only: \{"rate_bps": <integer>, "reason": <id>\}/);
   assert.doesNotMatch(system, /asks that this be recorded|thanks itself|carries unanimously|no further comment|taking questions/);
-});
-
-test("a body that already ends on a closing line of the book is cut back before the agent's own closing, so the minutes close once", async () => {
-  const epoch = 8;
-  assert.equal(bookLine(epoch), CLOSING.recorded, "(this epoch's book line is the one the body ends on)");
-  const atEight = snapshot({ epoch, rate: 24, staked: 1000n });
-  const ends = (closing: string): Chair => ({ name: "llm:stand-in", propose: () => Promise.resolve({ rateBps: 24, reasoning: `${BODY} ${closing}` }) });
-  const booked = await decide(atEight, [], opts(ends(CLOSING.recorded)));
-  assert.ok(booked.reasoning.endsWith(`${BODY} ${CLOSING.recorded}`), booked.reasoning);
-  assert.equal(booked.reasoning.split(CLOSING.recorded).length, 2, "exactly one closing");
-  const other = await decide(atEight, [], opts({ ...ends(CLOSING.thanks), remark: () => Promise.resolve(REMARK) }));
-  assert.ok(other.reasoning.endsWith(`${BODY} ${REMARK}`) && !other.reasoning.includes(CLOSING.thanks), other.reasoning);
-  const twice = await decide(atEight, [], opts(ends(`${CLOSING.thanks} ${CLOSING.unanimous}`)));
-  assert.ok(twice.reasoning.endsWith(`${BODY} ${CLOSING.recorded}`) && !twice.reasoning.includes(CLOSING.thanks) && !twice.reasoning.includes(CLOSING.unanimous));
-});
-
-test("withoutClosing cuts only whole closing sentences at the end", () => {
-  assert.equal(withoutClosing(`Held. ${CLOSING.noComment}`), "Held.");
-  assert.equal(withoutClosing(`Held. ${CLOSING.noComment}  `), "Held.");
-  assert.equal(withoutClosing(CLOSING.noComment), "");
-  assert.equal(withoutClosing(`${CLOSING.noComment} Held.`), `${CLOSING.noComment} Held.`, "a closing line in the middle stays");
-  assert.equal(withoutClosing(`Held. Not${CLOSING.noComment}`), `Held. Not${CLOSING.noComment}`, "a longer sentence that merely ends alike stays");
-  assert.deepEqual(FALLBACK_CLOSINGS.map((line) => withoutClosing(`Held. ${line}`)), ["Held.", "Held.", "Held.", "Held."]);
 });
 
 test("a decision that crosses an epoch rollover files its supply under the epoch it was read in, not the epoch it is for", async () => {

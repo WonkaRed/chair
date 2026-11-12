@@ -1,4 +1,5 @@
 import type { Bounds, Rate } from "./bounds.js";
+import type { Choice, ReasonId } from "./choice.js";
 
 /** get_params, validated. Time is block time in milliseconds. */
 export interface Params extends Bounds {
@@ -74,10 +75,10 @@ export interface DecisionInput {
   readonly memory?: ChairMemory;
 }
 
-/** What a chair says it wants. Untrusted until `decide` has clamped and cleaned it. */
+/** What a chair says it wants, and why. The rate is untrusted until `decide` has clamped it; the reason is one of ours (choice.ts), never text. */
 export interface Proposal {
   readonly rateBps: number;
-  readonly reasoning: string;
+  readonly reason: ReasonId;
 }
 
 export interface Chair {
@@ -95,8 +96,6 @@ export interface MandateReport {
   /** Supply change over the last day (`meetings_per_day` meetings) in bps, and the meetings that span really covers; null with no history. */
   readonly supplyChangeBps: number | null;
   readonly supplyChangeMeetings: number | null;
-  /** `mandate`: the rate set is the mandate's, as near as the contract's step allows; `judgment`: the chair set its own. */
-  readonly followed: "mandate" | "judgment";
 }
 
 export type ChairKind = "rule" | "llm" | "rule-fallback";
@@ -114,4 +113,6 @@ export interface Decision {
   readonly remark: string | null;
   /** Absent when a decision is rebuilt from a log line to be sent again; nothing then logs it. */
   readonly mandate?: MandateReport;
+  /** The formula's number, the Chair's and why: what the minutes' choice line says. Absent as `mandate` is. */
+  readonly choice?: Choice;
 }

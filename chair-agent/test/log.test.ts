@@ -114,14 +114,14 @@ test("the mandate and the day's supply change are logged per decision; old lines
     assert.equal(rec["supply_change_24h_bps"], 500);
     assert.equal(rec["supply_change_24h_meetings"], 6);
     assert.ok(!("budget" in rec));
-    assert.equal(rec["followed"], "mandate");
+    assert.deepEqual([rec["formula_bps"], rec["chosen_bps"], rec["reason"]], [50, 50, "formula"], "the formula, the rate the Chair asked for, and why");
     // A decision from before the mandate, and one with no history to tell the day's change from.
-    const { mandate: _dropped, ...old } = d;
+    const { mandate: _mandate, choice: _choice, ...old } = d;
     log.recordDecision({ ...old, epoch: 10, reasoning: "old", reasoningHash: reasoningHash("old") }, { ...s, policy: { ...s.policy, epoch: 10 } });
     const young = await decide(s, [], { chair: ruleChair, marginMs: 0, timeoutMs: 100 });
     log.recordDecision({ ...young, epoch: 11 }, { ...s, policy: { ...s.policy, epoch: 11 } });
     const lines = readFileSync(path, "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>);
-    assert.ok(!("mandate_rate_bps" in lines[1]!) && !("followed" in lines[1]!), "an old line has none of the fields");
+    assert.ok(["mandate_rate_bps", "formula_bps", "chosen_bps", "reason"].every((k) => !(k in lines[1]!)), "an old line has none of the fields");
     assert.equal(lines[2]!["supply_change_24h_bps"], null);
     assert.equal(lines[2]!["supply_change_24h_meetings"], null);
     assert.equal(verifyLog(path).ok, true);

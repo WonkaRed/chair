@@ -5,7 +5,7 @@ import { test } from "node:test";
 import { tick } from "../src/agent.js";
 import { decide, finalize, propose } from "../src/decide.js";
 import { FakeChain } from "../src/fake-chain.js";
-import { buildPrompt, LlmChair, type LlmRequest } from "../src/llm-chair.js";
+import { LlmChair, type LlmRequest } from "../src/llm-chair.js";
 import { DecisionLog } from "../src/log.js";
 import { stayOffTheModel } from "../src/press-answer.js";
 import { BOOK } from "../src/press-book.js";
@@ -138,8 +138,11 @@ test("the decision text with a press section stays inside 2000 characters, is cl
   const snap = snapshot({ epoch: 9, rate: 10, staked: 100n });
   const pend = [entry("q1", "y".repeat(240), 1), entry("q2", "z".repeat(240), 2), entry("q3", "v", 3)];
   const sections: string[] = [];
-  for (const bodyChars of [1500, 1300, 1000, 600, 10]) {
-    const chair: Chair = { name: "llm:big", propose: () => Promise.resolve({ rateBps: 20, reasoning: "w".repeat(bodyChars) }) };
+  // The agent writes all of the text but the Chair's remark; a long remark is what leaves the press section little room.
+  const withRemark = (chars: number): Chair => ({ name: "llm:big", propose: () => Promise.resolve({ rateBps: 20, reason: "smaller_move" }), remark: () => Promise.resolve("w".repeat(chars)) });
+  const base = (await decide(snap, [], { chair: withRemark(1), marginMs: 15_000, timeoutMs: PATIENT_MS })).reasoning.length - 1;
+  for (const bodyChars of [1700, 1500, 1200, 800, 400].map((total) => total - base)) {
+    const chair = withRemark(bodyChars);
     const opts = { chair, marginMs: 15_000, timeoutMs: PATIENT_MS };
     const plain = await decide(snap, [], opts);
     const withPress = finalize(snap, [], await propose(snap, [], opts), opts, pend);
@@ -241,7 +244,7 @@ test("memory counts epochs in a row the chair itself set the rate now in effect,
   const w = world();
   try {
     const set = async (rate: number): Promise<void> => {
-      const chair: Chair = { name: "llm:c", propose: () => Promise.resolve({ rateBps: rate, reasoning: "r" }) };
+      const chair: Chair = { name: "llm:c", propose: () => Promise.resolve({ rateBps: rate, reason: "smaller_move" }) };
       const res = await tick({ ...deps(w), decideOptions: { chair, marginMs: 15_000, timeoutMs: PATIENT_MS } });
       assert.equal(res.status, "executed");
       w.chain.advanceEpochs(1, 1000);
@@ -261,34 +264,19 @@ test("memory counts epochs in a row the chair itself set the rate now in effect,
   }
 });
 
-test("the decision prompt carries the memory as the log's numbers, only when it has them, and the system prompt says how far they may be read", () => {
-  const snap = snapshot({ epoch: 20, rate: -5, lastSet: 19, staked: 10n });
-  const input = { snapshot: snap, history: [], window: { lo: -50, hi: 50 } };
-  assert.ok(!("meetings_before_this_one_the_chair_set_the_rate_in_effect" in (JSON.parse(buildPrompt(input).user) as object)));
-  const withMemory = JSON.parse(buildPrompt({ ...input, memory: { sameRateEpochs: 4, refusals: 0, remarks: [] } }).user) as Record<string, unknown>;
-  assert.equal(withMemory["meetings_before_this_one_the_chair_set_the_rate_in_effect"], 4);
-  assert.equal(withMemory["times_the_contract_refused_the_chair"], null, "no refusal on record is null: the Chair never says zero times");
-  const none = JSON.parse(buildPrompt({ ...input, memory: { sameRateEpochs: 0, refusals: 2, remarks: [] } }).user) as Record<string, unknown>;
-  assert.equal(none["meetings_before_this_one_the_chair_set_the_rate_in_effect"], null, "no run is null, which the prompt says never to mention");
-  assert.equal(none["times_the_contract_refused_the_chair"], 2);
-  const { system } = buildPrompt(input);
-  assert.match(system, /meetings_before_this_one_the_chair_set_the_rate_in_effect, when present/);
-  assert.match(system, /times_the_contract_refused_the_chair, when not null/);
-  assert.doesNotMatch(system, /[\u2013\u2014\p{Extended_Pictographic}]|moon/u);
-});
-
 test("the agent hands the log's memory to the model through the chair", async () => {
   const w = world();
   try {
     const seen: string[] = [];
-    const chair = new LlmChair({ complete: (req: LlmRequest) => { if (req.schema === undefined) seen.push(req.user); return Promise.resolve({ text: JSON.stringify({ rate_bps: 10, reasoning: "ok" }), stopReason: "end_turn" }); } });
+    w.chain.totalStaked = w.chain.totalSupply / 2n; // the mandate is met: the formula holds the rate at 0, and so does the Chair
+    const chair = new LlmChair({ complete: (req: LlmRequest) => { if (req.schema === undefined) seen.push(req.user); return Promise.resolve({ text: JSON.stringify({ rate_bps: 0, reason: "steady" }), stopReason: "end_turn" }); } });
     const opts = { chair, marginMs: 15_000, timeoutMs: PATIENT_MS };
     assert.equal((await tick({ ...deps(w), decideOptions: opts })).status, "executed");
     w.chain.advanceEpochs(1, 1000);
     assert.equal((await tick({ ...deps(w), decideOptions: opts })).status, "executed");
     w.chain.advanceEpochs(1, 1000);
     assert.equal((await tick({ ...deps(w), decideOptions: opts })).status, "executed");
-    const run = (i: number) => (JSON.parse(seen[i]!) as Record<string, unknown>)["meetings_before_this_one_the_chair_set_the_rate_in_effect"];
+    const run = (i: number) => (JSON.parse(seen[i]!) as Record<string, unknown>)["meetings_in_a_row_the_chair_set_the_rate_in_effect"];
     assert.equal(run(0), null);
     assert.equal(run(1), null, "one epoch is not a run");
     assert.equal(run(2), 2);
@@ -309,7 +297,8 @@ test("the decision marker: the agent holds it exactly while it waits on the mode
     w.press.decisionDone();
 
     const busyDuring: boolean[] = [];
-    const ok = new LlmChair({ complete: () => { busyDuring.push(w.press.decisionBusy()); return Promise.resolve({ text: JSON.stringify({ rate_bps: 10, reasoning: "ok" }), stopReason: "end_turn" }); } });
+    w.chain.totalStaked = w.chain.totalSupply / 2n; // the formula holds the rate at 0, and the stand-in agrees
+    const ok = new LlmChair({ complete: () => { busyDuring.push(w.press.decisionBusy()); return Promise.resolve({ text: JSON.stringify({ rate_bps: 0, reason: "steady" }), stopReason: "end_turn" }); } });
     assert.equal((await tick({ ...deps(w), decideOptions: { chair: ok, marginMs: 15_000, timeoutMs: PATIENT_MS } })).status, "executed");
     assert.deepEqual(busyDuring, [true, true, true], "held while the model is asked: the decision and the two attempts at a remark the stand-in cannot answer");
     assert.equal(w.press.decisionBusy(), false, "and released after");

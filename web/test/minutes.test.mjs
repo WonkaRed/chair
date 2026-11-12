@@ -15,7 +15,7 @@ const root = join(fileURLToPath(import.meta.url), "..", "..");
 const docs = join(root, "..", "docs");
 const site = (f) => import(join(root, "site", "js", f));
 const { decisionsOfTxs, refusalsOfTxs } = await site("decisions.js");
-const { BOOK_CLOSINGS, checkReasoning, loadTexts, ownClosing, renderHero, renderMinutes, resolveTexts, sha256Hex, silence, splitClosing, splitMinutes } = await site("minutes.js");
+const { BOOK_CLOSINGS, checkReasoning, loadTexts, ownClosing, parseChoice, renderHero, renderMinutes, resolveTexts, sha256Hex, silence, splitClosing, splitMinutes } = await site("minutes.js");
 const { renderRefusals, humanReason, PROJECT_TEST_CALLS } = await site("refusals.js");
 const { rawTxCommand } = await site("views.js");
 const { lineChart } = await site("charts.js");
@@ -655,4 +655,65 @@ test("the hero and the log set the Chair's own closing line apart and say so in 
   // An old text renders as it did: the prose is the same quote, whether or not the label applies.
   const old = showing(`$CHAIR decision, epoch 310, chair local:qwen3.8-27b.\nRate in effect 190 bps; decision 190 bps.\n${OWN_BODY} The Chair asks that this be recorded.`);
   for (const q of [...walk(old)].filter((n) => n.tag === "blockquote")) assert.equal(textOf(q), `${OWN_BODY} The Chair asks that this be recorded.`);
+});
+
+// ---- the formula's number beside the Chair's (chair-agent choice.ts `choiceLine`; chair-agent/test/choice.test.ts proves the page reads every form the agent writes)
+
+const FORMULA = "The formula suggested printing 0.12% a day.";
+const CHOSE = `${FORMULA} The Chair chose printing 0.15% a day: fewer than half of all coins are staked, so it prints a little more.`;
+const AGREED = `${FORMULA} The Chair agreed: more than half of all coins are staked.`;
+const RULE = `${FORMULA} The rule chair applied it.`;
+
+test("parseChoice reads the agent's three forms, in bps, and nothing that merely resembles them", () => {
+  assert.deepEqual(parseChoice(CHOSE), { kind: "chose", formula: 12, chosen: 15, why: "Fewer than half of all coins are staked, so it prints a little more." });
+  assert.deepEqual(parseChoice(AGREED), { kind: "agreed", formula: 12, chosen: 12, why: "More than half of all coins are staked." });
+  assert.deepEqual(parseChoice(RULE), { kind: "rule", formula: 12, chosen: 12, why: "" });
+  assert.deepEqual(parseChoice("The formula suggested burning 0.10% of every transfer. The Chair chose neither printing nor burning: the Chair prefers to hold the rate steady."), { kind: "chose", formula: -10, chosen: 0, why: "The Chair prefers to hold the rate steady." });
+  assert.deepEqual(parseChoice("The formula suggested neither printing nor burning. The rule chair applied it."), { kind: "rule", formula: 0, chosen: 0, why: "" });
+  for (const bad of [
+    "", "The formula suggested printing 0.12% a day.", `${CHOSE} `, ` ${CHOSE}`, `${CHOSE}\nMore.`,
+    CHOSE.replace("fewer than half of all coins are staked", "the Chair feels like it"),
+    CHOSE.replace("0.15%", "0.5%"), CHOSE.replace("printing 0.15% a day", "printing 0.15% a week"), CHOSE.replace("a little more", "a lot more"),
+    AGREED.replace("The Chair agreed", "The Chair agrees"), RULE.replace("applied", "ignored"),
+  ]) assert.equal(parseChoice(bad), null, JSON.stringify(bad));
+});
+
+test("splitMinutes takes the choice line as metadata only straight after the rate line; the rest is as before", () => {
+  const head = "$CHAIR decision, epoch 32, chair local:qwen3.8-27b.";
+  const rate = "Rate in effect 12 bps; decision 15 bps.";
+  const body = "The Committee of One has met. The Chair moves the rate. The Chair asks that this be recorded.";
+  assert.deepEqual(splitMinutes([head, rate, CHOSE, body].join("\n")), { meta: [head, rate, CHOSE], prose: body, fallback: null });
+  const fresh = "The AI chair (local:qwen3.8-27b) did not answer in time, so the rule chair, the Chair's built-in fallback, decided this meeting.";
+  assert.deepEqual(splitMinutes([head, fresh, rate, RULE, body].join("\n")).meta, [head, fresh, rate, RULE]);
+  assert.deepEqual(splitMinutes([head, CHOSE, rate, body].join("\n")).meta, [head], "before the rate line it is not boilerplate");
+  assert.deepEqual(splitMinutes([head, rate, `${CHOSE} Extra.`, body].join("\n")).meta, [head, rate], "an altered line is prose");
+});
+
+test("the hero sets the formula's number beside the Chair's, near the rate, only for a text that checked out and the Chair wrote; an old text renders as before", () => {
+  const rows = (page) => [...walk(page)].filter((n) => n.attrs?.class === "rate-choice").map(textOf);
+  const head = "$CHAIR decision, epoch 310, chair local:qwen3.8-27b.\nRate in effect 12 bps; decision 15 bps.";
+  const body = "The Committee of One has met. The Chair moves the rate. The Chair asks that this be recorded.";
+  const showing = (text, over = {}, verdict = "verified") => {
+    const hash = sha(text);
+    const d = { decisions: [decision({ hash, rateBps: 15, previousRateBps: 12, epoch: 310, ...over }), decision({ hash, rateBps: 15, previousRateBps: 12, epoch: 309, ...over })], policy, status: "complete" };
+    const resolved = new Map(d.decisions.map((x) => [x.tx, { text, chair: "local:qwen3.8-27b", kind: "llm", source: null, onChain: true, verdict }]));
+    return render(d, ctx(new Map(), resolved));
+  };
+  assert.deepEqual(rows(showing(`${head}\n${CHOSE}\n${body}`)), ["Formula suggested +0.12% a day · Chair chose +0.15% a dayFewer than half of all coins are staked, so it prints a little more."]);
+  assert.deepEqual(rows(showing(`${head}\n${AGREED}\n${body}`)), ["Formula suggested +0.12% a day · Chair agreedMore than half of all coins are staked."]);
+  assert.deepEqual(rows(showing(`${head}\n${RULE}\n${body}`)), ["Formula suggested +0.12% a day · Rule chair applied it"]);
+  assert.deepEqual(rows(showing(`${head}\n${CHOSE.replace("printing 0.15% a day", "neither printing nor burning").replace("so it prints a little more", "so it prints a little less")}\n${body}`)), ["Formula suggested +0.12% a day · Chair chose no printing or burningFewer than half of all coins are staked, so it prints a little less."]);
+  const shown = showing(`${head}\n${CHOSE}\n${body}`);
+  const [rate] = [...walk(shown)].filter((n) => n.attrs?.class === "paper-rate");
+  assert.ok([...walk(rate)].some((n) => n.attrs?.class === "rate-choice") && [...walk(rate)].some((n) => n.attrs?.class === "rate-big"), "the row sits in the rate's own caption, beside the big figure");
+  // The row is read only from a text that hashed to the chain's and that the chair itself sent: a visitor can force any text through the press desk.
+  assert.deepEqual(rows(showing(`${head}\n${CHOSE}\n${body}`, {}, "mismatch")), []);
+  assert.deepEqual(rows(showing(`${head}\n${CHOSE}\n${body}`, { byVisitor: true })), []);
+  assert.deepEqual(rows(showing(`${head}\n${CHOSE}\n${body}`, {}, "kept")), ["Formula suggested +0.12% a day · Chair chose +0.15% a dayFewer than half of all coins are staked, so it prints a little more."]);
+  // Old minutes carry no such line and show no row; the choice line of a text whose other lines are not the agent's is plain prose.
+  assert.deepEqual(rows(showing(`${head}\n${body}`)), []);
+  assert.deepEqual(rows(showing(`${CHOSE}\n${body}`)), []);
+  // The Chair's closing line stays the star.
+  const page = showing(`${head}\n${CHOSE}\n${body.replace("The Chair asks that this be recorded.", REMARK)}`);
+  assert.deepEqual([...walk(page)].filter((n) => n.attrs?.class === "m-own-k").map(textOf), [OWN_LABEL, OWN_LABEL]);
 });

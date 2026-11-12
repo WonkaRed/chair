@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Offline probe of the Chair's wording against the local model. Sends nothing to any chain and writes no log.
-//   node scripts/voice-probe.mjs decisions   12 decisions with the memory facts, through the agent prompt builder and text assembly
+//   node scripts/voice-probe.mjs decisions   12 decisions with the memory facts, through the agent prompt builder and text assembly: the formula, the Chair's choice and reason, and the minutes
 //   node scripts/voice-probe.mjs press       the press conference: each question, the line of the book the Chair replies with, how it was chosen and how long it took
 // Needs `npm run build` first and the model at CHAIR_LLM_ENDPOINT (default http://127.0.0.1:18020) serving CHAIR_LLM_MODEL (default qwen3.8-27b).
 import { DEFAULT_BOUNDS } from "../dist/src/bounds.js";
@@ -49,8 +49,7 @@ async function decisions() {
     const w = windowFor(snap, opts.marginMs, opts.timeoutMs);
     const facts = JSON.parse(buildPrompt({ snapshot: snap, history, window: { lo: w.lo, hi: w.hi }, memory }).user);
     const d = finalize(snap, history, await propose(snap, history, opts, memory), opts);
-    delete facts.recent_supply;
-    console.log(`### Decision ${++n}: ${name}\nkind ${d.kind}; rate ${d.previousRateBps} -> ${d.rate}\nfacts: ${JSON.stringify(facts)}\n${d.reasoning}\n`);
+    console.log(`### Decision ${++n}: ${name}\nkind ${d.kind}; rate ${d.previousRateBps} -> ${d.rate}; choice ${JSON.stringify(d.choice)}\nfacts: ${JSON.stringify(facts)}\n${d.reasoning}\n`);
   }
 }
 

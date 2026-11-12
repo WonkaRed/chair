@@ -88,15 +88,51 @@ const MARKS = {
 };
 const KIND = { llm: "an AI model", rule: "a rule-based chair" };
 
-// Every agent text opens with two lines of boilerplate: "$CHAIR decision, epoch N, chair X." and "Rate in effect R; decision D.".
+// Every agent text opens with lines of boilerplate: "$CHAIR decision, epoch N, chair X.", "Rate in effect R; decision D." and, from the week the Chair's choice became its own, the line that sets the formula's number beside it.
 // They are shown as small metadata; the sentences after them are the minutes. The check still runs on the whole, exact text.
-// When the AI chair failed, a line between the two says so: kept as metadata too, and the page says it again in plain words above the minutes.
+// When the AI chair failed, a line between the first two says so: kept as metadata too, and the page says it again in plain words above the minutes.
 const HEADER = /^\$CHAIR decision, epoch \d+, chair .+\.$/;
 const RATE = /^Rate in effect .+ bps; decision .+ bps\.$/;
 /** The line the agent wrote until the second week: "Chair <name> failed (<reason>). The rule chair decided instead. The Chair has no comment." Recorded on chain, so it stays readable. */
 const FALLBACK_OLD = /^Chair .+ failed \((timeout|refusal|malformed|error)\)\. The rule chair decided instead\. The Chair has no comment\.$/;
 /** The line the agent writes now (chair-agent decide.ts `FALLBACK_WHY`). */
 const FALLBACK_NEW = /^The AI chair \(.+\) (.{1,60}), so the rule chair, the Chair's built-in fallback, decided this meeting\.$/;
+/**
+ * The line that sets the formula's number beside the Chair's (chair-agent choice.ts `choiceLine`; chair-agent/test/choice.test.ts runs `parseChoice` over every
+ * form it writes). The reasons are the agent's own fixed clauses, so the page accepts exactly those and nothing a text merely resembles.
+ */
+const DOES = "(?:printing \\d+\\.\\d\\d% a day|burning \\d+\\.\\d\\d% of every transfer|neither printing nor burning)";
+const BECAUSE = [
+  "fewer than half of all coins are staked",
+  "more than half of all coins are staked",
+  "supply has grown since the last meeting",
+  "supply has shrunk since the last meeting",
+  "the Chair prefers to hold the rate steady",
+  "the Chair prefers to move the rate by less than the formula does",
+  "the Chair prefers to move the rate by more than the formula does",
+].join("|");
+const CHOICE = new RegExp(`^The formula suggested (?<formula>${DOES})\\. (?:The rule chair applied it\\.|The Chair agreed: (?<agreed>${BECAUSE})\\.|The Chair chose (?<chosen>${DOES}): (?<because>${BECAUSE})(?<way>, so it prints a little (?:more|less))?\\.)$`);
+
+/** The signed rate in bps that a phrase of the line stands for: "printing 0.12% a day" is 12, "burning 0.10% of every transfer" is -10. */
+const doesBps = (phrase) => {
+  const m = /(\d+)\.(\d\d)%/.exec(phrase);
+  return m === null ? 0 : (phrase.startsWith("burning") ? -1 : 1) * (Number(m[1]) * 100 + Number(m[2]));
+};
+const sentence = (clause) => `${clause[0].toUpperCase()}${clause.slice(1)}`;
+
+/**
+ * A choice line read back: `kind` is "rule" (the rule chair applied the formula), "agreed" or "chose"; `formula` and `chosen` are rates in bps (equal unless it chose);
+ * `why` is the reason as a sentence, "" for the rule chair. Null when the line is not exactly one of the agent's forms.
+ */
+export function parseChoice(line) {
+  const g = CHOICE.exec(line)?.groups;
+  if (g === undefined) return null;
+  const formula = doesBps(g.formula);
+  if (g.chosen !== undefined) return { kind: "chose", formula, chosen: doesBps(g.chosen), why: `${sentence(g.because)}${g.way ?? ""}.` };
+  if (g.agreed !== undefined) return { kind: "agreed", formula, chosen: formula, why: `${sentence(g.agreed)}.` };
+  return { kind: "rule", formula, chosen: formula, why: "" };
+}
+
 const OLD_WHY = { timeout: "did not answer in time", refusal: "declined to answer", malformed: "gave an answer the Chair could not use", error: "ran into an error" };
 
 /** The plain sentence for a fallback line, or null when the line is not one. */
@@ -115,7 +151,10 @@ export function splitMinutes(text) {
     n = 1;
     fallback = fallbackSentence(lines[n] ?? "");
     if (fallback !== null) n++;
-    if (RATE.test(lines[n] ?? "")) n++;
+    if (RATE.test(lines[n] ?? "")) {
+      n++;
+      if (CHOICE.test(lines[n] ?? "")) n++;
+    }
   }
   const prose = lines.slice(n).join("\n").trim();
   return prose === "" ? { meta: [], prose: text, fallback: null } : { meta: lines.slice(0, n), prose, fallback };
@@ -207,23 +246,38 @@ function lead(doc, prose, closing) {
   return h(doc, "blockquote", { class: "reasoning has-own", lang: "en" }, closing.head || null, h(doc, "span", { class: "m-own-line" }, closing.own), h(doc, "span", { class: "m-own-k" }, "Written by the AI this meeting"), closing.tail || null);
 }
 
+/** A rate for the choice row: "+0.12% a day", and in words when it is none. */
+const choiceRate = (bps, unit) => (bps === 0 ? "no printing or burning" : rateLabel(bps, unit));
+
+/** The row under the rate that sets the formula's number beside the Chair's, then the reason: "Formula suggested +0.12% a day · Chair chose +0.15% a day". */
+function choiceRow(doc, c, ctx) {
+  const said = { rule: "Rule chair applied it", agreed: "Chair agreed" };
+  return h(doc, "span", { class: "rate-choice" },
+    h(doc, "span", { class: "rc-line" }, "Formula suggested ", h(doc, "strong", {}, choiceRate(c.formula, ctx.unit)), " · ", c.kind === "chose" ? ["Chair chose ", h(doc, "strong", {}, choiceRate(c.chosen, ctx.unit))] : said[c.kind]),
+    c.why === "" ? null : h(doc, "span", { class: "rc-why" }, c.why),
+  );
+}
+
 /** The pieces of one decision: its state, the prose to lead with, the boilerplate as metadata, and the notes that belong with the proof. `saved` is a decision that was not read from the chain on this load. */
 function parts(doc, d, ctx, saved = false) {
   const rec = ctx.resolved.get(d.tx);
   const state = !rec ? "absent" : saved && rec.verdict === "verified" ? "kept" : rec.verdict;
   if (!rec) {
     const lead = h(doc, "p", { class: "m-absent" }, ctx.texts === null ? "The bundled reasoning texts could not be loaded, so no text is shown for this decision." : "no reasoning text for this decision: its transaction carries none and none was saved");
-    return { state, rec, lead, fallback: null, prose: "", meta: null, notes: [] };
+    return { state, rec, lead, fallback: null, choice: null, prose: "", meta: null, notes: [] };
   }
   const shown = safeLines(rec.text);
   const { meta, prose, fallback } = splitMinutes(shown);
+  // Only a text that hashed to the chain's and that the chair wrote itself is read for what the Chair wrote: a visitor can force any text through the press desk.
+  const trusted = (state === "verified" || state === "kept") && !d.byVisitor;
   const src = rec.source && /^[\w.-]+$/.test(rec.source) && ctx.repoBase ? h(doc, "a", { href: `${ctx.repoBase}/docs/${rec.source}`, rel: "noopener noreferrer", target: "_blank" }, `docs/${rec.source}`) : null;
   return {
     state,
     rec,
     prose,
     fallback: fallback === null ? null : h(doc, "p", { class: "plain-line m-fallback" }, fallback),
-    lead: lead(doc, prose, (state === "verified" || state === "kept") && !d.byVisitor ? splitClosing(shown) : null),
+    choice: trusted ? parseChoice(meta.at(-1) ?? "") : null,
+    lead: lead(doc, prose, trusted ? splitClosing(shown) : null),
     meta: meta.length === 0 && !d.byVisitor ? null : h(doc, "p", { class: "m-meta" }, d.byVisitor ? h(doc, "strong", { class: "visitor-tag" }, "Forced by a visitor through the press desk, not decided by the AI chair: the chair account signed it. ") : null, meta.map((line) => h(doc, "span", {}, line))),
     notes: [
       h(doc, "p", { class: `m-check ${MARKS[state].cls}` }, h(doc, "strong", {}, `${MARKS[state].mark} ${MARKS[state].short}.`), ` ${MARKS[state].long}`),
@@ -258,6 +312,7 @@ function heroCard(doc, d, ctx, { note = null, saved = false } = {}) {
       h(doc, "span", { class: "rate-bps" }, fmtRate(d.rateBps)),
       h(doc, "span", { class: "rate-effect" }, effect(d.rateBps, ctx.unit)),
       h(doc, "span", { class: "rate-prev" }, `Before: ${plainSigned(d.previousRateBps)}.`),
+      p.choice === null ? null : choiceRow(doc, p.choice, ctx),
     ),
     note ? h(doc, "p", { class: "m-status warn" }, note) : null,
     h(doc, "details", { class: `seal ${p.state}` },

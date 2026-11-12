@@ -30,7 +30,7 @@ test("60 epochs, rule chair and a wildly wrong LLM: the contract model never ref
   for (const kind of ["rule", "wild-llm"]) {
     const { chain, log, path, done } = setup();
     try {
-      const wild = new LlmChair({ complete: () => Promise.resolve({ text: JSON.stringify({ rate_bps: randInt(r, -100_000, 100_000), reasoning: "r" }), stopReason: "end_turn" }) });
+      const wild = new LlmChair({ complete: () => Promise.resolve({ text: JSON.stringify({ rate_bps: randInt(r, -100_000, 100_000), reason: "steady" }), stopReason: "end_turn" }) });
       for (let e = 0; e < 60; e++) {
         // Decide at a random moment of the epoch, including the last seconds, then let the epoch end.
         chain.advanceTo(chain.params.startMs + e * chain.params.epochMs + randInt(r, 0, chain.params.epochMs - 1));
@@ -55,7 +55,7 @@ test("a decision made in the last seconds is still valid when the call lands aft
       const c = new FakeChain({ chair: CHAIR, totalSupply: 10n ** 30n, totalStaked: 0n });
       c.rateBps = rate;
       c.advanceTo(c.params.startMs + c.params.epochMs - 3000);
-      const wanted: Chair = { name: "w", propose: () => Promise.resolve({ rateBps: rate + (rate >= 0 ? 50 : -50), reasoning: "max push" }) };
+      const wanted: Chair = { name: "w", propose: () => Promise.resolve({ rateBps: rate + (rate >= 0 ? 50 : -50), reason: "larger_move" }) };
       const decided = await tick({ ...deps(c, log, wanted), submitter: { submit: () => Promise.resolve({ txHash: "x", failure: null }) } });
       assert.equal(decided.status, "executed");
       if (decided.status !== "executed") return;
@@ -117,7 +117,7 @@ const slowChair = (during: () => void, rateBps: number | "hang"): Chair => ({
   propose: (_input, signal) => {
     during();
     if (rateBps === "hang") return new Promise((_, reject) => signal.addEventListener("abort", () => reject(new Error("aborted"))));
-    return Promise.resolve({ rateBps, reasoning: "took my time" });
+    return Promise.resolve({ rateBps, reason: "smaller_move" });
   },
 });
 
@@ -213,7 +213,7 @@ test("a send that keeps failing: one decision for the epoch, re-sent up to three
   try {
     chain.advanceTo(chain.params.startMs + 1000);
     let proposals = 0;
-    const counting: Chair = { name: "llm:counting", propose: () => Promise.resolve({ rateBps: 10 + proposals++, reasoning: "r" }) };
+    const counting: Chair = { name: "llm:counting", propose: () => Promise.resolve({ rateBps: 10 + proposals++, reason: "smaller_move" }) };
     const hashes: string[] = [];
     const down = { submit: (d: { reasoningHash: string }) => { hashes.push(d.reasoningHash); return Promise.reject(new Error("socket hang up")); } };
     const statuses: string[] = [];
@@ -242,7 +242,7 @@ test("after a failed send the same decision is re-sent and a success ends the ep
   try {
     chain.advanceTo(chain.params.startMs + 1000);
     let proposals = 0;
-    const chair: Chair = { name: "llm:c", propose: () => Promise.resolve({ rateBps: 30, reasoning: `r${++proposals}` }) };
+    const chair: Chair = { name: "llm:c", propose: () => { proposals++; return Promise.resolve({ rateBps: 30, reason: "smaller_move" }); } };
     const flaky = (fails: number) => { let n = 0; return { submit: (d: Parameters<FakeChain["submit"]>[0]) => (n++ < fails ? Promise.reject(new Error("blip")) : chain.submit(d)) }; };
     const sub = flaky(1);
     assert.equal((await tick({ ...deps(chain, log, chair), submitter: sub })).status, "send-failed");
@@ -266,7 +266,7 @@ test("a logged decision whose rate no longer fits the window is not re-sent", as
   const { chain, log, done } = setup();
   try {
     chain.advanceTo(chain.params.startMs + 1000);
-    const chair: Chair = { name: "llm:c", propose: () => Promise.resolve({ rateBps: 50, reasoning: "r" }) };
+    const chair: Chair = { name: "llm:c", propose: () => Promise.resolve({ rateBps: 50, reason: "larger_move" }) };
     const down = { submit: () => Promise.reject(new Error("blip")) };
     assert.equal((await tick({ ...deps(chain, log, chair), submitter: down })).status, "send-failed");
     // Late in the epoch the window must also hold across a rollover: from 0 that is -50..50, still fine; shrink it by moving the rate.
@@ -297,10 +297,10 @@ test("the agent reads the day's supply from its own log and logs the change over
     const then = snapshot({ epoch: 40, supply: 900_000n * 10n ** 24n, staked: 90_000n * 10n ** 24n });
     log.recordDecision(await decide(then, [], { chair: ruleChair, marginMs: 0, timeoutMs: PATIENT_MS }), then);
     chain.advanceTo(chain.params.startMs + 100 * chain.params.epochMs + 1000);
-    const res = await tick(deps(chain, log, new LlmChair({ label: "llm:greedy", complete: () => Promise.resolve({ text: JSON.stringify({ rate_bps: 40, reasoning: "The Chair is printing 0.40% more coins a day." }), stopReason: "end_turn" }) })));
+    const res = await tick(deps(chain, log, new LlmChair({ label: "llm:greedy", complete: () => Promise.resolve({ text: JSON.stringify({ rate_bps: 40, reason: "smaller_move" }), stopReason: "end_turn" }) })));
     assert.equal(res.status, "executed");
     if (res.status !== "executed") return;
-    assert.equal(res.decision.rate, 40, "the model's own rate stands: the contract, not the agent, holds the day's printing");
+    assert.equal(res.decision.rate, 40, "the model's own rate, inside the band, stands: the contract, not the agent, holds the day's printing");
     assert.doesNotMatch(res.decision.reasoning, /budget/i);
     assert.equal(chain.refusals.length, 0);
     const logged = readFileSync(path, "utf8").trim().split("\n").map((l) => JSON.parse(l) as Record<string, unknown>).filter((r) => r["epoch"] === 100 && r["kind"] === "decision");

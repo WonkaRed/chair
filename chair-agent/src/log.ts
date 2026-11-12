@@ -1,5 +1,6 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname } from "node:path";
+import type { ReasonId } from "./choice.js";
 import { cleanReasoning, HASH_RE, reasoningHash } from "./reasoning.js";
 import { REMARK_MEMORY } from "./remark.js";
 import type { ChairKind, ChairMemory, Decision, HistoryPoint, Snapshot } from "./types.js";
@@ -29,14 +30,16 @@ export type LogRecord =
       readonly supply_epoch?: number;
       readonly total_staked: string | null;
       readonly block_time_ms: number;
-      // Lines written before the mandate lack the four fields below; read them as absent.
+      // Lines written before the mandate lack the three fields below; read them as absent.
       /** The mandate rate, in bps a day: what "the more holders stake, the less the Chair prints" asks for. */
       readonly mandate_rate_bps?: number;
       /** Supply change over the last day in bps, over the meetings the history really covers (`supply_change_24h_meetings`); null with no history. */
       readonly supply_change_24h_bps?: number | null;
       readonly supply_change_24h_meetings?: number | null;
-      /** Whether the rate set is the mandate's (as near as the contract's step allows) or the chair's own judgment. */
-      readonly followed?: "mandate" | "judgment";
+      /** What the formula said for this meeting (the mandate, one contract step at a time), what the Chair chose, and why: a reason id of choice.ts. `chosen_bps` is the rate asked for, which differs from `rate_bps` only when the contract's window clamped it. Lines before the band lack all three. */
+      readonly formula_bps?: number;
+      readonly chosen_bps?: number;
+      readonly reason?: ReasonId;
       /** The closing sentence of `reasoning` when the model wrote it; null when it is a line of the fixed book (or the chair is not a model). Lines written before the remark lack it. */
       readonly remark?: string | null;
     }
@@ -107,8 +110,8 @@ export class DecisionLog {
             mandate_rate_bps: d.mandate.rateBps,
             supply_change_24h_bps: d.mandate.supplyChangeBps,
             supply_change_24h_meetings: d.mandate.supplyChangeMeetings,
-            followed: d.mandate.followed,
           }),
+      ...(d.choice === undefined ? {} : { formula_bps: d.choice.formulaBps, chosen_bps: d.choice.chosenBps, reason: d.choice.reason }),
     });
   }
 

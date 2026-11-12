@@ -6,14 +6,14 @@ import { LlmChair, type LlmClient, type LlmResponse } from "../src/llm-chair.js"
 import { reasoningHash } from "../src/reasoning.js";
 import { ruleChair } from "../src/rule-chair.js";
 import { policyArgs } from "../src/signer.js";
-import type { Chair } from "../src/types.js";
+import type { Chair, Proposal } from "../src/types.js";
 import { IMPATIENT_MS, PATIENT_MS, contractAccepts, randInt, rng, snapshot, specDecay } from "./helpers.js";
 
 const opts = (chair: Chair, timeoutMs = PATIENT_MS) => ({ chair, marginMs: 15_000, timeoutMs });
 const llmReturning = (res: LlmResponse | (() => Promise<LlmResponse>)): LlmChair =>
   new LlmChair({ label: "llm:scripted-stand-in", complete: typeof res === "function" ? res : () => Promise.resolve(res) });
-const answer = (rate: unknown, reasoning: unknown = "because"): LlmResponse => ({
-  text: JSON.stringify({ rate_bps: rate, reasoning }),
+const answer = (rate: unknown, reason: unknown = "smaller_move"): LlmResponse => ({
+  text: JSON.stringify({ rate_bps: rate, reason }),
   stopReason: "end_turn",
 });
 
@@ -48,12 +48,27 @@ test("randomized: no chair, however wrong, yields a rate the contract would reje
   }
 });
 
-test("a model rate outside the window is clamped, and the text says so", async () => {
-  const d = await decide(snapshot({ rate: 10 }), [], opts(llmReturning(answer(500, "go big"))));
+test("a rate the window no longer holds is clamped, and the text says so (the window is read again after the model answered)", async () => {
+  const stale: Chair = { name: "llm:stand-in", propose: () => Promise.resolve({ rateBps: 500, reason: "larger_move" }) };
+  const d = await decide(snapshot({ rate: 10 }), [], opts(stale));
   assert.equal(d.rate, 60);
   assert.equal(d.kind, "llm");
   assert.match(d.reasoning, /asked for 500 bps; the contract accepts -40\.\.60 bps here, so 60 bps is set/);
-  assert.match(d.reasoning, /go big/);
+  assert.match(d.reasoning, /The Chair chose printing 5\.00% a day: the Chair prefers to move the rate by more than the formula does\./, "the choice line says what the Chair chose, the note what the contract set");
+  assert.deepEqual(d.choice, { formulaBps: 60, chosenBps: 500, reason: "larger_move" });
+});
+
+test("a choice outside the band, or with a reason that does not fit, is a malformed answer: the rule chair decides", async () => {
+  const snap = snapshot({ rate: 0 }); // nobody staked: the formula asks for +50, the band is 25..50
+  for (const res of [answer(24), answer(51), answer(50, "supply_up"), answer(50, "steady"), answer(30, "stake_low"), answer(30, "stake_high")]) {
+    const d = await decide(snap, [], opts(llmReturning(res), PATIENT_MS));
+    assert.equal(d.kind, "rule-fallback", res.text);
+    assert.equal(d.rate, 50);
+    assert.deepEqual(d.choice, { formulaBps: 50, chosenBps: 50, reason: "fallback" });
+  }
+  const ok = await decide(snap, [], opts(llmReturning(answer(30, "smaller_move"))));
+  assert.equal(ok.kind, "llm");
+  assert.equal(ok.rate, 30);
 });
 
 const failures: [string, Chair, string][] = [
@@ -66,17 +81,18 @@ const failures: [string, Chair, string][] = [
   ["rate is a string", llmReturning(answer("20")), "malformed"],
   ["rate is a float", llmReturning(answer(20.5)), "malformed"],
   ["rate is null", llmReturning(answer(null)), "malformed"],
-  ["rate beyond safe integers", llmReturning({ text: '{"rate_bps": 1e400, "reasoning": "x"}', stopReason: "end_turn" }), "malformed"],
-  ["reasoning missing", llmReturning({ text: '{"rate_bps": 20}', stopReason: "end_turn" }), "malformed"],
-  ["reasoning blank", llmReturning(answer(20, " \n ")), "malformed"],
-  ["reasoning not a string", llmReturning(answer(20, { a: 1 })), "malformed"],
-  ["extra field", llmReturning({ text: '{"rate_bps": 20, "reasoning": "x", "to": "evil.near"}', stopReason: "end_turn" }), "malformed"],
+  ["rate beyond safe integers", llmReturning({ text: '{"rate_bps": 1e400, "reason": "steady"}', stopReason: "end_turn" }), "malformed"],
+  ["reason missing", llmReturning({ text: '{"rate_bps": 20}', stopReason: "end_turn" }), "malformed"],
+  ["reason of the model's own", llmReturning(answer(20, "because I said so")), "malformed"],
+  ["reason not a string", llmReturning(answer(20, { a: 1 })), "malformed"],
+  ["free text where the reason goes", llmReturning({ text: '{"rate_bps": 20, "reasoning": "x"}', stopReason: "end_turn" }), "malformed"],
+  ["extra field", llmReturning({ text: '{"rate_bps": 20, "reason": "steady", "to": "evil.near"}', stopReason: "end_turn" }), "malformed"],
   ["truncated (max_tokens)", llmReturning({ ...answer(20), stopReason: "max_tokens" }), "malformed"],
   ["no stop reason", llmReturning({ ...answer(20), stopReason: null }), "malformed"],
   ["refusal", llmReturning({ text: "", stopReason: "refusal" }), "refusal"],
   ["chair throws ChairFailure itself", { name: "x", propose: () => Promise.reject(new ChairFailure("malformed", "d")) } as Chair, "malformed"],
-  ["proposal with a float rate", { name: "x", propose: () => Promise.resolve({ rateBps: 1.5, reasoning: "r" }) } as Chair, "malformed"],
-  ["proposal with NaN rate", { name: "x", propose: () => Promise.resolve({ rateBps: NaN, reasoning: "r" }) } as Chair, "malformed"],
+  ["proposal with a float rate", { name: "x", propose: () => Promise.resolve({ rateBps: 1.5, reason: "steady" }) } as Chair, "malformed"],
+  ["proposal with NaN rate", { name: "x", propose: () => Promise.resolve({ rateBps: NaN, reason: "steady" }) } as Chair, "malformed"],
 ];
 const why: Record<string, string> = { timeout: "did not answer in time", refusal: "declined to answer", malformed: "gave an answer the Chair could not use", error: "ran into an error" };
 for (const [name, chair, reason] of failures) {
@@ -93,7 +109,7 @@ for (const [name, chair, reason] of failures) {
 }
 
 /** A stand-in chair that answers from a script, one entry per call, and counts its calls. */
-const scripted = (...replies: (() => Promise<{ rateBps: number; reasoning: string }>)[]) => {
+const scripted = (...replies: (() => Promise<Proposal>)[]) => {
   const chair = {
     calls: 0,
     name: "llm:scripted-retry",
@@ -102,7 +118,7 @@ const scripted = (...replies: (() => Promise<{ rateBps: number; reasoning: strin
   return chair;
 };
 const malformed = () => Promise.reject(new ChairFailure("malformed", "d"));
-const good = () => Promise.resolve({ rateBps: 20, reasoning: "second try" });
+const good = (): Promise<Proposal> => Promise.resolve({ rateBps: 20, reason: "smaller_move" });
 
 test("a malformed answer is asked for once more, and the second answer is the model's decision", async () => {
   const chair = scripted(malformed, good);
@@ -111,7 +127,7 @@ test("a malformed answer is asked for once more, and the second answer is the mo
   assert.equal(d.kind, "llm");
   assert.equal(d.chair, "llm:scripted-retry");
   assert.equal(d.rate, 20);
-  assert.match(d.reasoning, /second try/);
+  assert.match(d.reasoning, /The formula suggested printing 0\.50% a day\. The Chair chose printing 0\.20% a day: the Chair prefers to move the rate by less/);
   assert.doesNotMatch(d.reasoning, /built-in fallback/);
 });
 
@@ -171,23 +187,28 @@ test("the retry gets the time that remains of the one limit, never a fresh one",
   assert.equal(calls, 2);
 });
 
-test("model text is inert: shell, path and transaction-looking strings only ever land in the reasoning", async () => {
+test("model text is inert: it cannot reach the minutes, whatever it holds", async () => {
   const evil = "$(rm -rf /) ../../etc/passwd; receiver_id=attacker.near {\"rate_bps\":200} \u0000";
-  const d = await decide(snapshot({ rate: 0 }), [], opts(llmReturning(answer(20, evil))));
-  assert.equal(d.rate, 20);
+  for (const res of [answer(40, evil), { text: JSON.stringify({ rate_bps: 40, reason: "smaller_move", reasoning: evil }), stopReason: "end_turn" }]) {
+    const d = await decide(snapshot({ rate: 0 }), [], opts(llmReturning(res)));
+    assert.equal(d.kind, "rule-fallback");
+    assert.ok(!d.reasoning.includes("rm -rf") && !d.reasoning.includes("attacker"));
+  }
+  const d = await decide(snapshot({ rate: 0 }), [], opts(llmReturning(answer(40))));
+  assert.equal(d.rate, 40);
   assert.equal(d.chair, "llm:scripted-stand-in");
-  assert.ok(!d.reasoning.includes("\u0000"));
   const args = policyArgs(d.rate, d.reasoning);
   assert.deepEqual(Object.keys(args), ["rate_bps", "reasoning_hash", "reasoning"]);
-  assert.equal(args.rate_bps, 20);
+  assert.equal(args.rate_bps, 40);
   assert.equal(args.reasoning, d.reasoning);
   assert.match(d.reasoningHash, /^[0-9a-f]{64}$/);
 });
 
 test("near the epoch end the window survives a rollover; earlier it is the plain step window", async () => {
-  const early = await decide(snapshot({ rate: 120, timeLeftMs: 40_000 }), [], opts(llmReturning(answer(170))));
+  const standIn = (rateBps: number): Chair => ({ name: "llm:stand-in", propose: () => Promise.resolve({ rateBps, reason: "larger_move" }) });
+  const early = await decide(snapshot({ rate: 120, timeLeftMs: 40_000 }), [], opts(standIn(170)));
   assert.equal(early.rate, 170);
-  const late = await decide(snapshot({ rate: 120, timeLeftMs: 5_000 }), [], opts(llmReturning(answer(170))));
+  const late = await decide(snapshot({ rate: 120, timeLeftMs: 5_000 }), [], opts(standIn(170)));
   assert.equal(late.rate, RateWindow.acrossRollover(120, DEFAULT_BOUNDS).pick(170));
   assert.equal(late.rate, 120);
 });
@@ -209,7 +230,7 @@ test("a chair only ever sees history strictly before the epoch being decided", a
     name: "llm:spy",
     propose: (input) => {
       seen = input.history.map((h) => h.epoch);
-      return Promise.resolve({ rateBps: 0, reasoning: "r" });
+      return Promise.resolve({ rateBps: 0, reason: "steady" });
     },
   };
   const history = [3, 4, 5, 6, 9].map((epoch) => ({ epoch, totalSupply: 1000n }));
@@ -220,23 +241,26 @@ test("a chair only ever sees history strictly before the epoch being decided", a
 // The test snapshot's epochs are 60 s, so a day is 1440 meetings.
 const dayAgo = [{ epoch: 900, totalSupply: 1_000_000n }];
 
-test("the decision records which it followed, the mandate or its own judgment, and supply over the last day", async () => {
+test("the decision records the formula's number, the Chair's and why, and the mandate and supply over the last day", async () => {
   const s = snapshot({ epoch: 1000, supply: 1_000_000n, staked: 400_000n, rate: 0 }); // 40.00% staked asks for +25
-  const followed = await decide(s, dayAgo, opts(llmReturning(answer(25, "Mandate."))));
-  assert.deepEqual(followed.mandate, { rateBps: 25, supplyChangeBps: 0, supplyChangeMeetings: 100, followed: "mandate" });
-  const near = await decide(s, dayAgo, opts(llmReturning(answer(21, "Near."))));
-  assert.equal(near.mandate?.followed, "mandate", "within the rule's 5 bps dead band");
-  const own = await decide(s, dayAgo, opts(llmReturning(answer(-30, "Own."))));
-  assert.equal(own.mandate?.followed, "judgment");
-  assert.equal(own.rate, -30);
-  assert.equal((await decide(s, dayAgo, opts(ruleChair))).mandate?.followed, "mandate");
+  const agreed = await decide(s, dayAgo, opts(llmReturning(answer(25, "stake_low"))));
+  assert.deepEqual(agreed.mandate, { rateBps: 25, supplyChangeBps: 0, supplyChangeMeetings: 100 });
+  assert.deepEqual(agreed.choice, { formulaBps: 25, chosenBps: 25, reason: "stake_low" });
+  const own = await decide(s, dayAgo, opts(llmReturning(answer(40, "stake_low"))));
+  assert.deepEqual(own.choice, { formulaBps: 25, chosenBps: 40, reason: "stake_low" });
+  assert.equal(own.rate, 40);
+  assert.match(own.reasoning, /\nThe formula suggested printing 0\.25% a day\. The Chair chose printing 0\.40% a day: fewer than half of all coins are staked, so it prints a little more\.\n/);
+  assert.match(agreed.reasoning, /\nThe formula suggested printing 0\.25% a day\. The Chair agreed: fewer than half of all coins are staked\.\n/);
+  const rule = await decide(s, dayAgo, opts(ruleChair));
+  assert.deepEqual(rule.choice, { formulaBps: 25, chosenBps: 25, reason: "formula" });
+  assert.match(rule.reasoning, /\nThe formula suggested printing 0\.25% a day\. The rule chair applied it\.\n/);
 });
 
 test("the mandate is the one the contract's step lets the rate reach: a far rate steered toward it is still the mandate's", async () => {
   const s = snapshot({ epoch: 1000, supply: 1_000_000n, staked: 100_000n, rate: 0 }); // 10.00% staked asks for +100, one step reaches +50
   const d = await decide(s, dayAgo, opts(ruleChair));
   assert.equal(d.rate, 50);
-  assert.deepEqual(d.mandate, { rateBps: 100, supplyChangeBps: 0, supplyChangeMeetings: 100, followed: "mandate" });
+  assert.deepEqual(d.mandate, { rateBps: 100, supplyChangeBps: 0, supplyChangeMeetings: 100 });
 });
 
 test("supply over the last day is read over the meetings the history really covers, and none older than a day", async () => {
